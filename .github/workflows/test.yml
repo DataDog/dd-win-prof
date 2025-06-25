@@ -1,0 +1,92 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+
+env:
+  LIBDATADOG_VERSION: "19.0.0"
+  SPDLOG_VERSION: "1.14.1"
+
+jobs:
+  test:
+    runs-on: windows-2022
+    
+    strategy:
+      matrix:
+        configuration: [Debug, Release]
+        platform: [x64]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Cache third-party dependencies
+      uses: actions/cache@v4
+      with:
+        path: third-party
+        key: third-party-libdatadog-${{ env.LIBDATADOG_VERSION }}-spdlog-${{ env.SPDLOG_VERSION }}-${{ matrix.platform }}
+        restore-keys: |
+          third-party-libdatadog-${{ env.LIBDATADOG_VERSION }}-spdlog-${{ env.SPDLOG_VERSION }}-
+          third-party-libdatadog-${{ env.LIBDATADOG_VERSION }}-
+          third-party-libdatadog-
+      
+    - name: Download dependencies
+      run: |
+        .\scripts\download-libdatadog.ps1 -Version ${{ env.LIBDATADOG_VERSION }} -Platform ${{ matrix.platform }}
+        .\scripts\download-spdlog.ps1 -Version ${{ env.SPDLOG_VERSION }}
+      shell: pwsh
+      
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
+      
+    - name: Setup NuGet
+      uses: nuget/setup-nuget@v2
+      with:
+        nuget-version: 'latest'
+        
+    - name: Restore NuGet packages
+      run: |
+        nuget restore src/Tests/packages.config -PackagesDirectory src/packages
+        
+    - name: Build solution
+      run: |
+        msbuild src/Tests/Tests.vcxproj /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /p:RestorePackagesConfig=true
+        
+    - name: Run tests
+      run: |
+        src/Tests/x64/${{ matrix.configuration }}/Tests.exe
+
+    # Todo: this can be enabled in DD infra when we no longer have limits on what we can upload     
+    # - name: Upload build logs
+    #   if: always()
+    #   uses: actions/upload-artifact@v4
+    #   with:
+    #     name: build-logs-${{ matrix.configuration }}-${{ matrix.platform }}
+    #     path: |
+    #       build-*.log
+
+    # - name: Upload test results
+    #   if: always()
+    #   uses: actions/upload-artifact@v4
+    #   with:
+    #     name: test-results-${{ matrix.configuration }}-${{ matrix.platform }}
+    #     path: |
+    #       src/Tests/x64/${{ matrix.configuration }}/Tests.exe
+    #       src/Tests/x64/${{ matrix.configuration }}/*.pdb
+
+    - name: Build InprocProfiling
+      run: |
+        msbuild src/InprocProfiling/InprocProfiling.vcxproj /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }}
+
+    # - name: Upload InprocProfiling artifacts
+    #   if: always()
+    #   uses: actions/upload-artifact@v4
+    #   with:
+    #     name: InprocProfiling-${{ matrix.configuration }}-${{ matrix.platform }}
+    #     path: |
+    #       src/InprocProfiling/x64/${{ matrix.configuration }}/InprocProfiling.dll
+    #       src/InprocProfiling/x64/${{ matrix.configuration }}/InprocProfiling.pdb 
+          
