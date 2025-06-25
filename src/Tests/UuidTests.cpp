@@ -1,3 +1,6 @@
+// Unless explicitly stated otherwise all files in this repository are licensed under the Apache 2 License.
+// This product includes software developed at Datadog (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
+
 #include "pch.h"
 #include <gtest/gtest.h>
 
@@ -35,7 +38,7 @@ TEST_F(UuidTest, UuidToStringHasCorrectFormat) {
     EXPECT_EQ(uuidStr[13], '-') << "UUID should have dash at position 13";
     EXPECT_EQ(uuidStr[18], '-') << "UUID should have dash at position 18";
     EXPECT_EQ(uuidStr[23], '-') << "UUID should have dash at position 23";
-    
+
     // Check that it contains only valid hex characters and dashes
     for (size_t i = 0; i < uuidStr.length(); ++i) {
         if (i == 8 || i == 13 || i == 18 || i == 23) {
@@ -50,7 +53,7 @@ TEST_F(UuidTest, UuidsAreUnique) {
     // Arrange & Act
     ddprof::Uuid uuid1;
     ddprof::Uuid uuid2;
-    
+
     std::string str1 = uuid1.to_string();
     std::string str2 = uuid2.to_string();
 
@@ -66,12 +69,12 @@ TEST_F(UuidTest, UuidVersionAndVariantAreCorrect) {
 
     // Act
     int version = uuid.get_version();
-    
+
     // Assert
     EXPECT_EQ(version, 4) << "UUID version should be 4 (random)";
-    
+
     // Check that the variant bits are correct (should be 10xx in binary, which is 8-B in hex)
     uint8_t variantNibble = uuid.data[ddprof::Uuid::k_variant_position];
     EXPECT_GE(variantNibble, 0x8) << "Variant should be >= 8";
     EXPECT_LE(variantNibble, 0xB) << "Variant should be <= B";
-} 
+}

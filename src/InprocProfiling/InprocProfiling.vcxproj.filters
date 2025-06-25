@@ -72,9 +72,6 @@
     <ClInclude Include="ISamplesProvider.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="DllMain.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="LibDatadogHelper.h">
       <Filter>Header Files</Filter>
     </ClInclude>

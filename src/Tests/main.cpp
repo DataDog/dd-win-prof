@@ -1,3 +1,6 @@
+// Unless explicitly stated otherwise all files in this repository are licensed under the Apache 2 License.
+// This product includes software developed at Datadog (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
+
 #include "pch.h"
 #include <gtest/gtest.h>
 #include <iostream>
@@ -26,7 +29,7 @@ int main(int argc, char** argv) {
 
     int new_argc = static_cast<int>(new_argv.size());
     ::testing::InitGoogleTest(&new_argc, const_cast<char**>(new_argv.data()));
-    
+
     std::cout << "==================================================" << std::endl;
     std::cout << "  Symbolication Test Suite - Google Test Runner  " << std::endl;
     std::cout << "==================================================" << std::endl;
@@ -35,14 +38,14 @@ int main(int argc, char** argv) {
     std::cout << "- Dynamic Module Management Tests" << std::endl;
     std::cout << "- Pprof Aggregator Tests" << std::endl;
     std::cout << "=====================================" << std::endl;
-    
+
     // Run all tests
     int result = RUN_ALL_TESTS();
-    
+
     std::cout << "\n==================================================" << std::endl;
     std::cout << "Test suite completed with result: " << (result == 0 ? "SUCCESS" : "FAILURE") << std::endl;
     std::cout << "Press any key to continue..." << std::endl;
     std::cin.get();
-    
+
     return result;
-} 
+}

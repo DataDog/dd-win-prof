@@ -120,7 +120,6 @@
     <ClInclude Include="TagsHelper.h" />
     <ClInclude Include="ThreadInfo.h" />
     <ClInclude Include="ThreadList.h" />
-    <ClInclude Include="DllMain.h" />
     <ClInclude Include="PprofAggregator.h" />
     <ClInclude Include="ProfilingConstants.h" />
     <ClInclude Include="Uuid.h" />

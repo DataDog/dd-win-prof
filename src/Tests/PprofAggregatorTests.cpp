@@ -1,3 +1,6 @@
+// Unless explicitly stated otherwise all files in this repository are licensed under the Apache 2 License.
+// This product includes software developed at Datadog (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
+
 #include "pch.h"
 #include <gtest/gtest.h>
 
@@ -88,7 +91,7 @@ protected:
     // Helper method to create real location IDs using ProfileExporter
     std::vector<ddog_prof_LocationId> CreateRealLocationIds(PprofAggregator& aggregator, size_t count) {
         std::vector<ddog_prof_LocationId> locationIds;
-        
+
         // Get the profile from the aggregator
         auto* profile = aggregator.GetProfile();
         if (!profile) {
@@ -100,15 +103,15 @@ protected:
         std::vector<std::string> functionNames = {
             "main", "ProcessRequest", "AllocateMemory", "ComputeHash", "NetworkCall"
         };
-        
+
         std::cout << "CreateRealLocationIds: Creating " << count << " location IDs" << std::endl;
-        
+
         for (size_t i = 0; i < count && i < functionNames.size(); ++i) {
             // Intern function name as string
-            auto functionNameResult = ddog_prof_Profile_intern_string(profile, 
+            auto functionNameResult = ddog_prof_Profile_intern_string(profile,
                 {functionNames[i].c_str(), functionNames[i].length()});
             if (functionNameResult.tag != DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
-                std::cout << "CreateRealLocationIds: Failed to intern function name '" << functionNames[i] 
+                std::cout << "CreateRealLocationIds: Failed to intern function name '" << functionNames[i]
                           << "' (tag: " << functionNameResult.tag << ")" << std::endl;
                 continue; // Skip this one if it fails
             }
@@ -117,7 +120,7 @@ protected:
             auto emptyStringId = ddog_prof_Profile_interned_empty_string();
 
             // Intern function
-            auto functionResult = ddog_prof_Profile_intern_function(profile, 
+            auto functionResult = ddog_prof_Profile_intern_function(profile,
                 functionNameResult.ok, emptyStringId, emptyStringId);
             if (functionResult.tag != DDOG_PROF_FUNCTION_ID_RESULT_OK_GENERATIONAL_ID_FUNCTION_ID) {
                 std::cout << "CreateRealLocationIds: Failed to intern function (tag: " << functionResult.tag << ")" << std::endl;
@@ -126,17 +129,17 @@ protected:
 
             // Create location with realistic address (use a static function as base)
             uint64_t address = reinterpret_cast<uint64_t>(GlobalTestFunction) + (i * 0x100);
-            auto locationResult = ddog_prof_Profile_intern_location(profile, 
+            auto locationResult = ddog_prof_Profile_intern_location(profile,
                 functionResult.ok, address, static_cast<int64_t>(i + 1));
             if (locationResult.tag == DDOG_PROF_LOCATION_ID_RESULT_OK_GENERATIONAL_ID_LOCATION_ID) {
                 locationIds.push_back(locationResult.ok);
-                std::cout << "CreateRealLocationIds: Successfully created location ID for '" << functionNames[i] 
+                std::cout << "CreateRealLocationIds: Successfully created location ID for '" << functionNames[i]
                           << "' at address 0x" << std::hex << address << std::dec << std::endl;
             } else {
                 std::cout << "CreateRealLocationIds: Failed to intern location (tag: " << locationResult.tag << ")" << std::endl;
             }
         }
-        
+
         std::cout << "CreateRealLocationIds: Created " << locationIds.size() << " location IDs" << std::endl;
         return locationIds;
     }
@@ -169,19 +172,19 @@ protected:
             std::cout << "CreateEmptyLabelSet: Failed to get profile" << std::endl;
             return ddog_prof_LabelSetId{};
         }
-        
+
         // Create empty label set
         ddog_prof_Slice_LabelId empty_label_slice = {
             .ptr = nullptr,
             .len = 0
         };
-        
+
         auto labelset_result = ddog_prof_Profile_intern_labelset(profile, empty_label_slice);
         if (labelset_result.tag != DDOG_PROF_LABEL_SET_ID_RESULT_OK_GENERATIONAL_ID_LABEL_SET_ID) {
             std::cout << "CreateEmptyLabelSet: Failed to intern empty labelset (tag: " << labelset_result.tag << ")" << std::endl;
             return ddog_prof_LabelSetId{};
         }
-        
+
         return labelset_result.ok;
     }
 };
@@ -250,7 +253,7 @@ TEST_F(PprofAggregatorTest, AddSampleWithRealLocationIds) {
 
     auto locationIds = CreateRealLocationIds(aggregator, 3); // Stack with 3 frames
     ASSERT_GT(locationIds.size(), 0) << "Should have created at least one location ID";
-    
+
     auto values = CreateSampleValues(sampleTypes);
     int64_t timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
@@ -298,7 +301,7 @@ TEST_F(PprofAggregatorTest, AddSampleToUninitializedAggregator) {
     auto tempStringStorage = CreateStringStorage();
     PprofAggregator tempAggregator(tempSampleTypes, tempStringStorage);
     auto locationIds = CreateRealLocationIds(tempAggregator, 2);
-    
+
     std::vector<int64_t> values = {100};
     int64_t timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
@@ -342,14 +345,14 @@ TEST_F(PprofAggregatorTest, IntegrationWithProfileExporterAndDebugFileWriting) {
     Sample::SetValuesCount(sampleValueTypeDefs.size());
     ProfileExporter exporter(config.get(), sampleValueTypeDefs);
     ASSERT_TRUE(exporter.Initialize()) << "ProfileExporter should initialize successfully";
-    
+
     // Configure debug file writing (OFF by default when no output directory is configured)
     EXPECT_FALSE(exporter.IsDebugPprofFileWritingEnabled()) << "Debug file writing should be OFF by default";
-    
+
     // Enable debug file writing with a test prefix (using current directory)
     exporter.SetDebugPprofFileWritingEnabled(true);
     exporter.SetDebugPprofPrefix(".\\test_profile_");
-    
+
     // todo: add some settings on this to avoid flooding the disk
     EXPECT_TRUE(exporter.IsDebugPprofFileWritingEnabled()) << "Debug file writing should be enabled";
     EXPECT_EQ(exporter.GetDebugPprofPrefix(), ".\\test_profile_") << "Debug prefix should be set correctly";
@@ -359,19 +362,19 @@ TEST_F(PprofAggregatorTest, IntegrationWithProfileExporterAndDebugFileWriting) {
     int64_t timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
     std::chrono::nanoseconds sampleTimestamp(timestamp);
-    
+
     // Create a valid ThreadInfo with a real handle
     HANDLE hThread;
     ::DuplicateHandle(::GetCurrentProcess(), ::GetCurrentThread(), ::GetCurrentProcess(), &hThread, 0, FALSE, DUPLICATE_SAME_ACCESS);
     auto threadInfo = std::make_shared<ThreadInfo>(::GetCurrentThreadId(), hThread);
-    
+
     // weird addresses, todo: make these more realistic
     // uint64_t callstack[] = {0x1234567890ABCDEF, 0xFEDCBA0987654321, 0x0000000012345678};
     uint64_t callstack[] = { reinterpret_cast<uint64_t>(&GlobalTestFunction)};
     auto sample = std::make_shared<Sample>(sampleTimestamp, threadInfo, callstack, 1);
     sample->AddValue(10000000, 0);  // cpu-time in nanoseconds
     sample->AddValue(1, 1);         // cpu-samples count
-    
+
     // Add the sample to the ProfileExporter - this uses the exporter's internal aggregator
     bool addToExporterResult = exporter.Add(sample);
     EXPECT_TRUE(addToExporterResult) << "Should be able to add sample to ProfileExporter";
@@ -384,7 +387,7 @@ TEST_F(PprofAggregatorTest, IntegrationWithProfileExporterAndDebugFileWriting) {
     // Disable debug file writing and test again
     exporter.SetDebugPprofFileWritingEnabled(false);
     EXPECT_FALSE(exporter.IsDebugPprofFileWritingEnabled()) << "Debug file writing should be disabled";
-    
+
 }
 
 TEST_F(PprofAggregatorTest, CreateEmptyPprof) {
@@ -421,7 +424,7 @@ TEST_F(PprofAggregatorTest, SerializeProfileWithSamples) {
     auto values = CreateSampleValues(sampleTypes);
     int64_t timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
-    
+
     auto labelsetId = CreateEmptyLabelSet(aggregator);
     ASSERT_TRUE(aggregator.AddSample(locationIds, values, timestamp, labelsetId)) << "Precondition: sample must be added";
 
@@ -505,7 +508,7 @@ TEST_F(PprofAggregatorTest, ResetProfile) {
     // Assert
     EXPECT_TRUE(aggregator.IsInitialized()) << "Aggregator should remain initialized after reset";
     EXPECT_TRUE(aggregator.GetLastError().empty()) << "No error should be present after successful reset";
-    
+
     // Verify we can still add samples after reset - need to create NEW location IDs since old ones are invalid
     auto newLocationIds = CreateRealLocationIds(aggregator, 2);
     auto newLabelsetId = CreateEmptyLabelSet(aggregator);
@@ -572,7 +575,7 @@ TEST_F(PprofAggregatorTest, AddAllocationSamples) {
     std::vector<SampleValueType> allocationTypes;
     allocationTypes.push_back({"alloc-samples", "count"});
     allocationTypes.push_back({"alloc-space", "bytes"});
-    
+
     auto stringStorage = CreateStringStorage();
     PprofAggregator aggregator(allocationTypes, stringStorage);
     ASSERT_TRUE(aggregator.IsInitialized()) << "Precondition: aggregator must be initialized";
@@ -636,7 +639,7 @@ TEST_F(PprofAggregatorTest, AddSampleWithEmptyLocations) {
 
     // Create sample values (2 values to match sample types)
     std::vector<int64_t> values = {100, 1};  // Simple values for CPU time and samples
-    
+
     // Use a simple timestamp
     int64_t timestamp = 1000000;  // 1ms in nanoseconds
 
@@ -644,8 +647,8 @@ TEST_F(PprofAggregatorTest, AddSampleWithEmptyLocations) {
     std::cout << "Attempting to add sample with empty locations" << std::endl;
     auto labelsetId = CreateEmptyLabelSet(aggregator);
     bool result = aggregator.AddSample(emptyLocations, values, timestamp, labelsetId);
-    
+
     // We expect this to succeed since empty locations should be valid
     EXPECT_TRUE(result) << "AddSample should succeed with empty locations";
     EXPECT_TRUE(aggregator.GetLastError().empty()) << "No error should be present after successful AddSample";
-} 
+}

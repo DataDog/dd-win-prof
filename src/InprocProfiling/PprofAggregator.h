@@ -1,3 +1,6 @@
+// Unless explicitly stated otherwise all files in this repository are licensed under the Apache 2 License.
+// This product includes software developed at Datadog (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
+
 #pragma once
 
 // todo: leaking this include is not great. pimpl could be used here.
@@ -28,8 +31,8 @@ namespace InprocProfiling {
         /// <param name="sampleValueTypes">Span of sample value types to include in the profile</param>
         /// <param name="stringStorage">String storage to use for the profile</param>
         /// <param name="periodMs">Optional period in milliseconds (defaults to 60000)</param>
-        explicit PprofAggregator(std::span<const SampleValueType> sampleValueTypes, 
-                                ddog_prof_ManagedStringStorage stringStorage, 
+        explicit PprofAggregator(std::span<const SampleValueType> sampleValueTypes,
+                                ddog_prof_ManagedStringStorage stringStorage,
                                 int periodMs = 60000);
 
         /// <summary>
@@ -111,4 +114,4 @@ namespace InprocProfiling {
         std::vector<ddog_prof_ValueType> m_valueTypes; // Storage for value types during profile lifetime
     };
 
-} // namespace InprocProfiling 
+} // namespace InprocProfiling

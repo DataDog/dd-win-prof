@@ -1,3 +1,6 @@
+// Unless explicitly stated otherwise all files in this repository are licensed under the Apache 2 License.
+// This product includes software developed at Datadog (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
+
 #include "pch.h"
 #include <gtest/gtest.h>
 
@@ -43,7 +46,7 @@ TEST_F(ConfigurationTest, ConfigurationProfilingSettings) {
     // Test profiling-related settings
     // Note: These might be false by default unless environment variables are set
     EXPECT_FALSE(config.IsProfilerEnabled()) << "Profiler should be disabled by default (unless DD_PROFILING_ENABLED is set)";
-    
+
     // These should have reasonable default values
     EXPECT_GT(config.GetUploadInterval().count(), 0) << "Upload interval should be positive";
     EXPECT_GE(config.CpuThreadsThreshold(), 0) << "CPU threads threshold should be non-negative";
@@ -59,4 +62,4 @@ TEST_F(ConfigurationTest, ConfigurationUserTags) {
     auto userTags = config.GetUserTags();
     // This should not crash and should return a valid container
     EXPECT_TRUE(userTags.empty() || !userTags.empty()) << "User tags should be accessible";
-} 
+}
