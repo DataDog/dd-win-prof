@@ -46,6 +46,10 @@
 *.sln.docstates
 *.playlist
 
+# Environment files (API keys and profiler settings)
+.env
+.env.*
+
 # https://github.com/VerifyTests/Verify
 *.received.*
 
