@@ -1,4 +1,13 @@
 # dd-win-prof
+
+> **⚠️ EARLY VERSION WARNING**
+> 
+> This is an early version of the Windows profiler and is **not recommended for production use**. 
+> The software is provided as-is for evaluation and development purposes only.
+> 
+> **Use in production environments at your own risk.** Please thoroughly test in your specific 
+> environment before considering any production deployment.
+
 Implementation of a Windows CPU profiler
 
 ## Architecture Overview

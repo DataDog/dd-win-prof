@@ -1,3 +1,5 @@
 Component,Origin,License,Copyright
-InprocProfiling,https://github.com/serilog/serilog,Apache-2.0,Copyright (c) 2013-2018 Serilog Contributors
-InprocProfiling,https://github.com/serilog/serilog-sinks-file,Apache-2.0,Copyright (c) 2016 Serilog Contributors
+spdlog,https://github.com/gabime/spdlog,MIT,Copyright (c) 2016 Gabi Melman
+fmt (via spdlog),https://github.com/fmtlib/fmt,MIT,Copyright (c) 2012 - present Victor Zverovich
+libdatadog,https://github.com/DataDog/libdatadog,Apache-2.0,Copyright 2021-2025 Datadog Inc.
+Google Test,https://github.com/google/googletest,BSD-3-Clause,Copyright 2008 Google Inc.
