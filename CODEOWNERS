@@ -1,0 +1,16 @@
+# Global code owners
+# These users will be requested for review when anyone opens a pull request
+* @chrisnas @r1viollet
+
+# Specific ownership for critical files
+LICENSE @chrisnas @r1viollet
+LICENSE-3rdparty.csv @chrisnas @r1viollet
+NOTICE @chrisnas @r1viollet
+README.md @chrisnas @r1viollet
+
+# Build and CI configuration
+.github/ @chrisnas @r1viollet
+scripts/ @chrisnas @r1viollet
+
+# Core profiler code
+src/InprocProfiling/ @chrisnas @r1viollet 
