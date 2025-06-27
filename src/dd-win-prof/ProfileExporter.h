@@ -127,7 +127,7 @@ private:
     // libdatadog components
     ddog_prof_ManagedStringStorage _stringStorage;
     std::unique_ptr<Symbolication> _symbolication;
-    std::unique_ptr<InprocProfiling::PprofAggregator> _aggregator;
+    std::unique_ptr<dd_win_prof::PprofAggregator> _aggregator;
 
     // Cache structures
     struct LocationCacheEntry {

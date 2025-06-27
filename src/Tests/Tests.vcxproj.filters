@@ -1,0 +1,123 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="../dd-win-prof/Configuration.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="ConfigurationTests.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="DynamicModuleTests.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="main.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="../dd-win-prof/OsSpecificApi.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="../dd-win-prof/OsSysTools.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="pch.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="../dd-win-prof/PprofAggregator.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="PprofAggregatorTests.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="../dd-win-prof/ProfileExporter.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="ProfileExporterTests.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="../dd-win-prof/Sample.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="../dd-win-prof/Symbolication.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="SymbolicationTests.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="../dd-win-prof/TagsHelper.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="../dd-win-prof/ThreadInfo.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="../dd-win-prof/Uuid.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="UuidTests.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="../dd-win-prof/Configuration.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="../dd-win-prof/EnvironmentVariables.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="../dd-win-prof/framework.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="../dd-win-prof/LibDatadogHelper.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="../dd-win-prof/OpSysTools.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="../dd-win-prof/OsSpecificApi.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="pch.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="../dd-win-prof/PprofAggregator.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="../dd-win-prof/ProfileExporter.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="../dd-win-prof/ProfilingConstants.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="../dd-win-prof/Sample.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="../dd-win-prof/SampleValueType.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="../dd-win-prof/ScopedHandle.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="../dd-win-prof/Symbolication.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="../dd-win-prof/TagsHelper.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="../dd-win-prof/ThreadInfo.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="../dd-win-prof/Uuid.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Includes">
+      <UniqueIdentifier>{97e8173d-8be8-40e1-86fe-9167b3656008}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source">
+      <UniqueIdentifier>{1293fdc8-2ae2-4920-a390-0956538a4601}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

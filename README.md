@@ -10,6 +10,27 @@
 
 Implementation of a Windows CPU profiler
 
+## Usage : how to profile your 64-bit Windows application
+
+In your project, you need the following files:
+
+- **dd-win-prof.h**: header containing the declaration of the `StartProfiler` and `StopProfiler` functions to be called when the application starts and when it stops.
+- **dd-win-prof.lib**: library containing the stub for the two functions pointing to **dd-win-prof.dll**
+
+The following files are required in the folder from where the application runs:
+- **dd-win-prof.dll**: profiling code
+- **datadog_profiling_ffi.dll**: responsible for serializing and sending the profiles to Datadog via HTTP
+*Note: the corresponding .pdb files are available for debugging purposes*
+
+Before the running the application, the following environment variables **must** be set:
+- `DD_PROFILING_ENABLED` to `1`
+- `DD_API_KEY` to the Datadog API key needed to send the profiles to Datadog
+
+The others will help sorting the generated profiles:
+- `DD_VERSION` to the version of the application
+- `DD_SERVICE` to the name of the application
+- `DD_ENV` to the environment where the application runs
+
 ## Architecture Overview
 
 This is a Windows native profiler that performs CPU sampling and exports profiles to Datadog. The profiler is implemented as a DLL that hooks into the target process and periodically samples cpu-bound threads stack.
@@ -22,7 +43,7 @@ This is a Windows native profiler that performs CPU sampling and exports profile
 - Automatically tracks new threads as they are created
 - Manages thread cleanup on thread detach
 
-**`InprocProfiling.cpp/.h`** - Public external API for applications to control profiling
+**`dd-win-prof.cpp/.h`** - Public external API for applications to control profiling
 - Exports `StartProfiler()` and `StopProfiler()` functions for controlling the profiler
 
 ### Core Profiler Management
@@ -117,7 +138,7 @@ This is a Windows native profiler that performs CPU sampling and exports profile
 - Manages libdatadog profile creation with labels/values and export
 - Generates unique runtime IDs for profile identification
 
-**`PprofAggregator.cpp/.h`** - libdatadog integration (InprocProfiling namespace)
+**`PprofAggregator.cpp/.h`** - libdatadog integration
 - C++ wrapper around libdatadog profiling APIs
 - Handles profile initialization with sample types
 - Supports multiple sample types: CPU_SAMPLES, CPU_TIME_NS, WALL_TIME_NS, etc.
@@ -185,3 +206,8 @@ If we do not instrument thread creation, we can not be ready to sample.
 - If sample collector is too slow, it can not keep up with samples being added. We should consider adjusting sampling periods if this happens.
 
 - If you Control-C right at the time of thread creation from libdatadog, you will get a PANIC
+
+## How to build the solution
+
+- The **dd-win-prof** project must be built **first** so that the required binary files needed by the **Runner** project are copied into the `src\reference` folder
+- the **Runner** project is an example of C++ application using the profiler with Visual Studio configuration to debug it with the expected environment variables (see the **Usage : how to profile your 64-bit Windows application** section)

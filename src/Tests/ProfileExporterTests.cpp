@@ -2,11 +2,11 @@
 // This product includes software developed at Datadog (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
 
 #include "pch.h"
-#include "../InprocProfiling/ProfileExporter.h"
-#include "../InprocProfiling/Configuration.h"
-#include "../InprocProfiling/Sample.h"
-#include "../InprocProfiling/SampleValueType.h"
-#include "../InprocProfiling/ThreadInfo.h"
+#include "../dd-win-prof/ProfileExporter.h"
+#include "../dd-win-prof/Configuration.h"
+#include "../dd-win-prof/Sample.h"
+#include "../dd-win-prof/SampleValueType.h"
+#include "../dd-win-prof/ThreadInfo.h"
 #include <gtest/gtest.h>
 #include <memory>
 #include <vector>

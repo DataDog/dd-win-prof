@@ -6,7 +6,7 @@
 #include "datadog/common.h"
 #include <string_view>
 
-namespace InprocProfiling {
+namespace dd_win_prof {
 
 inline ddog_CharSlice to_CharSlice(std::string_view str) {
     return {.ptr = str.data(), .len = str.size()};
@@ -20,4 +20,4 @@ inline ddog_prof_ValueType CreateValueType(std::string_view type, std::string_vi
     return valueType;
 }
 
-} // namespace InprocProfiling
+} // namespace dd_win_prof

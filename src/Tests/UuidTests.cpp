@@ -4,7 +4,7 @@
 #include "pch.h"
 #include <gtest/gtest.h>
 
-#include "../InprocProfiling/Uuid.h"
+#include "../dd-win-prof/Uuid.h"
 
 class UuidTest : public ::testing::Test {
 protected:
