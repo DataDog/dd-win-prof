@@ -4,7 +4,7 @@ VisualStudioVersion = 17.14.36202.13 d17.14
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Runner", "Runner\Runner.vcxproj", "{3F90D693-80D5-484A-AC99-10FDB633A839}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "InprocProfiling", "InprocProfiling\InprocProfiling.vcxproj", "{587D7DE8-7354-444C-B5DD-7562475E3CEB}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "dd-win-prof", "dd-win-prof\dd-win-prof.vcxproj", "{587D7DE8-7354-444C-B5DD-7562475E3CEB}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Tests", "Tests\Tests.vcxproj", "{B8F4A7E2-9C3D-4F1A-8E6B-2D5C9A7F3E8D}"
 EndProject

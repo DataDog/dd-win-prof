@@ -8,14 +8,14 @@
 #include "datadog/profiling.h"
 #include "datadog/common.h"
 
-#include "../InprocProfiling/PprofAggregator.h"
-#include "../InprocProfiling/ProfileExporter.h"
-#include "../InprocProfiling/Configuration.h"
+#include "../dd-win-prof/PprofAggregator.h"
+#include "../dd-win-prof/ProfileExporter.h"
+#include "../dd-win-prof/Configuration.h"
 #include <memory>
 #include <vector>
 #include <iostream>
 
-using namespace InprocProfiling;
+using namespace dd_win_prof;
 
 // Forward declaration of test function from SymbolicationTests.cpp
 extern void GlobalTestFunction();

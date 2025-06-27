@@ -8,7 +8,7 @@
 #include <string>
 #include <Windows.h>
 
-#include "..\InprocProfiling\InprocProfiling.h"
+#include "..\reference\dd-win-prof.h"
 #include "Helpers.h"
 #include "Spinner.h"
 

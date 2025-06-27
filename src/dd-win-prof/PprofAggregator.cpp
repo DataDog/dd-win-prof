@@ -12,7 +12,7 @@
 
 #include "Log.h"
 
-namespace InprocProfiling {
+namespace dd_win_prof {
 
     PprofAggregator::PprofAggregator(std::span<const SampleValueType> sampleValueTypes,
                                     ddog_prof_ManagedStringStorage stringStorage,
@@ -193,4 +193,4 @@ namespace InprocProfiling {
         }
     }
 
-} // namespace InprocProfiling
+} // namespace dd_win_prof

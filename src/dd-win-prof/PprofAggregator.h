@@ -17,7 +17,7 @@
 #include "SampleValueType.h"
 
 
-namespace InprocProfiling {
+namespace dd_win_prof {
 
     /// <summary>
     /// Manages pprof profile creation and aggregation using libdatadog.
@@ -114,4 +114,4 @@ namespace InprocProfiling {
         std::vector<ddog_prof_ValueType> m_valueTypes; // Storage for value types during profile lifetime
     };
 
-} // namespace InprocProfiling
+} // namespace dd_win_prof

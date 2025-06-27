@@ -18,7 +18,7 @@
 #include "Log.h"
 
 
-using namespace InprocProfiling;
+using namespace dd_win_prof;
 
 ProfileExporter::ProfileExporter(Configuration* pConfiguration, std::span<const SampleValueType> sampleTypeDefinitions)
     :
@@ -121,7 +121,7 @@ bool ProfileExporter::Initialize()
         }
 
         // Initialize PprofAggregator directly with SampleValueType (no enum conversion needed)
-        _aggregator = std::make_unique<InprocProfiling::PprofAggregator>(_sampleTypeDefinitions, _stringStorage, 10);
+        _aggregator = std::make_unique<dd_win_prof::PprofAggregator>(_sampleTypeDefinitions, _stringStorage, 10);
 
         if (!_aggregator->IsInitialized()) {
             _lastError = "Failed to initialize PprofAggregator: " + _aggregator->GetLastError();
@@ -762,7 +762,7 @@ bool ProfileExporter::InitializeExporter()
     }
 
     // Create exporter
-    std::string userAgent = "dd-win-profiler/" + (_pConfiguration ? _pConfiguration->GetVersion() : "1.0.0");
+    std::string userAgent = "iler/" + (_pConfiguration ? _pConfiguration->GetVersion() : "1.0.0");
     std::string profilerVersion = _pConfiguration ? _pConfiguration->GetVersion() : "1.0.0";
 
     auto exporterResult = ddog_prof_Exporter_new(
