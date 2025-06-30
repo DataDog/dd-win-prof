@@ -67,7 +67,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>..\reference\dd-win-prof.lib;dbghelp.lib;ws2_32.lib;userenv.lib;ntdll.lib;crypt32.lib;secur32.lib;bcrypt.lib;psapi.lib;powrprof.lib;ncrypt.lib;windowsapp.lib;$(ProjectDir)..\..\third-party\libdatadog-x64-windows\$(Configuration)\dynamic\datadog_profiling_ffi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>dbghelp.lib;ws2_32.lib;userenv.lib;ntdll.lib;crypt32.lib;secur32.lib;bcrypt.lib;psapi.lib;powrprof.lib;ncrypt.lib;windowsapp.lib;$(ProjectDir)..\..\third-party\libdatadog-x64-windows\$(Configuration)\dynamic\datadog_profiling_ffi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -88,7 +88,7 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>..\reference\dd-win-prof.lib;dbghelp.lib;ws2_32.lib;userenv.lib;ntdll.lib;crypt32.lib;secur32.lib;bcrypt.lib;psapi.lib;powrprof.lib;ncrypt.lib;windowsapp.lib;$(ProjectDir)..\..\third-party\libdatadog-x64-windows\$(Configuration)\dynamic\datadog_profiling_ffi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>dbghelp.lib;ws2_32.lib;userenv.lib;ntdll.lib;crypt32.lib;secur32.lib;bcrypt.lib;psapi.lib;powrprof.lib;ncrypt.lib;windowsapp.lib;$(ProjectDir)..\..\third-party\libdatadog-x64-windows\$(Configuration)\dynamic\datadog_profiling_ffi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
