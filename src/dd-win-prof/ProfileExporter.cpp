@@ -762,7 +762,7 @@ bool ProfileExporter::InitializeExporter()
     }
 
     // Create exporter
-    std::string userAgent = "iler/" + (_pConfiguration ? _pConfiguration->GetVersion() : "1.0.0");
+    std::string userAgent = "dd-win-profiler/" + (_pConfiguration ? _pConfiguration->GetVersion() : "1.0.0");
     std::string profilerVersion = _pConfiguration ? _pConfiguration->GetVersion() : "1.0.0";
 
     auto exporterResult = ddog_prof_Exporter_new(
