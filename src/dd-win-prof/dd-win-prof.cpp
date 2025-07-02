@@ -2,13 +2,13 @@
 // This product includes software developed at Datadog (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
 
 #include "pch.h"
-#include "InprocProfiling.h"
+#include "dd-win-prof.h"
 #include "Log.h"
 #include "Profiler.h"
 
 extern "C" {
 
-INPROCPROFILING_API bool StartProfiler()
+DD_WIN_PROF_API bool StartProfiler()
 {
     auto profiler = Profiler::GetInstance();
     if (profiler->IsStarted())
@@ -20,7 +20,7 @@ INPROCPROFILING_API bool StartProfiler()
     return profiler->StartProfiling();
 }
 
-INPROCPROFILING_API void StopProfiler()
+DD_WIN_PROF_API void StopProfiler()
 {
     auto profiler = Profiler::GetInstance();
     if (!profiler->IsStarted())

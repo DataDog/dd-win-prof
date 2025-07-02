@@ -53,6 +53,8 @@ jobs:
         
     - name: Build solution
       run: |
+        msbuild src/dd-win-prof/dd-win-prof.vcxproj /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /p:RestorePackagesConfig=true
+        msbuild src/Runner/Runner.vcxproj /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /p:RestorePackagesConfig=true
         msbuild src/Tests/Tests.vcxproj /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /p:RestorePackagesConfig=true
         
     - name: Run tests
@@ -77,16 +79,16 @@ jobs:
     #       src/Tests/x64/${{ matrix.configuration }}/Tests.exe
     #       src/Tests/x64/${{ matrix.configuration }}/*.pdb
 
-    - name: Build InprocProfiling
+    - name: Build dd-win-prof
       run: |
-        msbuild src/InprocProfiling/InprocProfiling.vcxproj /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }}
+        msbuild src/dd-win-prof/dd-win-prof.vcxproj /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }}
 
-    # - name: Upload InprocProfiling artifacts
+    # - name: Upload dd-win-prof artifacts
     #   if: always()
     #   uses: actions/upload-artifact@v4
     #   with:
-    #     name: InprocProfiling-${{ matrix.configuration }}-${{ matrix.platform }}
+    #     name: dd-win-prof-${{ matrix.configuration }}-${{ matrix.platform }}
     #     path: |
-    #       src/InprocProfiling/x64/${{ matrix.configuration }}/InprocProfiling.dll
-    #       src/InprocProfiling/x64/${{ matrix.configuration }}/InprocProfiling.pdb 
+    #       src/dd-win-prof/x64/${{ matrix.configuration }}/dd-win-prof.dll
+    #       src/dd-win-prof/x64/${{ matrix.configuration }}/dd-win-prof.pdb
           

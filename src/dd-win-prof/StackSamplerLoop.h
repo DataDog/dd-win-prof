@@ -32,7 +32,7 @@ private:
     void WalltimeProfilingIteration();
 
 private:
-    static const int MaxFrameCount = InprocProfiling::kMaxStackDepth;
+    static const int MaxFrameCount = dd_win_prof::kMaxStackDepth;
 
     volatile bool _shutdownRequested;
     std::unique_ptr<std::thread> _pLoopThread;

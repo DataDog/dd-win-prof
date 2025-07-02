@@ -1,0 +1,159 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="Configuration.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="CpuTimeProvider.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="dd-win-prof.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="dllmain.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="OsSpecificApi.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="OsSysTools.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="pch.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="PprofAggregator.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="ProfileExporter.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="Profiler.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="Sample.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="SamplesCollector.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="SampleValueTypeProvider.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="StackFrameCollector.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="StackSamplerLoop.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="Symbolication.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="TagsHelper.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="ThreadInfo.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="ThreadList.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="Uuid.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="CollectorBase.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="Configuration.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="CpuTimeProvider.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="dd-win-prof.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="EnvironmentVariables.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="framework.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="ISamplesProvider.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="LibDatadogHelper.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="Log.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="OpSysTools.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="OsSpecificApi.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="pch.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="PprofAggregator.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="ProfileExporter.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="Profiler.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="Sample.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="SamplesCollector.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="SampleValueType.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="SampleValueTypeProvider.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="ScopedHandle.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="StackFrameCollector.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="StackSamplerLoop.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="Symbolication.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="TagsHelper.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="ThreadInfo.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="ThreadList.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="Uuid.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="ProfilingConstants.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Source">
+      <UniqueIdentifier>{9605b50f-e74d-4963-a2f7-0c4c382c4e78}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Includes">
+      <UniqueIdentifier>{c1d71320-dcb0-4946-a1f2-551f670c1d0f}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

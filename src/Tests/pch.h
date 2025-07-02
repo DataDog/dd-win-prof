@@ -19,4 +19,4 @@
 #include <gtest/gtest.h>
 
 // Project headers
-#include "../InprocProfiling/framework.h"
+#include "../dd-win-prof/framework.h"

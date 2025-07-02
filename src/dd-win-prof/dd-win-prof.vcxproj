@@ -15,8 +15,9 @@
     <CppStandard>20</CppStandard>
     <Keyword>Win32Proj</Keyword>
     <ProjectGuid>{587d7de8-7354-444c-b5dd-7562475e3ceb}</ProjectGuid>
-    <RootNamespace>InprocProfiling</RootNamespace>
+    <RootNamespace>dd-win-prof</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <ProjectName>dd-win-prof</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
@@ -58,7 +59,7 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_SILENCE_STDEXT_ARR_ITERS_DEPRECATION_WARNING;_DEBUG;INPROCPROFILING_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_SILENCE_STDEXT_ARR_ITERS_DEPRECATION_WARNING;_DEBUG;DD_WIN_PROF_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
@@ -71,6 +72,26 @@
       <EnableUAC>false</EnableUAC>
       <AdditionalDependencies>dbghelp.lib;ws2_32.lib;userenv.lib;ntdll.lib;crypt32.lib;secur32.lib;bcrypt.lib;psapi.lib;powrprof.lib;ncrypt.lib;windowsapp.lib;$(ProjectDir)..\..\third-party\libdatadog-x64-windows\$(Configuration)\static\datadog_profiling_ffi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <PreBuildEvent>
+      <Command>copy dd-win-prof.h ..\reference</Command>
+    </PreBuildEvent>
+    <PostBuildEvent>
+      <Command>echo Copy binaries files needed to profile a Windows application to $(MSBuildProjectDirectory)\..\reference
+echo  - $(OutputPath)$(TargetName).dll
+copy $(OutputPath)$(TargetName).dll $(MSBuildProjectDirectory)\..\reference\$(TargetName).dll
+
+echo  - $(OutputPath)$(TargetName).lib 
+copy $(OutputPath)$(TargetName).lib $(MSBuildProjectDirectory)\..\reference\$(TargetName).lib
+
+echo  - $(OutputPath)$(TargetName).pdb
+copy $(OutputPath)$(TargetName).pdb $(MSBuildProjectDirectory)\..\reference\$(TargetName).pdb
+
+echo  - $(ProjectDir)..\..\third-party\libdatadog-x64-windows\$(Configuration)\dynamic\datadog_profiling_ffi.dll
+copy $(ProjectDir)..\..\third-party\libdatadog-x64-windows\$(Configuration)\dynamic\datadog_profiling_ffi.dll $(MSBuildProjectDirectory)\..\reference\datadog_profiling_ffi.dll
+
+echo  - $(ProjectDir)..\..\third-party\libdatadog-x64-windows\$(Configuration)\dynamic\datadog_profiling_ffi.pdb
+copy $(ProjectDir)..\..\third-party\libdatadog-x64-windows\$(Configuration)\dynamic\datadog_profiling_ffi.pdb $(MSBuildProjectDirectory)\..\reference\datadog_profiling_ffi.pdb</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -78,7 +99,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_SILENCE_STDEXT_ARR_ITERS_DEPRECATION_WARNING;NDEBUG;INPROCPROFILING_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_SILENCE_STDEXT_ARR_ITERS_DEPRECATION_WARNING;NDEBUG;DD_WIN_PROF_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
@@ -93,6 +114,26 @@
       <EnableUAC>false</EnableUAC>
       <AdditionalDependencies>dbghelp.lib;ws2_32.lib;userenv.lib;ntdll.lib;crypt32.lib;secur32.lib;bcrypt.lib;psapi.lib;powrprof.lib;ncrypt.lib;windowsapp.lib;$(ProjectDir)..\..\third-party\libdatadog-x64-windows\$(Configuration)\static\datadog_profiling_ffi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <PreBuildEvent>
+      <Command>copy dd-win-prof.h ..\reference</Command>
+    </PreBuildEvent>
+    <PostBuildEvent>
+      <Command>echo Copy binaries files needed to profile a Windows application to $(MSBuildProjectDirectory)\..\reference
+echo  - $(OutputPath)$(TargetName).dll
+copy $(OutputPath)$(TargetName).dll $(MSBuildProjectDirectory)\..\reference\$(TargetName).dll
+
+echo  - $(OutputPath)$(TargetName).lib 
+copy $(OutputPath)$(TargetName).lib $(MSBuildProjectDirectory)\..\reference\$(TargetName).lib
+
+echo  - $(OutputPath)$(TargetName).pdb
+copy $(OutputPath)$(TargetName).pdb $(MSBuildProjectDirectory)\..\reference\$(TargetName).pdb
+
+echo  - $(ProjectDir)..\..\third-party\libdatadog-x64-windows\$(Configuration)\dynamic\datadog_profiling_ffi.dll
+copy $(ProjectDir)..\..\third-party\libdatadog-x64-windows\$(Configuration)\dynamic\datadog_profiling_ffi.dll $(MSBuildProjectDirectory)\..\reference\datadog_profiling_ffi.dll
+
+echo  - $(ProjectDir)..\..\third-party\libdatadog-x64-windows\$(Configuration)\dynamic\datadog_profiling_ffi.pdb
+copy $(ProjectDir)..\..\third-party\libdatadog-x64-windows\$(Configuration)\dynamic\datadog_profiling_ffi.pdb $(MSBuildProjectDirectory)\..\reference\datadog_profiling_ffi.pdb</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="CollectorBase.h" />
@@ -100,7 +141,7 @@
     <ClInclude Include="CpuTimeProvider.h" />
     <ClInclude Include="EnvironmentVariables.h" />
     <ClInclude Include="framework.h" />
-    <ClInclude Include="InprocProfiling.h" />
+    <ClInclude Include="dd-win-prof.h" />
     <ClInclude Include="ISamplesProvider.h" />
     <ClInclude Include="LibDatadogHelper.h" />
     <ClInclude Include="Log.h" />
@@ -128,7 +169,7 @@
     <ClCompile Include="Configuration.cpp" />
     <ClCompile Include="CpuTimeProvider.cpp" />
     <ClCompile Include="dllmain.cpp" />
-    <ClCompile Include="InprocProfiling.cpp" />
+    <ClCompile Include="dd-win-prof.cpp" />
     <ClCompile Include="OsSpecificApi.cpp" />
     <ClCompile Include="OsSysTools.cpp" />
     <ClCompile Include="pch.cpp">

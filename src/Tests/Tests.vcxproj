@@ -93,22 +93,22 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
-    <ClInclude Include="../InprocProfiling/Symbolication.h" />
-    <ClInclude Include="../InprocProfiling/PprofAggregator.h" />
-    <ClInclude Include="../InprocProfiling/LibDatadogHelper.h" />
-    <ClInclude Include="../InprocProfiling/framework.h" />
-    <ClInclude Include="../InprocProfiling/ProfilingConstants.h" />
-    <ClInclude Include="../InprocProfiling/Sample.h" />
-    <ClInclude Include="../InprocProfiling/ThreadInfo.h" />
-    <ClInclude Include="../InprocProfiling/ScopedHandle.h" />
-    <ClInclude Include="../InprocProfiling/Configuration.h" />
-    <ClInclude Include="../InprocProfiling/EnvironmentVariables.h" />
-    <ClInclude Include="../InprocProfiling/TagsHelper.h" />
-    <ClInclude Include="../InprocProfiling/OpSysTools.h" />
-    <ClInclude Include="../InprocProfiling/OsSpecificApi.h" />
-    <ClInclude Include="../InprocProfiling/Uuid.h" />
-    <ClInclude Include="../InprocProfiling/SampleValueType.h" />
-    <ClInclude Include="../InprocProfiling/ProfileExporter.h" />
+    <ClInclude Include="../dd-win-prof/Symbolication.h" />
+    <ClInclude Include="../dd-win-prof/PprofAggregator.h" />
+    <ClInclude Include="../dd-win-prof/LibDatadogHelper.h" />
+    <ClInclude Include="../dd-win-prof/framework.h" />
+    <ClInclude Include="../dd-win-prof/ProfilingConstants.h" />
+    <ClInclude Include="../dd-win-prof/Sample.h" />
+    <ClInclude Include="../dd-win-prof/ThreadInfo.h" />
+    <ClInclude Include="../dd-win-prof/ScopedHandle.h" />
+    <ClInclude Include="../dd-win-prof/Configuration.h" />
+    <ClInclude Include="../dd-win-prof/EnvironmentVariables.h" />
+    <ClInclude Include="../dd-win-prof/TagsHelper.h" />
+    <ClInclude Include="../dd-win-prof/OpSysTools.h" />
+    <ClInclude Include="../dd-win-prof/OsSpecificApi.h" />
+    <ClInclude Include="../dd-win-prof/Uuid.h" />
+    <ClInclude Include="../dd-win-prof/SampleValueType.h" />
+    <ClInclude Include="../dd-win-prof/ProfileExporter.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -122,16 +122,16 @@
     <ClCompile Include="ConfigurationTests.cpp" />
     <ClCompile Include="UuidTests.cpp" />
     <ClCompile Include="ProfileExporterTests.cpp" />
-    <ClCompile Include="../InprocProfiling/Symbolication.cpp" />
-    <ClCompile Include="../InprocProfiling/PprofAggregator.cpp" />
-    <ClCompile Include="../InprocProfiling/ProfileExporter.cpp" />
-    <ClCompile Include="../InprocProfiling/Sample.cpp" />
-    <ClCompile Include="../InprocProfiling/ThreadInfo.cpp" />
-    <ClCompile Include="../InprocProfiling/Configuration.cpp" />
-    <ClCompile Include="../InprocProfiling/TagsHelper.cpp" />
-    <ClCompile Include="../InprocProfiling/OsSysTools.cpp" />
-    <ClCompile Include="../InprocProfiling/OsSpecificApi.cpp" />
-    <ClCompile Include="../InprocProfiling/Uuid.cpp" />
+    <ClCompile Include="../dd-win-prof/Symbolication.cpp" />
+    <ClCompile Include="../dd-win-prof/PprofAggregator.cpp" />
+    <ClCompile Include="../dd-win-prof/ProfileExporter.cpp" />
+    <ClCompile Include="../dd-win-prof/Sample.cpp" />
+    <ClCompile Include="../dd-win-prof/ThreadInfo.cpp" />
+    <ClCompile Include="../dd-win-prof/Configuration.cpp" />
+    <ClCompile Include="../dd-win-prof/TagsHelper.cpp" />
+    <ClCompile Include="../dd-win-prof/OsSysTools.cpp" />
+    <ClCompile Include="../dd-win-prof/OsSpecificApi.cpp" />
+    <ClCompile Include="../dd-win-prof/Uuid.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
@@ -157,13 +157,7 @@
     <Message Text="Copying libdatadog DLLs from: $(LibDatadogSourceDir)" Importance="high" />
     <Message Text="Found DLL files: @(LibDatadogDllFiles)" Importance="high" />
     <Message Text="Copying to: $(OutDir)" Importance="high" />
-    <Copy
-      SourceFiles="@(LibDatadogDllFiles)"
-      DestinationFolder="$(OutDir)"
-      SkipUnchangedFiles="true" />
-    <Copy
-      SourceFiles="@(LibDatadogPdbFiles)"
-      DestinationFolder="$(OutDir)"
-      SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(LibDatadogDllFiles)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(LibDatadogPdbFiles)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
 </Project>

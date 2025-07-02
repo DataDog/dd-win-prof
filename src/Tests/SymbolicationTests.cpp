@@ -2,7 +2,7 @@
 // This product includes software developed at Datadog (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
 
 #include "pch.h"
-#include "../InprocProfiling/Symbolication.h"
+#include "../dd-win-prof/Symbolication.h"
 
 // Include libdatadog headers for string storage
 #include "datadog/profiling.h"

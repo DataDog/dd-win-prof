@@ -4,7 +4,7 @@
 #include "pch.h"
 #include <gtest/gtest.h>
 
-#include "../InprocProfiling/Configuration.h"
+#include "../dd-win-prof/Configuration.h"
 
 class ConfigurationTest : public ::testing::Test {
 protected:

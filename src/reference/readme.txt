@@ -1,0 +1,1 @@
+This folder contains the binaries required to build a Windows application with the profiler.

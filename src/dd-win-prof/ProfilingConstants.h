@@ -3,7 +3,7 @@
 
 #pragma once
 
-namespace InprocProfiling {
+namespace dd_win_prof {
     // Maximum depth for a single stack
     inline constexpr size_t kMaxStackDepth{512};
 
