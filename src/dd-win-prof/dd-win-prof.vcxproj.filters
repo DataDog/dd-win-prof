@@ -147,6 +147,7 @@
     <ClInclude Include="ProfilingConstants.h">
       <Filter>Includes</Filter>
     </ClInclude>
+    <ClInclude Include="resource.h" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Source">
@@ -155,5 +156,8 @@
     <Filter Include="Includes">
       <UniqueIdentifier>{c1d71320-dcb0-4946-a1f2-551f670c1d0f}</UniqueIdentifier>
     </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="Resource.rc" />
   </ItemGroup>
 </Project>
