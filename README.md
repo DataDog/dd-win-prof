@@ -22,14 +22,50 @@ The following files are required in the folder from where the application runs:
 - **datadog_profiling_ffi.dll**: responsible for serializing and sending the profiles to Datadog via HTTP
 *Note: the corresponding .pdb files are available for debugging purposes*
 
-Before the running the application, the following environment variables **must** be set:
-- `DD_PROFILING_ENABLED` to `1`
-- `DD_API_KEY` to the Datadog API key needed to send the profiles to Datadog
+## Configuration
 
-The others will help sorting the generated profiles:
-- `DD_VERSION` to the version of the application
-- `DD_SERVICE` to the name of the application
-- `DD_ENV` to the environment where the application runs
+The profiler can be configured in two ways:
+
+### Option 1: Agent-based (with Datadog Agent)
+**Required environment variables:**
+- `DD_PROFILING_ENABLED=1` - Enable profiling
+- `DD_SERVICE=your-app-name` - Application name
+
+### Option 2: Agentless (direct to Datadog)
+**Required environment variables:**
+- `DD_PROFILING_ENABLED=1` - Enable profiling
+- `DD_SERVICE=your-app-name` - Application name
+- `DD_PROFILING_AGENTLESS=1` - Enable agentless mode
+- `DD_SITE=datadoghq.com` - Datadog site (varies by region)
+- `DD_API_KEY=your-api-key` - Your Datadog API key
+
+### Optional (but recommended) variables:
+- `DD_VERSION=1.0.0` - Application version for profile identification
+- `DD_ENV=production` - Environment name (dev, staging, production, etc.)
+
+Call [StartProfiler](./src/dd-win-prof/dd-win-prof.h) when you are ready to run the profiler.
+[StopProfiler](./src/dd-win-prof/dd-win-prof.h) when you want to stop it.
+
+### Example configuration:
+
+**Agentless setup:**
+```bash
+DD_PROFILING_ENABLED=1
+DD_SERVICE=my-windows-app
+DD_PROFILING_AGENTLESS=1
+DD_SITE=datadoghq.com
+DD_API_KEY=your_datadog_api_key_here
+DD_VERSION=1.2.3
+DD_ENV=production
+```
+
+**Agent-based setup:**
+```bash
+DD_PROFILING_ENABLED=1
+DD_SERVICE=my-windows-app
+DD_VERSION=1.2.3
+DD_ENV=production
+```
 
 ## Architecture Overview
 
@@ -207,7 +243,68 @@ If we do not instrument thread creation, we can not be ready to sample.
 
 - If you Control-C right at the time of thread creation from libdatadog, you will get a PANIC
 
-## How to build the solution
+## How to build dd-win-prof
 
-- The **dd-win-prof** project must be built **first** so that the required binary files needed by the **Runner** project are copied into the `src\reference` folder
-- the **Runner** project is an example of C++ application using the profiler with Visual Studio configuration to debug it with the expected environment variables (see the **Usage : how to profile your 64-bit Windows application** section)
+### Prerequisites
+
+- **Windows 10/11** or **Windows Server 2019/2022**
+- **Visual Studio 2022** or later with C++ development tools (or **Build Tools for Visual Studio**)
+- **PowerShell 5.1** or later
+
+### Dependencies
+
+The profiler requires two third-party libraries that are automatically downloaded:
+
+- **libdatadog v19.0.0** - Datadog profiling library for profile serialization and upload
+- **spdlog v1.14.1** - Logging library
+
+### Build Steps
+
+1. **Download dependencies**:
+   ```powershell
+   .\scripts\download-libdatadog.ps1 -Version 19.0.0 -Platform x64
+   .\scripts\download-spdlog.ps1 -Version 1.14.1
+   ```
+
+2. **Build the profiler**:
+   ```cmd
+   msbuild src\dd-win-prof\dd-win-prof.vcxproj /p:Configuration=Release /p:Platform=x64
+   ```
+
+   For debug builds:
+   ```cmd
+   msbuild src\dd-win-prof\dd-win-prof.vcxproj /p:Configuration=Debug /p:Platform=x64
+   ```
+
+3. **Output files** will be generated in:
+   - `src\dd-win-prof\x64\Release\` (or `Debug\`)
+   - Key files: `dd-win-prof.dll`, `dd-win-prof.lib`, `dd-win-prof.pdb`
+
+### Optional: Build Test Runner
+
+The **Runner** project provides an example C++ application for testing the profiler:
+
+```cmd
+msbuild src\Runner\Runner.vcxproj /p:Configuration=Release /p:Platform=x64
+```
+
+### Optional: Build and Run Tests
+
+**Note**: Requires **NuGet CLI** to restore test dependencies.
+
+```cmd
+# Restore test dependencies
+nuget restore src\Tests\packages.config -PackagesDirectory src\packages
+
+# Build tests
+msbuild src\Tests\Tests.vcxproj /p:Configuration=Release /p:Platform=x64
+
+# Run tests
+src\Tests\x64\Release\Tests.exe
+```
+
+### Automated Build
+
+For reference, see the complete automated build process in [`.github/workflows/test.yml`](.github/workflows/test.yml).
+
+The CI uses `windows-2022` runners which come pre-installed with **Visual Studio Enterprise 2022** and MSBuild tools.
