@@ -28,9 +28,11 @@ Profiler::~Profiler()
 
 bool Profiler::StartProfiling()
 {
+    // no needed to look at env var to enable profiler
+    // --> used only as kill switch to disable it
     if (!_pConfiguration->IsProfilerEnabled())
     {
-        Log::Info("Profiler is not enabled.");
+        Log::Info("Profiler is explicitely disabled by environment variable.");
         return false;
     }
 

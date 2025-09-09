@@ -32,7 +32,7 @@ Configuration::Configuration()
     _debugLogEnabled = GetEnvironmentValue(EnvironmentVariables::DebugLogEnabled, GetDefaultDebugLogEnabled());
     _logDirectory = ExtractLogDirectory();
     _pprofDirectory = ExtractPprofDirectory();
-    _isProfilerEnabled = GetEnvironmentValue(EnvironmentVariables::ProfilerEnabled, false);
+    _isProfilerEnabled = GetEnvironmentValue(EnvironmentVariables::ProfilerEnabled, true); // enabled by default via StartProfiling()
     _isCpuProfilingEnabled = GetEnvironmentValue(EnvironmentVariables::CpuProfilingEnabled, true);
     _isWallTimeProfilingEnabled = GetEnvironmentValue(EnvironmentVariables::WallTimeProfilingEnabled, false);
     _isExportEnabled = GetEnvironmentValue(EnvironmentVariables::ExportEnabled, true);
