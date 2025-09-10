@@ -32,6 +32,8 @@ public:
     const std::string& GetNamedPipeName() const;
 
     bool IsProfilerEnabled() const;
+    bool IsProfilerExplicitlyDisabled() const;
+    bool IsProfilerAutoStartEnabled() const;
     bool IsCpuProfilingEnabled() const;
     bool IsWallTimeProfilingEnabled() const;
     bool IsExportEnabled() const;
@@ -77,6 +79,7 @@ private:
 
 private:
     bool _isProfilerEnabled;
+    bool _isProfilerAutoStartEnabled;
     bool _isCpuProfilingEnabled;
     bool _isWallTimeProfilingEnabled;
     bool _isExportEnabled;

@@ -9,6 +9,7 @@ class EnvironmentVariables final
 {
 public:
     inline static const char* ProfilerEnabled = "DD_PROFILING_ENABLED";
+    inline static const char* ProfilerAutoStart = "DD_PROFILING_AUTO_START";
     inline static const char* CpuProfilingEnabled = "DD_PROFILING_CPU_ENABLED";
     inline static const char* WallTimeProfilingEnabled = "DD_PROFILING_WALLTIME_ENABLED";
     inline static const char* ExportEnabled = "DD_INTERNAL_PROFILING_EXPORT_ENABLED";

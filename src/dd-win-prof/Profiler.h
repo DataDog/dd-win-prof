@@ -27,6 +27,7 @@ public :
 
     bool IsStarted() const { return _isStarted; }
     size_t GetThreadCount() const { return _pThreadList ? _pThreadList->Count() : 0; }
+    const Configuration& GetConfiguration() const { return *_pConfiguration; }
 
 public:
     static Profiler* GetInstance()

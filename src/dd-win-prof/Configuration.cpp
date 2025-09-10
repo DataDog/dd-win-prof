@@ -33,6 +33,7 @@ Configuration::Configuration()
     _logDirectory = ExtractLogDirectory();
     _pprofDirectory = ExtractPprofDirectory();
     _isProfilerEnabled = GetEnvironmentValue(EnvironmentVariables::ProfilerEnabled, false);
+    _isProfilerAutoStartEnabled = GetEnvironmentValue(EnvironmentVariables::ProfilerAutoStart, false);
     _isCpuProfilingEnabled = GetEnvironmentValue(EnvironmentVariables::CpuProfilingEnabled, true);
     _isWallTimeProfilingEnabled = GetEnvironmentValue(EnvironmentVariables::WallTimeProfilingEnabled, false);
     _isExportEnabled = GetEnvironmentValue(EnvironmentVariables::ExportEnabled, true);
@@ -246,6 +247,17 @@ bool Configuration::GetDefaultDebugLogEnabled()
 bool Configuration::IsProfilerEnabled() const
 {
     return _isProfilerEnabled;
+}
+
+bool Configuration::IsProfilerExplicitlyDisabled() const
+{
+    // Check if the environment variable exists and is set to false
+    return EnvironmentExist(EnvironmentVariables::ProfilerEnabled) && !_isProfilerEnabled;
+}
+
+bool Configuration::IsProfilerAutoStartEnabled() const
+{
+    return _isProfilerAutoStartEnabled;
 }
 
 bool Configuration::IsCpuProfilingEnabled() const

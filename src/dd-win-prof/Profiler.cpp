@@ -28,9 +28,10 @@ Profiler::~Profiler()
 
 bool Profiler::StartProfiling()
 {
-    if (!_pConfiguration->IsProfilerEnabled())
+    // Check if profiling was explicitly disabled
+    if (_pConfiguration->IsProfilerExplicitlyDisabled())
     {
-        Log::Info("Profiler is not enabled.");
+        Log::Info("Profiler is explicitly disabled (DD_PROFILING_ENABLED=false).");
         return false;
     }
 
