@@ -39,13 +39,14 @@ bool Profiler::StartProfiling()
     auto valueTypeProvider = SampleValueTypeProvider();
 
     _pCpuTimeProvider = std::make_unique<CpuTimeProvider>(valueTypeProvider);
-    // TODO: _pCpuWallTimeProvider = std::make_unique<WallTimeProvider>(valueTypeProvider);
+    _pCpuWallTimeProvider = std::make_unique<WallTimeProvider>(valueTypeProvider);
 
     // create the thread responsible for looping through the thread list
     _pStackSamplerLoop = std::make_unique<StackSamplerLoop>(
         _pConfiguration.get(),
         _pThreadList.get(),
-        _pCpuTimeProvider.get());
+        _pCpuTimeProvider.get(),
+        _pCpuWallTimeProvider.get());
 
     // get the values definition from the different providers...
     auto const& sampleTypeDefinitions = valueTypeProvider.GetValueTypes();
@@ -69,7 +70,11 @@ bool Profiler::StartProfiling()
     {
         _pSamplesCollector->Register(_pCpuTimeProvider.get());
     }
-    // TODO: _pSamplesCollector->Register(_pCpuWallTimeProvider.get());
+
+    if (_pConfiguration->IsWallTimeProfilingEnabled())
+    {
+        _pSamplesCollector->Register(_pCpuWallTimeProvider.get());
+    }
 
     // start processing
     _pSamplesCollector->Start();
