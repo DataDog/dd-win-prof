@@ -28,12 +28,10 @@ The profiler can be configured in two ways:
 
 ### Option 1: Agent-based (with Datadog Agent)
 **Required environment variables:**
-- `DD_PROFILING_ENABLED=1` - Enable profiling
 - `DD_SERVICE=your-app-name` - Application name
 
 ### Option 2: Agentless (direct to Datadog)
 **Required environment variables:**
-- `DD_PROFILING_ENABLED=1` - Enable profiling
 - `DD_SERVICE=your-app-name` - Application name
 - `DD_PROFILING_AGENTLESS=1` - Enable agentless mode
 - `DD_SITE=datadoghq.com` - Datadog site (varies by region)
@@ -43,14 +41,16 @@ The profiler can be configured in two ways:
 - `DD_VERSION=1.0.0` - Application version for profile identification
 - `DD_ENV=production` - Environment name (dev, staging, production, etc.)
 
+
 Call [StartProfiler](./src/dd-win-prof/dd-win-prof.h) when you are ready to run the profiler.
 [StopProfiler](./src/dd-win-prof/dd-win-prof.h) when you want to stop it.
+
+### NOTE: use `DD_PROFILING_ENABLED=0`to disable profiling even if `StartProfiler` is called.
 
 ### Example configuration:
 
 **Agentless setup:**
 ```bash
-DD_PROFILING_ENABLED=1
 DD_SERVICE=my-windows-app
 DD_PROFILING_AGENTLESS=1
 DD_SITE=datadoghq.com
@@ -61,7 +61,6 @@ DD_ENV=production
 
 **Agent-based setup:**
 ```bash
-DD_PROFILING_ENABLED=1
 DD_SERVICE=my-windows-app
 DD_VERSION=1.2.3
 DD_ENV=production

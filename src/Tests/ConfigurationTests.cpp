@@ -45,7 +45,7 @@ TEST_F(ConfigurationTest, ConfigurationProfilingSettings) {
     // Assert
     // Test profiling-related settings
     // Note: These might be false by default unless environment variables are set
-    EXPECT_FALSE(config.IsProfilerEnabled()) << "Profiler should be disabled by default (unless DD_PROFILING_ENABLED is set)";
+    EXPECT_TRUE(config.IsProfilerEnabled()) << "Profiler should be enabled by default (unless DD_PROFILING_ENABLED is set to 0/false)";
 
     // These should have reasonable default values
     EXPECT_GT(config.GetUploadInterval().count(), 0) << "Upload interval should be positive";
