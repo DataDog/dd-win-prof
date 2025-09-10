@@ -15,4 +15,17 @@ namespace OsSpecificApi
     std::tuple<bool, std::chrono::milliseconds, bool> IsRunning(HANDLE hThread);
 
     uint32_t GetProcessorCount();
+
+    std::string GetCpuVendor();
+    std::string GetCpuModel();
+    bool GetGpuFromRegistry(
+        int device,
+        std::string& driverDesc,
+        std::string& driverVersion,
+        std::string& driverDate,
+        std::string& gpuName,
+        std::string& gpuChip,
+        uint64_t& gpuRam);
+    bool GetCpuCores(int& physicalCores, int& logicalCores);
+    bool GetMemoryInfo(uint64_t& totalPhys, uint64_t& availPhys, uint32_t& memoryLoad);
 } // namespace OsSpecificApi

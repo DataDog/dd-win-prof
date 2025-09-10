@@ -4,6 +4,7 @@
 #include "pch.h"
 #include "ProfileExporter.h"
 #include "LibDatadogHelper.h"
+#include "OsSpecificApi.h"
 #include "Uuid.h"
 #include <iostream>
 #include <chrono>
@@ -19,6 +20,7 @@
 
 
 using namespace dd_win_prof;
+using namespace OsSpecificApi;
 
 ProfileExporter::ProfileExporter(Configuration* pConfiguration, std::span<const SampleValueType> sampleTypeDefinitions)
     :
@@ -451,11 +453,109 @@ bool ProfileExporter::AddSingleTag(ddog_Vec_Tag& tags, std::string_view key, std
     return true;
 }
 
-bool ProfileExporter::PrepareStableTags(ddog_Vec_Tag& tags, uint32_t profileSeq)
+bool ProfileExporter::PrepareStableTags(ddog_Vec_Tag& tags)
 {
     // Add runtime-id tag (stable across exports)
     if (!AddSingleTag(tags, TAG_RUNTIME_ID, _runtimeId)) {
         return false;
+    }
+
+    // add CPU related tags
+    int physicalCores;
+    int logicalCores;
+    if (GetCpuCores(logicalCores, physicalCores))
+    {
+        if (!AddSingleTag(tags, TAG_CPU_CORES_COUNT, std::to_string(physicalCores))) {
+            return false;
+        }
+        if (!AddSingleTag(tags, TAG_CPU_LOGICAL_CORES_COUNT, std::to_string(logicalCores))) {
+            return false;
+        }
+    }
+
+    std::string cpuVendor = GetCpuVendor();
+    if (!cpuVendor.empty()) {
+        if (!AddSingleTag(tags, TAG_CPU_VENDOR, cpuVendor)) {
+            return false;
+        }
+    }
+
+    std::string cpuModel = GetCpuModel();
+    if (!cpuModel.empty()) {
+        if (!AddSingleTag(tags, TAG_CPU_DESC, cpuModel)) {
+            return false;
+        }
+    }
+
+    // GPU tags depend on the number of GPUs
+    std::string driverDescTag;
+    std::string driverVersionTag;
+    std::string driverDateTag;
+    std::string gpuNameTag;
+    std::string gpuChipTag;
+    std::string gpuRamTag;
+
+    std::string driverDesc;
+    std::string driverVersion;
+    std::string driverDate;
+    std::string gpuName;
+    std::string gpuChip;
+    uint64_t gpuRam;
+    int device = 0;
+    while (GetGpuFromRegistry(device, driverDesc, driverVersion, driverDate, gpuName, gpuChip, gpuRam))
+    {
+        // no need to send GPU details if GPU cannot be identified
+        if (driverDesc.empty() && gpuNameTag.empty())
+        {
+            continue;
+        }
+
+        driverDescTag = TAG_GPU_DRIVER_DESC_PREFIX + std::to_string(device);
+        if (!AddSingleTag(tags, driverDescTag, driverDesc)) {
+            return false;
+        }
+
+        driverVersionTag = TAG_GPU_DRIVER_VERSION_PREFIX + std::to_string(device);
+        if (!AddSingleTag(tags, driverVersionTag, driverVersion)) {
+            return false;
+        }
+
+        driverDateTag = TAG_GPU_DRIVER_DATE_PREFIX + std::to_string(device);
+        if (!AddSingleTag(tags, driverDateTag, driverDate)) {
+            return false;
+        }
+
+        gpuNameTag = TAG_GPU_NAME_PREFIX + std::to_string(device);
+        if (!AddSingleTag(tags, gpuNameTag, gpuName)) {
+            return false;
+        }
+
+        gpuChipTag = TAG_GPU_CHIP_PREFIX + std::to_string(device);
+        if (!AddSingleTag(tags, gpuChipTag, gpuChip)) {
+            return false;
+        }
+
+        gpuRamTag = TAG_GPU_RAM_PREFIX + std::to_string(device);
+        if (!AddSingleTag(tags, gpuRamTag, std::to_string(gpuRam))) {
+            return false;
+        }
+
+        device++;
+    }
+
+    if (!AddSingleTag(tags, TAG_GPU_COUNT, std::to_string(device))) {
+        return false;
+    }
+
+    // add memory related tags
+    uint64_t totalPhys;
+    uint64_t availPhys;
+    uint32_t memoryLoad;
+    if (GetMemoryInfo(totalPhys, availPhys, memoryLoad))
+    {
+        if (!AddSingleTag(tags, TAG_RAM_SIZE, std::to_string(totalPhys))) {
+            return false;
+        }
     }
 
     return true;
@@ -721,8 +821,9 @@ bool ProfileExporter::InitializeExporter()
         return false;
     }
 
-    // Add runtime-id tag
-    if (!AddSingleTag(stableTags, TAG_RUNTIME_ID, _runtimeId)) {
+    // Add runtime and hardware details
+    if (!PrepareStableTags(stableTags))
+    {
         ddog_Vec_Tag_drop(stableTags);
         return false;
     }

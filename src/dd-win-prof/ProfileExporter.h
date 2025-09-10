@@ -47,7 +47,7 @@ public:
     const std::string& GetDebugPprofPrefix() const { return _debugPprofPrefix; }
 
     // Export tags (stable metadata set at export time)
-    bool PrepareStableTags(ddog_Vec_Tag& tags, uint32_t profileSeq);
+    bool PrepareStableTags(ddog_Vec_Tag& tags);
     bool AddSingleTag(ddog_Vec_Tag& tags, std::string_view key, std::string_view value);
 
     // Export functionality
@@ -87,6 +87,23 @@ private:
     // Tag key constants (for stable export tags)
     static constexpr const char* TAG_RUNTIME_ID = "runtime-id";
     static constexpr const char* TAG_PROFILE_SEQ = "profile_seq";
+    static constexpr const char* TAG_CPU_CORES_COUNT = "number_of_cpu_cores";
+    static constexpr const char* TAG_CPU_LOGICAL_CORES_COUNT = "number_of_logical_cores";
+    static constexpr const char* TAG_CPU_VENDOR = "cpu_vendor";
+    static constexpr const char* TAG_CPU_DESC = "cpu_desc";
+    // GPU specific tags (for as many as GPUs)
+    static constexpr const char* TAG_GPU_COUNT = "gpu_count";
+    static constexpr const char* TAG_GPU_DRIVER_DESC_PREFIX = "gpu_driver_desc_";
+    static constexpr const char* TAG_GPU_DRIVER_VERSION_PREFIX = "gpu_driver_version_";
+    static constexpr const char* TAG_GPU_DRIVER_DATE_PREFIX = "gpu_driver_date_";
+    static constexpr const char* TAG_GPU_NAME_PREFIX = "gpu_name_";
+    static constexpr const char* TAG_GPU_CHIP_PREFIX = "gpu_chip_";
+    static constexpr const char* TAG_GPU_RAM_PREFIX = "gpu_ram_";
+
+    // TODO: how to define metrics? With tags? With separate json file?
+    static constexpr const char* TAG_RAM_SIZE = "ram_size";
+    static constexpr const char* TAG_RAM_AVAIL = "ram_available";
+    static constexpr const char* TAG_RAM_LOAD = "ram_load";
 
     // Label key constants (for per-sample labels)
     static constexpr const char* LABEL_PROCESS_ID = "process_id";
