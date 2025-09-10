@@ -186,37 +186,44 @@ void StackSamplerLoop::WalltimeProfilingIteration()
     uint32_t i = 0;
 
     ThreadInfo* firstThread = nullptr;
-    std::shared_ptr<ThreadInfo> threadInfo = nullptr;
+    std::shared_ptr<ThreadInfo> pThreadInfo = nullptr;
 
     do
     {
-        threadInfo = _pThreadList->LoopNext(_iteratorWallTime);
+        pThreadInfo = _pThreadList->LoopNext(_iteratorWallTime);
 
         // either the list is empty or iterator is not in the array range
         // so prefer bailing out
-        if (threadInfo == nullptr)
+        if (pThreadInfo == nullptr)
         {
             break;
         }
 
-        if (firstThread == threadInfo.get())
+        // don't sample the sampling thread
+        if (pThreadInfo->GetThreadId() == ::GetCurrentThreadId())
         {
-            threadInfo.reset();
+            pThreadInfo.reset();
+            continue;
+        }
+
+        if (firstThread == pThreadInfo.get())
+        {
+            pThreadInfo.reset();
             break;
         }
 
         if (firstThread == nullptr)
         {
-            firstThread = threadInfo.get();
+            firstThread = pThreadInfo.get();
         }
 
         auto thisSampleTimestamp = OpSysTools::GetHighPrecisionTimestamp();
-        auto prevSampleTimestamp = threadInfo->SetLastSampleTimestamp(thisSampleTimestamp);
+        auto prevSampleTimestamp = pThreadInfo->SetLastSampleTimestamp(thisSampleTimestamp);
         auto duration = ComputeWallTime(thisSampleTimestamp, prevSampleTimestamp);
 
-        CollectOneThreadSample(threadInfo, thisSampleTimestamp, duration, PROFILING_TYPE::WallTime);
+        CollectOneThreadSample(pThreadInfo, thisSampleTimestamp, duration, PROFILING_TYPE::WallTime);
 
-        threadInfo.reset();
+        pThreadInfo.reset();
         i++;
 
     } while (i < sampledThreadsCount && !_shutdownRequested);
