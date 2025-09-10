@@ -450,7 +450,7 @@ std::chrono::seconds Configuration::ExtractUploadInterval()
 std::chrono::nanoseconds Configuration::ExtractCpuWallTimeSamplingRate()
 {
     // default sampling rate is 18 ms; could be changed via env vars but down to a minimum of 5 ms
-    int64_t rate = GetEnvironmentValue(EnvironmentVariables::CpuWallTimeSamplingRate, DefaultSamplingPeriod);
+    uint64_t rate = GetEnvironmentValue(EnvironmentVariables::CpuWallTimeSamplingRate, DefaultSamplingPeriod);
     if (rate < MinimumSamplingPeriod)
     {
         rate = MinimumSamplingPeriod;

@@ -183,7 +183,7 @@ void StackSamplerLoop::WalltimeProfilingIteration()
     uint32_t managedThreadsCount = _pThreadList->Count();
     uint32_t sampledThreadsCount = (std::min)(managedThreadsCount, _walltimeThreadsThreshold);
 
-    int32_t i = 0;
+    uint32_t i = 0;
 
     ThreadInfo* firstThread = nullptr;
     std::shared_ptr<ThreadInfo> threadInfo = nullptr;
