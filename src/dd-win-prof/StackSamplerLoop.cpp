@@ -14,8 +14,8 @@ constexpr const wchar_t* ThreadName = L"DD_StackSampler";
 StackSamplerLoop::StackSamplerLoop(
     Configuration* pConfiguration,
     ThreadList* pThreadList,
-    CpuTimeProvider* pCpuTimeProvider//,
-    //WallTimeProvider* pWallTimeProvider
+    CpuTimeProvider* pCpuTimeProvider,
+    WallTimeProvider* pWallTimeProvider
     )
     :
     _samplingPeriod(pConfiguration->CpuWallTimeSamplingRate()),
@@ -24,11 +24,13 @@ StackSamplerLoop::StackSamplerLoop(
     _shutdownRequested(false),
     _pThreadList(pThreadList),
     _pCpuTimeProvider(pCpuTimeProvider),
-    //_pWallTimeProvider(pWallTimeProvider),
+    _pWallTimeProvider(pWallTimeProvider),
     _iteratorCpuTime(0),
+    _iteratorWallTime(0),
     _pLoopThread(nullptr)
 {
     _iteratorCpuTime = _pThreadList->CreateIterator();
+    _iteratorWallTime = _pThreadList->CreateIterator();
     _nbCores = OsSpecificApi::GetProcessorCount();
 
     // deal with configuration
@@ -46,7 +48,7 @@ StackSamplerLoop::~StackSamplerLoop()
 void StackSamplerLoop::Start()
 {
     // avoid consuming resources if neither cpu nor walltime profiling is enabled
-    if (_pCpuTimeProvider == nullptr /*&& _pWallTimeProvider == nullptr*/)
+    if ((_pCpuTimeProvider == nullptr) && (_pWallTimeProvider == nullptr))
     {
         return;
     }
@@ -99,7 +101,10 @@ void StackSamplerLoop::MainLoopIteration()
         CpuProfilingIteration();
     }
 
-    WalltimeProfilingIteration();
+    if (_pWallTimeProvider != nullptr)
+    {
+        WalltimeProfilingIteration();
+    }
 }
 
 void StackSamplerLoop::CpuProfilingIteration()
@@ -158,36 +163,7 @@ void StackSamplerLoop::CpuProfilingIteration()
 
                     pThreadInfo->SetCpuConsumption(currentConsumption, thisSampleTimestamp);
 
-                    // the thread needs to be suspended before capturing the stack
-                    if (!_stackFrameCollector.TrySuspendThread(pThreadInfo))
-                    {
-                        return;
-                    }
-
-                    bool isTruncated = false;
-                    uint64_t frames[MaxFrameCount];
-                    uint16_t framesCount = MaxFrameCount;
-                    bool isStackCaptured = (_stackFrameCollector.CaptureStack(pThreadInfo->GetOsThreadHandle(), frames, framesCount, isTruncated));
-                    // resume the thread before doing any allocation that could cause a deadlock
-                    ::ResumeThread(pThreadInfo->GetOsThreadHandle());
-
-                    if (isStackCaptured)
-                    {
-                        // set a null address for the last frame in case of truncated stack
-                        if (isTruncated)
-                        {
-                            frames[framesCount - 1] = 0;
-                        }
-
-                        // create a sample
-                        Sample sample = Sample(
-                            thisSampleTimestamp,
-                            pThreadInfo,
-                            frames,
-                            framesCount);
-                        std::chrono::nanoseconds cpuTimeNs = std::chrono::duration_cast<std::chrono::nanoseconds>(cpuForSample);
-                        _pCpuTimeProvider->Add(std::move(sample), cpuTimeNs);
-                    }
+                    CollectOneThreadSample(pThreadInfo, thisSampleTimestamp, cpuForSample, PROFILING_TYPE::CpuTime);
 
                     // don't scan more threads than nb logical cores
                     sampledThreads++;
@@ -204,4 +180,128 @@ void StackSamplerLoop::CpuProfilingIteration()
 
 void StackSamplerLoop::WalltimeProfilingIteration()
 {
+    uint32_t managedThreadsCount = _pThreadList->Count();
+    uint32_t sampledThreadsCount = (std::min)(managedThreadsCount, _walltimeThreadsThreshold);
+
+    uint32_t i = 0;
+
+    ThreadInfo* firstThread = nullptr;
+    std::shared_ptr<ThreadInfo> pThreadInfo = nullptr;
+
+    do
+    {
+        pThreadInfo = _pThreadList->LoopNext(_iteratorWallTime);
+
+        // either the list is empty or iterator is not in the array range
+        // so prefer bailing out
+        if (pThreadInfo == nullptr)
+        {
+            break;
+        }
+
+        // don't sample the sampling thread
+        if (pThreadInfo->GetThreadId() == ::GetCurrentThreadId())
+        {
+            pThreadInfo.reset();
+            continue;
+        }
+
+        if (firstThread == pThreadInfo.get())
+        {
+            pThreadInfo.reset();
+            break;
+        }
+
+        if (firstThread == nullptr)
+        {
+            firstThread = pThreadInfo.get();
+        }
+
+        auto thisSampleTimestamp = OpSysTools::GetHighPrecisionTimestamp();
+        auto prevSampleTimestamp = pThreadInfo->SetLastSampleTimestamp(thisSampleTimestamp);
+        auto duration = ComputeWallTime(thisSampleTimestamp, prevSampleTimestamp);
+
+        CollectOneThreadSample(pThreadInfo, thisSampleTimestamp, duration, PROFILING_TYPE::WallTime);
+
+        pThreadInfo.reset();
+        i++;
+
+    } while (i < sampledThreadsCount && !_shutdownRequested);
 }
+
+void StackSamplerLoop::CollectOneThreadSample(std::shared_ptr<ThreadInfo>& pThreadInfo,
+    std::chrono::nanoseconds thisSampleTimestamp,
+    std::chrono::nanoseconds duration,
+    PROFILING_TYPE profilingType)
+{
+    // the thread needs to be suspended before capturing the stack
+    if (!_stackFrameCollector.TrySuspendThread(pThreadInfo))
+    {
+        return;
+    }
+
+    bool isTruncated = false;
+    uint64_t frames[MaxFrameCount];
+    uint16_t framesCount = MaxFrameCount;
+    bool isStackCaptured = (_stackFrameCollector.CaptureStack(pThreadInfo->GetOsThreadHandle(), frames, framesCount, isTruncated));
+    // resume the thread before doing any allocation that could cause a deadlock
+    ::ResumeThread(pThreadInfo->GetOsThreadHandle());
+
+    if (isStackCaptured)
+    {
+        // set a null address for the last frame in case of truncated stack
+        if (isTruncated)
+        {
+            frames[framesCount - 1] = 0;
+        }
+
+        // create a sample
+        if (profilingType == PROFILING_TYPE::CpuTime)
+        {
+            Sample sample = Sample(
+                thisSampleTimestamp,
+                pThreadInfo,
+                frames,
+                framesCount);
+            _pCpuTimeProvider->Add(std::move(sample), duration);
+        }
+        else
+            if (profilingType == PROFILING_TYPE::WallTime)
+            {
+                Sample sample = Sample(
+                    thisSampleTimestamp,
+                    pThreadInfo,
+                    frames,
+                    framesCount);
+                _pWallTimeProvider->Add(std::move(sample), duration);
+            }
+            else
+            {
+                // should neven happen
+            }
+    }
+}
+
+std::chrono::nanoseconds StackSamplerLoop::ComputeWallTime(std::chrono::nanoseconds currentTimestampNs, std::chrono::nanoseconds prevTimestampNs)
+{
+    if (prevTimestampNs == 0ns)
+    {
+        // prevTimestampNs = 0 means that it is the first time the wall time is computed for a given thread
+        // --> at least one sampling period has elapsed
+        return _samplingPeriod;
+    }
+
+    if (prevTimestampNs > 0ns)
+    {
+        auto durationNs = currentTimestampNs - prevTimestampNs;
+        return (std::max)(0ns, durationNs);
+    }
+    else
+    {
+        // this should never happen
+        // count at least one sampling period
+        return _samplingPeriod;
+    }
+}
+
+

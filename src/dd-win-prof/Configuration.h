@@ -101,5 +101,8 @@ private:
     int32_t _cpuThreadsThreshold;
 
     double _minimumCores;
+
+    static const uint64_t DefaultSamplingPeriod = 18;
+    static const uint64_t MinimumSamplingPeriod = 5;
 };
 

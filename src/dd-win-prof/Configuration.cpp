@@ -34,25 +34,30 @@ Configuration::Configuration()
     _pprofDirectory = ExtractPprofDirectory();
     _isProfilerEnabled = GetEnvironmentValue(EnvironmentVariables::ProfilerEnabled, true); // enabled by default via StartProfiling()
     _isCpuProfilingEnabled = GetEnvironmentValue(EnvironmentVariables::CpuProfilingEnabled, true);
-    _isWallTimeProfilingEnabled = GetEnvironmentValue(EnvironmentVariables::WallTimeProfilingEnabled, false);
+    _isWallTimeProfilingEnabled = GetEnvironmentValue(EnvironmentVariables::WallTimeProfilingEnabled, true);
     _isExportEnabled = GetEnvironmentValue(EnvironmentVariables::ExportEnabled, true);
+
     _uploadPeriod = ExtractUploadInterval();
     _userTags = ExtractUserTags();
+
+    // TODO: update the IConfiguration interface to allow setting these values via API
     _version = GetEnvironmentValue(EnvironmentVariables::Version, DefaultVersion);
     _environmentName = GetEnvironmentValue(EnvironmentVariables::Environment, DefaultEnvironment);
+    _serviceName = GetEnvironmentValue(EnvironmentVariables::ServiceName, OpSysTools::GetProcessName());
     _hostname = GetEnvironmentValue(EnvironmentVariables::Hostname, OpSysTools::GetHostname());
+    _cpuWallTimeSamplingRate = ExtractCpuWallTimeSamplingRate();
+    _walltimeThreadsThreshold = ExtractWallTimeThreadsThreshold();
+    _cpuThreadsThreshold = ExtractCpuThreadsThreshold();
+    _apiKey = GetEnvironmentValue(EnvironmentVariables::ApiKey, DefaultEmptyString);
+
+    // TODO: see if the Agent mode should be supported and how it should be configured
+    _isAgentLess = GetEnvironmentValue(EnvironmentVariables::Agentless, false);
     _agentUrl = GetEnvironmentValue(EnvironmentVariables::AgentUrl, DefaultEmptyString);
     _agentHost = GetEnvironmentValue(EnvironmentVariables::AgentHost, DefaultAgentHost);
     _agentPort = GetEnvironmentValue(EnvironmentVariables::AgentPort, DefaultAgentPort);
     _site = ExtractSite();
     _namedPipeName = GetEnvironmentValue(EnvironmentVariables::NamedPipeName, DefaultEmptyString);
 
-    _apiKey = GetEnvironmentValue(EnvironmentVariables::ApiKey, DefaultEmptyString);
-    _serviceName = GetEnvironmentValue(EnvironmentVariables::ServiceName, OpSysTools::GetProcessName());
-    _isAgentLess = GetEnvironmentValue(EnvironmentVariables::Agentless, false);
-    _cpuWallTimeSamplingRate = ExtractCpuWallTimeSamplingRate();
-    _walltimeThreadsThreshold = ExtractWallTimeThreadsThreshold();
-    _cpuThreadsThreshold = ExtractCpuThreadsThreshold();
     _minimumCores = GetEnvironmentValue<double>(EnvironmentVariables::CoreMinimumOverride, 1.0);
 }
 
@@ -444,11 +449,11 @@ std::chrono::seconds Configuration::ExtractUploadInterval()
 
 std::chrono::nanoseconds Configuration::ExtractCpuWallTimeSamplingRate()
 {
-    // default sampling rate is 9 ms; could be changed via env vars but down to a minimum of 5 ms
-    int64_t rate = GetEnvironmentValue(EnvironmentVariables::CpuWallTimeSamplingRate, 9);
-    if (rate < 5)
+    // default sampling rate is 18 ms; could be changed via env vars but down to a minimum of 5 ms
+    uint64_t rate = GetEnvironmentValue(EnvironmentVariables::CpuWallTimeSamplingRate, DefaultSamplingPeriod);
+    if (rate < MinimumSamplingPeriod)
     {
-        rate = 5;
+        rate = MinimumSamplingPeriod;
     }
     rate *= 1000000;
     return std::chrono::nanoseconds(rate);

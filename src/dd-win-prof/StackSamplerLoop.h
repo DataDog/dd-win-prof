@@ -10,6 +10,15 @@
 #include "StackFrameCollector.h"
 #include "ThreadList.h"
 #include "ProfilingConstants.h"
+#include "WalltimeProvider.h"
+
+
+typedef enum
+{
+    WallTime,
+    CpuTime
+} PROFILING_TYPE;
+
 
 class StackSamplerLoop
 {
@@ -17,8 +26,8 @@ public:
     StackSamplerLoop(
         Configuration* pConfiguration,
         ThreadList* pThreadList,
-        CpuTimeProvider* pCpuTimeProvider//,
-        //TODO: WallTimeProvider* pWallTimeProvider
+        CpuTimeProvider* pCpuTimeProvider,
+        WallTimeProvider* pWallTimeProvider
         );
     ~StackSamplerLoop();
 
@@ -30,6 +39,12 @@ private:
     void MainLoopIteration();
     void CpuProfilingIteration();
     void WalltimeProfilingIteration();
+    void CollectOneThreadSample(std::shared_ptr<ThreadInfo>& pThreadInfo,
+        std::chrono::nanoseconds thisSampleTimestamp,
+        std::chrono::nanoseconds duration,
+        PROFILING_TYPE profilingType);
+    std::chrono::nanoseconds ComputeWallTime(std::chrono::nanoseconds currentTimestampNs, std::chrono::nanoseconds prevTimestampNs);
+
 
 private:
     static const int MaxFrameCount = dd_win_prof::kMaxStackDepth;
@@ -46,9 +61,10 @@ private:
 
     ThreadList* _pThreadList;
     uint32_t _iteratorCpuTime;
+    uint32_t _iteratorWallTime;
 
     StackFrameCollector _stackFrameCollector;
     CpuTimeProvider* _pCpuTimeProvider;
-    // TODO: WallTimeProvider* _pWallTimeProvider;
+    WallTimeProvider* _pWallTimeProvider;
 };
 

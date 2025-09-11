@@ -59,7 +59,7 @@ private:
 
     // providers
     std::unique_ptr<CpuTimeProvider> _pCpuTimeProvider = nullptr;
-    // TODO: std::unique_ptr<WallTimeProvider> _pCpuWallTimeProvider = nullptr;
+    std::unique_ptr<WallTimeProvider> _pCpuWallTimeProvider = nullptr;
 
     // exporter
     std::unique_ptr<ProfileExporter> _pProfileExporter = nullptr;
