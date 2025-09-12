@@ -9,11 +9,11 @@
 #include "SamplesCollector.h"
 
 Profiler* Profiler::_this = nullptr;
+std::unique_ptr<Configuration> Profiler::_pConfiguration = std::make_unique<Configuration>();
 
 Profiler::Profiler()
     :
     _isStarted(false),
-    _pConfiguration(std::make_unique<Configuration>()),
     _pThreadList(std::make_unique<ThreadList>()),
     _pStackSamplerLoop(nullptr)
 {
