@@ -129,9 +129,10 @@ endif()
                     COMMENT "Copying ProfilerInjector.exe for `${EXAMPLE_NAME}")
             endif()
             
-            # Set up environment variables for profiler auto-start and debug logging
-            set_target_properties(`${EXAMPLE_NAME} PROPERTIES
-                VS_DEBUGGER_ENVIRONMENT "DD_PROFILING_AUTO_START=1;DD_TRACE_DEBUG=1;DD_SERVICE=vulkan-`${EXAMPLE_NAME}")
+             # Set up environment variables for profiler auto-start and debug logging
+             # Note: DD_SERVICE is auto-set by ProfilerInjector from executable name
+             set_target_properties(`${EXAMPLE_NAME} PROPERTIES
+                 VS_DEBUGGER_ENVIRONMENT "DD_PROFILING_AUTO_START=1;DD_TRACE_DEBUG=1")
             
             # Create a batch script for easy command-line execution with profiler
             set(BATCH_SCRIPT_PATH "`$<TARGET_FILE_DIR:`${EXAMPLE_NAME}>/run-`${EXAMPLE_NAME}-with-profiler.bat")

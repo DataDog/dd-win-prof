@@ -8,6 +8,8 @@
 #include <vector>
 #include <set>
 #include <filesystem>
+#include <algorithm>
+#include <cctype>
 
 class ProfilerInjector {
 public:
@@ -99,7 +101,14 @@ public:
             }
             
             if (SetEnvironmentVariableA(key.c_str(), value.c_str())) {
-                std::cout << "Set " << key << "=" << value << std::endl;
+                // Hide sensitive values like API keys
+                if (key.find("API_KEY") != std::string::npos || 
+                    key.find("TOKEN") != std::string::npos ||
+                    key.find("SECRET") != std::string::npos) {
+                    std::cout << "Set " << key << "=***HIDDEN***" << std::endl;
+                } else {
+                    std::cout << "Set " << key << "=" << value << std::endl;
+                }
                 count++;
             }
         }
@@ -145,6 +154,28 @@ public:
         
         // Always set auto-start (can be overridden by .env file)
         SetEnvironmentVariableA("DD_PROFILING_AUTO_START", "1");
+        
+        // Auto-set service name from executable if not already set
+        char existingService[256];
+        DWORD serviceLen = GetEnvironmentVariableA("DD_SERVICE", existingService, sizeof(existingService));
+        if (serviceLen == 0) {  // DD_SERVICE not set
+            std::filesystem::path exePath(executable);
+            std::string serviceName = exePath.stem().string();  // Get filename without extension
+            
+            // Clean up service name for better readability
+            // Convert to lowercase and replace common separators with hyphens
+            std::transform(serviceName.begin(), serviceName.end(), serviceName.begin(), ::tolower);
+            std::replace(serviceName.begin(), serviceName.end(), '_', '-');
+            std::replace(serviceName.begin(), serviceName.end(), ' ', '-');
+            
+            // Add vulkan prefix for context
+            serviceName = "vulkan-" + serviceName;
+            
+            SetEnvironmentVariableA("DD_SERVICE", serviceName.c_str());
+            std::cout << "Auto-set DD_SERVICE=" << serviceName << " (from executable name)" << std::endl;
+        } else {
+            std::cout << "Using existing DD_SERVICE from environment" << std::endl;
+        }
         
         // Get the DLL path
         std::filesystem::path exePath(executable);

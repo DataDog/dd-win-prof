@@ -547,25 +547,44 @@ try {
     # Run from bin directory where assets are now located
     Push-Location $binPath
     try {
-        if (Test-Path "computeheadless.exe") {
+        # Check if profiler is enabled and use appropriate launcher
+        if ($EnableProfiler -and (Test-Path "run-computeheadless-with-profiler.bat")) {
+            Write-Step "Running computeheadless with profiler integration..." "INFO"
+            & .\run-computeheadless-with-profiler.bat
+            if ($LASTEXITCODE -eq 0) {
+                Write-Step "computeheadless with profiler ran successfully!" "OK"
+            } else {
+                Write-Step "computeheadless with profiler failed (exit code: $LASTEXITCODE)" "WARN"
+            }
+        } elseif (Test-Path "computeheadless.exe") {
+            Write-Step "Running computeheadless directly (no profiler)..." "INFO"
             & .\computeheadless.exe
             if ($LASTEXITCODE -eq 0) {
                 Write-Step "computeheadless ran successfully!" "OK"
             } else {
                 Write-Step "computeheadless failed (exit code: $LASTEXITCODE)" "WARN"
-                
-                # Fallback: try gears (but don't use problematic benchmark flags)
-                Write-Step "Trying gears as fallback (will run until manually closed)..." "WARN"
-                if (Test-Path "gears.exe") {
-                    Write-Step "Close the gears window when done..." "INFO"
-                    $process = Start-Process -FilePath ".\gears.exe" -PassThru -NoNewWindow
-                    $process.WaitForExit()
-                } else {
-                    Write-Step "gears.exe not found" "WARN"
-                }
             }
         } else {
             Write-Step "computeheadless.exe not found" "ERROR"
+        }
+        
+        # If computeheadless failed, try gears as fallback
+        if ($LASTEXITCODE -ne 0) {
+            Write-Step "Trying gears as fallback (will run until manually closed)..." "WARN"
+            
+            if ($EnableProfiler -and (Test-Path "run-gears-with-profiler.bat")) {
+                Write-Step "Running gears with profiler integration..." "INFO"
+                Write-Step "Close the gears window to continue..." "INFO"
+                $process = Start-Process -FilePath ".\run-gears-with-profiler.bat" -PassThru -NoNewWindow
+                $process.WaitForExit()
+            } elseif (Test-Path "gears.exe") {
+                Write-Step "Running gears directly..." "INFO"
+                Write-Step "Close the gears window to continue..." "INFO"
+                $process = Start-Process -FilePath ".\gears.exe" -PassThru -NoNewWindow
+                $process.WaitForExit()
+            } else {
+                Write-Step "gears.exe not found" "WARN"
+            }
         }
     }
     catch {

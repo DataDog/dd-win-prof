@@ -18,6 +18,15 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 		..\.github\workflows\test.yml = ..\.github\workflows\test.yml
 	EndProjectSection
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "e2e-tests", "e2e-tests", "{E2E12345-6789-ABCD-EF01-234567890ABC}"
+	ProjectSection(SolutionItems) = preProject
+		..\e2e-tests\README.md = ..\e2e-tests\README.md
+		..\e2e-tests\vulcan_quickstart.ps1 = ..\e2e-tests\vulcan_quickstart.ps1
+		..\e2e-tests\patch_vulkan_for_profiling.ps1 = ..\e2e-tests\patch_vulkan_for_profiling.ps1
+		..\e2e-tests\setup_glm.ps1 = ..\e2e-tests\setup_glm.ps1
+		..\e2e-tests\vulcan_quickstart.bat = ..\e2e-tests\vulcan_quickstart.bat
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
