@@ -43,7 +43,7 @@ The profiler can be configured in two ways:
 
 
 Call [StartProfiler](./src/dd-win-prof/dd-win-prof.h) when you are ready to run the profiler.
-[StopProfiler](./src/dd-win-prof/dd-win-prof.h) when you want to stop it.
+[StopProfiler](./src/dd-win-prof/dd-win-prof.h) when you want to stop it. Note that, instead of using environment variables, it is possible to configure some settings via `SetupProfiler()` API.
 
 ### NOTE: use `DD_PROFILING_ENABLED=0`to disable profiling even if `StartProfiler` is called.
 
@@ -79,7 +79,7 @@ This is a Windows native profiler that performs CPU sampling and exports profile
 - Manages thread cleanup on thread detach
 
 **`dd-win-prof.cpp/.h`** - Public external API for applications to control profiling
-- Exports `StartProfiler()` and `StopProfiler()` functions for controlling the profiler
+- Exports `SetupProfiler()`, `StartProfiler()` and `StopProfiler()` functions for controlling the profiler
 
 ### Core Profiler Management
 
@@ -141,6 +141,11 @@ This is a Windows native profiler that performs CPU sampling and exports profile
 **`CpuTimeProvider.cpp/.h`** - CPU sampling collector
 - Inherits from `CollectorBase`
 - Defines sample types: "cpu" (nanoseconds) and "cpu-samples" (count)
+- Stores samples collected by `StackSamplerLoop`
+
+**`WallTimeProvider.cpp/.h`** - Walltime sampling collector
+- Inherits from `CollectorBase`
+- Defines sample types: "wall-time" (nanoseconds)
 - Stores samples collected by `StackSamplerLoop`
 
 **`SampleValueTypeProvider.cpp/.h`** - Sample type registry
@@ -221,13 +226,13 @@ This is a Windows native profiler that performs CPU sampling and exports profile
 
 ### Configuration
 
-Configuration is retrieved in `Configuration.cpp` from environment variables defined in `EnvironmentVariables.h` such as sampling period (default 10ms), number of threads to sample (default 5) or upload period (default 60s)
+Configuration is retrieved in `Configuration.cpp` from environment variables defined in `EnvironmentVariables.h` such as sampling period (default 20ms), number of threads to sample (default 5) or upload period (default 60s). It is also possible to set a few parameters via the `SetupProfiler()` API.
 Other settings are hardcoded:
 - Collection period: 60ms  
 - Max stack frames: 512
 
 ## Next steps 
-- wall time provider: don't filter out not running/scheduled threads
+- lock provider: detect wait pauses (use Wait Chain Transversal Windows API)
 - thread lifetime events (start and stop) to identify short lived threads
 
 ## Limitations
