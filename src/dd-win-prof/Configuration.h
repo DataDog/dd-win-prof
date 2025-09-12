@@ -52,6 +52,9 @@ public:
     void SetServiceName(const char* serviceName);
     void SetEnvironmentName(const char* environmentName);
     void SetVersion(const char* version);
+    void SetEndpoint(const char* url);
+    void SetApiKey(const char* apiKey);
+
     void SetCpuWallTimeSamplingPeriod(std::chrono::nanoseconds rate) { _cpuWallTimeSamplingPeriod = rate; }
     void SetWalltimeThreadsThreshold(int32_t threshold) { _walltimeThreadsThreshold = threshold; }
     void SetCpuThreadsThreshold(int32_t threshold) { _cpuThreadsThreshold = threshold; }

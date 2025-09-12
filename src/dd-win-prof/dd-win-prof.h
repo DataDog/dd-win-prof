@@ -20,6 +20,10 @@ typedef struct _ProfilerConfig
     const char* serviceName;
     const char* serviceVersion;
 
+    // DATADOG endpoint
+    const char* url;
+    const char* apiKey;
+
     // profiling tuning parameters
     uint64_t cpuWallTimeSamplingPeriodNs; // sampling period in nanoseconds (default: 20ms = 20,000,000ns)
     int32_t walltimeThreadsThreshold;     // number of threads to sample for wall time (default: 5, min: 5, max: 64)

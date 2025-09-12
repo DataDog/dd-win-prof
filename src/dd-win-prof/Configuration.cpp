@@ -33,6 +33,20 @@ void Configuration::SetVersion(const char* version)
     _version = version;
 }
 
+void Configuration::SetEndpoint(const char* url)
+{
+    _agentUrl = url;
+
+    // force agentless mode when setting the full URL
+    _isAgentLess = true;
+}
+
+void Configuration::SetApiKey(const char* apiKey)
+{
+    _apiKey = apiKey;
+}
+
+
 Configuration::Configuration()
 {
     //wchar_t* environment = GetEnvironmentStrings();

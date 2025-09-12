@@ -25,7 +25,7 @@ DD_WIN_PROF_API bool SetupProfiler(ProfilerConfig* pSettings)
     auto profiler = Profiler::GetInstance();
     if (profiler->IsStarted())
     {
-        Log::Warn("Profiler is already running.");
+        Log::Warn("SetupProfiler() must be called before StartProfiler().");
         return false;
     }
 
@@ -41,6 +41,14 @@ DD_WIN_PROF_API bool SetupProfiler(ProfilerConfig* pSettings)
     if (pSettings->serviceVersion != nullptr)
     {
         configuration->SetVersion(pSettings->serviceVersion);
+    }
+    if (pSettings->url != nullptr)
+    {
+        configuration->SetEndpoint(pSettings->url);
+    }
+    if (pSettings->apiKey != nullptr)
+    {
+        configuration->SetApiKey(pSettings->apiKey);
     }
 
     // TODO: enforce min/max values as for environment variables?

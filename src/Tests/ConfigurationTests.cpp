@@ -73,6 +73,8 @@ TEST_F(ConfigurationTest, ConfigurationCanBeOverriden) {
     config.SetCpuThreadsThreshold(10);
     config.SetWalltimeThreadsThreshold(15);
     config.SetCpuWallTimeSamplingPeriod(100ms);
+    config.SetApiKey("xxx-xxxx-xxxxx");
+    config.SetEndpoint("http://localhost:8126");
 
     // Assert
     // Test the overridden values
@@ -82,4 +84,8 @@ TEST_F(ConfigurationTest, ConfigurationCanBeOverriden) {
     EXPECT_EQ(config.CpuThreadsThreshold(), 10) << "CPU threads threshold should be overridden";
     EXPECT_EQ(config.WalltimeThreadsThreshold(), 15) << "Walltime threads threshold should be overridden";
     EXPECT_EQ(config.CpuWallTimeSamplingPeriod(), 100ms) << "CPU wall time sampling period should be overridden";
+    EXPECT_EQ(config.GetApiKey(), "xxx-xxxx-xxxxx") << "API key should be overridden";
+    EXPECT_EQ(config.GetAgentUrl(), "http://localhost:8126") << "Endpoint should be overridden";
+    // IsAgentless should be true when endpoint is set
+    EXPECT_TRUE(config.IsAgentless()) << "Should be in agentless mode when endpoint is set";
 }
