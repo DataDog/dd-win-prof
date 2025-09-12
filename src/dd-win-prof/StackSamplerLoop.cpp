@@ -18,7 +18,7 @@ StackSamplerLoop::StackSamplerLoop(
     WallTimeProvider* pWallTimeProvider
     )
     :
-    _samplingPeriod(pConfiguration->CpuWallTimeSamplingRate()),
+    _samplingPeriod(pConfiguration->CpuWallTimeSamplingPeriod()),
     _cpuThreadsThreshold(pConfiguration->CpuThreadsThreshold()),
     _walltimeThreadsThreshold(pConfiguration->WalltimeThreadsThreshold()),
     _shutdownRequested(false),

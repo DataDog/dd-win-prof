@@ -63,3 +63,23 @@ TEST_F(ConfigurationTest, ConfigurationUserTags) {
     // This should not crash and should return a valid container
     EXPECT_TRUE(userTags.empty() || !userTags.empty()) << "User tags should be accessible";
 }
+
+TEST_F(ConfigurationTest, ConfigurationCanBeOverriden) {
+    // Arrange & Act
+    Configuration config;
+    config.SetEnvironmentName("test-env");
+    config.SetServiceName("test-service");
+    config.SetVersion("1.0.0");
+    config.SetCpuThreadsThreshold(10);
+    config.SetWalltimeThreadsThreshold(15);
+    config.SetCpuWallTimeSamplingPeriod(100ms);
+
+    // Assert
+    // Test the overridden values
+    EXPECT_EQ(config.GetEnvironment(), "test-env") << "Environment should be overridden";
+    EXPECT_EQ(config.GetServiceName(), "test-service") << "Service name should be overridden";
+    EXPECT_EQ(config.GetVersion(), "1.0.0") << "Version should be overridden";
+    EXPECT_EQ(config.CpuThreadsThreshold(), 10) << "CPU threads threshold should be overridden";
+    EXPECT_EQ(config.WalltimeThreadsThreshold(), 15) << "Walltime threads threshold should be overridden";
+    EXPECT_EQ(config.CpuWallTimeSamplingPeriod(), 100ms) << "CPU wall time sampling period should be overridden";
+}

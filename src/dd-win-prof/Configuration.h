@@ -40,12 +40,21 @@ public:
     // Manual configuration methods (primarily for testing)
     void SetExportEnabled(bool enabled);
 
-    std::chrono::nanoseconds CpuWallTimeSamplingRate() const;
+    std::chrono::nanoseconds CpuWallTimeSamplingPeriod() const;
     int32_t WalltimeThreadsThreshold() const;
     int32_t CpuThreadsThreshold() const;
 
     template <typename T>
     static T GetEnvironmentValue(char const* name, T const& defaultValue);
+
+// some values can be set via API and will override the environment variables
+public:
+    void SetServiceName(const char* serviceName);
+    void SetEnvironmentName(const char* environmentName);
+    void SetVersion(const char* version);
+    void SetCpuWallTimeSamplingPeriod(std::chrono::nanoseconds rate) { _cpuWallTimeSamplingPeriod = rate; }
+    void SetWalltimeThreadsThreshold(int32_t threshold) { _walltimeThreadsThreshold = threshold; }
+    void SetCpuThreadsThreshold(int32_t threshold) { _cpuThreadsThreshold = threshold; }
 
 private:
     static tags ExtractUserTags();
@@ -96,13 +105,13 @@ private:
     std::string _namedPipeName;
     tags _userTags;
     bool _isAgentLess;
-    std::chrono::nanoseconds _cpuWallTimeSamplingRate;
+    std::chrono::nanoseconds _cpuWallTimeSamplingPeriod;
     int32_t _walltimeThreadsThreshold;
     int32_t _cpuThreadsThreshold;
 
     double _minimumCores;
 
-    static const uint64_t DefaultSamplingPeriod = 18;
+    static const uint64_t DefaultSamplingPeriod = 20;
     static const uint64_t MinimumSamplingPeriod = 5;
 };
 

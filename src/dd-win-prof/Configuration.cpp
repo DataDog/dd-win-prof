@@ -17,6 +17,22 @@ std::chrono::seconds const Configuration::DefaultDevUploadInterval = 20s;
 std::chrono::seconds const Configuration::DefaultProdUploadInterval = 60s;
 
 
+// these are used to override the environment variables via API
+void Configuration::SetServiceName(const char* serviceName)
+{
+    _serviceName = serviceName;
+}
+
+void Configuration::SetEnvironmentName(const char* environmentName)
+{
+    _environmentName = environmentName;
+}
+
+void Configuration::SetVersion(const char* version)
+{
+    _version = version;
+}
+
 Configuration::Configuration()
 {
     //wchar_t* environment = GetEnvironmentStrings();
@@ -45,7 +61,7 @@ Configuration::Configuration()
     _environmentName = GetEnvironmentValue(EnvironmentVariables::Environment, DefaultEnvironment);
     _serviceName = GetEnvironmentValue(EnvironmentVariables::ServiceName, OpSysTools::GetProcessName());
     _hostname = GetEnvironmentValue(EnvironmentVariables::Hostname, OpSysTools::GetHostname());
-    _cpuWallTimeSamplingRate = ExtractCpuWallTimeSamplingRate();
+    _cpuWallTimeSamplingPeriod = ExtractCpuWallTimeSamplingRate();
     _walltimeThreadsThreshold = ExtractWallTimeThreadsThreshold();
     _cpuThreadsThreshold = ExtractCpuThreadsThreshold();
     _apiKey = GetEnvironmentValue(EnvironmentVariables::ApiKey, DefaultEmptyString);
@@ -273,9 +289,9 @@ void Configuration::SetExportEnabled(bool enabled)
     _isExportEnabled = enabled;
 }
 
-std::chrono::nanoseconds Configuration::CpuWallTimeSamplingRate() const
+std::chrono::nanoseconds Configuration::CpuWallTimeSamplingPeriod() const
 {
-    return _cpuWallTimeSamplingRate;
+    return _cpuWallTimeSamplingPeriod;
 }
 
 int32_t Configuration::WalltimeThreadsThreshold() const
@@ -450,7 +466,7 @@ std::chrono::seconds Configuration::ExtractUploadInterval()
 std::chrono::nanoseconds Configuration::ExtractCpuWallTimeSamplingRate()
 {
     // default sampling rate is 18 ms; could be changed via env vars but down to a minimum of 5 ms
-    uint64_t rate = GetEnvironmentValue(EnvironmentVariables::CpuWallTimeSamplingRate, DefaultSamplingPeriod);
+    uint64_t rate = GetEnvironmentValue(EnvironmentVariables::CpuWallTimeSamplingPeriod, DefaultSamplingPeriod);
     if (rate < MinimumSamplingPeriod)
     {
         rate = MinimumSamplingPeriod;
