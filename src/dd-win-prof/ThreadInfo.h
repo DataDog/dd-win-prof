@@ -16,10 +16,10 @@ public:
     uint32_t GetThreadId() const { return _tid; }
     inline HANDLE GetOsThreadHandle() const { return _hThread; }
 
-    inline std::chrono::nanoseconds SetLastSampleTimestamp(std::chrono::nanoseconds value)
+    inline std::chrono::nanoseconds SetLastWalltimeSampleTimestamp(std::chrono::nanoseconds value)
     {
-        auto prevValue = _lastSampleHighPrecisionTimestamp;
-        _lastSampleHighPrecisionTimestamp = value;
+        auto prevValue = _lastWalltimeSampleTimestamp;
+        _lastWalltimeSampleTimestamp = value;
         return prevValue;
     }
 
@@ -39,6 +39,13 @@ public:
 
         auto prevValue = _cpuConsumption;
         _cpuConsumption = value;
+        return prevValue;
+    }
+
+    inline std::chrono::nanoseconds SetLastWaitSampleTimestamp(std::chrono::nanoseconds timestamp)
+    {
+        auto prevValue = _lastWaitSampleTimestamp;
+        _lastWaitSampleTimestamp = timestamp;
         return prevValue;
     }
 
@@ -68,13 +75,19 @@ private:
     ScopedHandle _hThread;
 
     // will be used for walltime
-    std::chrono::nanoseconds _lastSampleHighPrecisionTimestamp;
+    std::chrono::nanoseconds _lastWalltimeSampleTimestamp;
 
     // last CPU consumption in milliseconds
     std::chrono::milliseconds _cpuConsumption;
 
     // timestamp of the last CPU consumption sample
     std::chrono::nanoseconds _timestamp;
+
+    // keep track of the last time this thread was seen as waiting
+    // --> should be reset to 0 when the thread is no more waiting
+    //     (i.e. CPU profiler and lock detection part of walltime profiler)
+    // since we don't have the start/ end time of the wait, we "jump" from wait to wait
+    std::chrono::nanoseconds _lastWaitSampleTimestamp;
 
     // thread name, if available
     bool _hasThreadName = false;

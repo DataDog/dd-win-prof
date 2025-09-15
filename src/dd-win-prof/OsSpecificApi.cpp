@@ -8,6 +8,19 @@
 
 namespace OsSpecificApi {
 
+    typedef enum
+    {
+        Initialized,
+        Ready,
+        Running,
+        Standby,
+        Terminated,
+        Waiting,
+        Transition,
+        DeferredReady
+    } THREAD_STATE;
+
+
     const uint64_t msInSecond = 1000;
     const uint64_t msInMinute = 60 * 1000;
     const uint64_t msInHour = 60 * 60 * 1000;
@@ -66,13 +79,9 @@ namespace OsSpecificApi {
     struct CLIENT_ID
     {
         DWORD UniqueProcess; // Process ID
-#ifdef BIT64
         ULONG pad1;
-#endif
         DWORD UniqueThread; // Thread ID
-#ifdef BIT64
         ULONG pad2;
-#endif
     };
 
     typedef struct
@@ -81,9 +90,7 @@ namespace OsSpecificApi {
         FILETIME UserTime;
         FILETIME CreateTime;
         ULONG WaitTime;
-#ifdef BIT64
         ULONG pad1;
-#endif
         PVOID StartAddress;
         CLIENT_ID Client_Id;
         KPRIORITY CurrentPriority;
@@ -93,18 +100,6 @@ namespace OsSpecificApi {
         ULONG ThreadWaitReason;
         ULONG pad2;
     } SYSTEM_THREAD_INFORMATION;
-
-    typedef enum
-    {
-        Initialized,
-        Ready,
-        Running,
-        Standby,
-        Terminated,
-        Waiting,
-        Transition,
-        DeferredReady
-    } THREAD_STATE;
 
     #define SYSTEMTHREADINFORMATION 40
     typedef NTSTATUS(WINAPI* NtQueryInformationThread_)(HANDLE, int, PVOID, ULONG, PULONG);
@@ -141,24 +136,35 @@ namespace OsSpecificApi {
         // If some callstacks show non cpu-bound frames at the top, return true only for Running state
     }
 
-    //    isRunning,        cpu time          , failed
-    std::tuple<bool, std::chrono::milliseconds, bool> IsRunning(HANDLE hThread)
+
+    // internal helper to call NtQueryInformationThread undocumented API
+    bool QueryInformationThread(HANDLE hThread, SYSTEM_THREAD_INFORMATION& sti)
     {
         if (NtQueryInformationThread == nullptr)
         {
             if (!InitializeNtQueryInformationThreadCallback())
             {
-                return { false, 0ms, true };
+                return false;
             }
         }
 
-        SYSTEM_THREAD_INFORMATION sti = { 0 };
         auto size = sizeof(SYSTEM_THREAD_INFORMATION);
         ULONG buflen = 0;
         static bool isFirstError = true;
         NTSTATUS lResult = NtQueryInformationThread(hThread, SYSTEMTHREADINFORMATION, &sti, static_cast<ULONG>(size), &buflen);
         // deal with an invalid thread handle case (thread might have died)
         if (lResult != 0)
+        {
+            return false;
+        }
+        return true;
+    }
+
+    //    isRunning,        cpu time          , failed
+    std::tuple<bool, std::chrono::milliseconds, bool> IsRunning(HANDLE hThread)
+    {
+        SYSTEM_THREAD_INFORMATION sti = { 0 };
+        if (!QueryInformationThread(hThread, sti))
         {
             // This always happens in 32 bit so uses another API to at least get the CPU consumption
             return { false, GetThreadCpuTime(hThread), true };
@@ -168,6 +174,18 @@ namespace OsSpecificApi {
 
         return { IsRunning(sti.ThreadState), cpuTime, false };
     }
+
+    std::tuple<bool, ULONG, bool> IsWaiting(HANDLE hThread)
+    {
+        SYSTEM_THREAD_INFORMATION sti = { 0 };
+        if (!QueryInformationThread(hThread, sti))
+        {
+            return { false, 0xFFFF, true };
+        }
+
+        return { (sti.ThreadState == THREAD_STATE::Waiting), sti.ThreadWaitReason, false };
+    }
+
 
     uint32_t GetProcessorCount()
     {

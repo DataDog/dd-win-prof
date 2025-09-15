@@ -19,6 +19,8 @@ typedef enum
     CpuTime
 } PROFILING_TYPE;
 
+const ULONG WAIT_REASON_NONE = 0xFFFF;
+
 
 class StackSamplerLoop
 {
@@ -42,7 +44,8 @@ private:
     void CollectOneThreadSample(std::shared_ptr<ThreadInfo>& pThreadInfo,
         std::chrono::nanoseconds thisSampleTimestamp,
         std::chrono::nanoseconds duration,
-        PROFILING_TYPE profilingType);
+        PROFILING_TYPE profilingType,
+        ULONG waitingReason);  // waitingReason is only used for WallTime samples
     std::chrono::nanoseconds ComputeWallTime(std::chrono::nanoseconds currentTimestampNs, std::chrono::nanoseconds prevTimestampNs);
 
 
