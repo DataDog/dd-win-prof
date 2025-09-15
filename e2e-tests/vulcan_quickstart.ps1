@@ -9,6 +9,7 @@
 #   .\vulcan_quickstart.ps1 -CI                # CI mode (headless)
 #   .\vulcan_quickstart.ps1 -Verbose           # Verbose output
 #   .\vulcan_quickstart.ps1 -EnableProfiler    # Enable Datadog profiler integration
+#   .\vulcan_quickstart.ps1 -BuildTargets @("triangle")  # Build only specific examples
 
 param(
     [switch]$CI,
@@ -16,7 +17,8 @@ param(
     [switch]$Verbose,
     [switch]$ForceReconfigure,  # Force CMake reconfiguration
     [switch]$ForceDependencies,  # Force dependency re-setup
-    [switch]$EnableProfiler     # Enable Datadog profiler integration
+    [switch]$EnableProfiler,     # Enable Datadog profiler integration
+    [string[]]$BuildTargets = @("triangle", "computeheadless", "gears")  # Vulkan examples to build
 )
 
 # Configuration
@@ -497,7 +499,8 @@ try {
         "-B", $Build, 
         "-G", "Visual Studio 17 2022",
         "-A", "x64",
-        "-DUSE_RELATIVE_ASSET_PATH=ON"
+        "-DUSE_RELATIVE_ASSET_PATH=ON",
+        "-DCMAKE_CONFIGURATION_TYPES=Release"  # Only build Release, skip Debug
     )
     
     # Add additional options to help with asset/shader paths
@@ -528,9 +531,10 @@ try {
     
     Write-Step "[5/7] Building project (optimized build)..."
     
-    # Build only the essential targets for faster execution
-    Write-Step "Building essential targets: triangle, computeheadless, gears..."
-    & cmake --build $Build --config $Config --target triangle computeheadless gears
+    # Build only the specified targets for faster execution
+    $targetList = $BuildTargets -join " "
+    Write-Step "Building targets: $targetList..."
+    & cmake --build $Build --config $Config --target $BuildTargets
     if ($LASTEXITCODE -ne 0) { 
         Write-Step "Target build failed, trying full build as fallback..." "WARN"
         & cmake --build $Build --config $Config

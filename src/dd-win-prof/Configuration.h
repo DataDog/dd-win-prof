@@ -72,6 +72,7 @@ private:
     static fs::path ExtractPprofDirectory();
     static std::chrono::seconds GetDefaultUploadInterval();
     static bool GetDefaultDebugLogEnabled();
+    static bool GetBooleanEnvironmentValue(char const* name, bool const& defaultValue);
     static std::chrono::nanoseconds ExtractCpuWallTimeSamplingRate();
     static int32_t ExtractWallTimeThreadsThreshold();
     static int32_t ExtractCpuThreadsThreshold();

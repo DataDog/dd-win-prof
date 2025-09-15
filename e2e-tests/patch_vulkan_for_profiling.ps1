@@ -96,21 +96,16 @@ endif()
     $content = $content -replace "(# SPDX-License-Identifier: MIT\s*\n)", "`$1`n$profilerConfig"
     
     # Patch 2: Modify the buildExample function to add profiler linking
+    # Only create profiler scripts for the examples we actually build
     $profilerIntegration = @"
         
-        # Add Datadog profiler integration
-        message(STATUS "Checking profiler integration for `${EXAMPLE_NAME}...")
-        message(STATUS "ENABLE_DD_PROFILER: `${ENABLE_DD_PROFILER}")
-        message(STATUS "DD_PROFILER_DLL exists: `${DD_PROFILER_DLL}")
-        if(EXISTS `${DD_PROFILER_DLL})
-            message(STATUS "DLL exists, proceeding with profiler integration")
-        else()
-            message(WARNING "DLL does not exist, skipping profiler integration for `${EXAMPLE_NAME}")
-        endif()
+        # Add Datadog profiler integration (only for essential examples)
+        # These should match the targets built by vulcan_quickstart.ps1
+        set(ESSENTIAL_EXAMPLES "triangle;computeheadless;gears")
+        list(FIND ESSENTIAL_EXAMPLES `${EXAMPLE_NAME} IS_ESSENTIAL)
         
-        if(ENABLE_DD_PROFILER AND EXISTS `${DD_PROFILER_DLL})
-            message(STATUS "Generating profiler batch files for `${EXAMPLE_NAME}")
-            # No linking or code changes needed - we use DLL injection instead
+        if(ENABLE_DD_PROFILER AND EXISTS `${DD_PROFILER_DLL} AND IS_ESSENTIAL GREATER_EQUAL 0)
+            message(STATUS "Adding profiler integration for essential example: `${EXAMPLE_NAME}")
             
             # Copy profiler DLL and injector to output directory
             add_custom_command(TARGET `${EXAMPLE_NAME} POST_BUILD
@@ -150,6 +145,8 @@ Write-Host 'Note: Create a .env file in this directory to configure DD_SITE, DD_
 & '.\\ProfilerInjector.exe' '.\\`${EXAMPLE_NAME}.exe' `$args
 ")
             file(GENERATE OUTPUT "`${PS_SCRIPT_PATH}" CONTENT "`${PS_CONTENT}")
+        elseif(ENABLE_DD_PROFILER AND IS_ESSENTIAL LESS 0)
+            message(STATUS "Skipping profiler integration for non-essential example: `${EXAMPLE_NAME}")
         endif()
 "@
     

@@ -62,7 +62,7 @@ Configuration::Configuration()
     _debugLogEnabled = GetEnvironmentValue(EnvironmentVariables::DebugLogEnabled, GetDefaultDebugLogEnabled());
     _logDirectory = ExtractLogDirectory();
     _pprofDirectory = ExtractPprofDirectory();
-    _isProfilerEnabled = GetEnvironmentValue(EnvironmentVariables::ProfilerEnabled, true); // enabled by default via StartProfiling()
+    _isProfilerEnabled = GetBooleanEnvironmentValue(EnvironmentVariables::ProfilerEnabled, true); // enabled by default when not set
     _isProfilerAutoStartEnabled = GetEnvironmentValue(EnvironmentVariables::ProfilerAutoStart, false);
     _isCpuProfilingEnabled = GetEnvironmentValue(EnvironmentVariables::CpuProfilingEnabled, true);
     _isWallTimeProfilingEnabled = GetEnvironmentValue(EnvironmentVariables::WallTimeProfilingEnabled, true);
@@ -517,6 +517,24 @@ int32_t Configuration::ExtractWallTimeThreadsThreshold()
     return threshold;
 }
 
+
+bool Configuration::GetBooleanEnvironmentValue(char const* name, bool const& defaultValue)
+{
+    if (!EnvironmentExist(name))
+    {
+        return defaultValue;
+    }
+
+    bool result{};
+    auto r = ::GetEnvironmentValue(name);
+    if (!TryParseBooleanEnvironmentValue(r.c_str(), result))
+    {
+        // For invalid boolean values, return false (safer default)
+        return false;
+    }
+
+    return result;
+}
 
 template <typename T>
 T Configuration::GetEnvironmentValue(char const* name, T const& defaultValue)

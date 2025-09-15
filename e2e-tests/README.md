@@ -46,11 +46,15 @@ Note: DD_SERVICE is automatically set from the executable name.
 ## Build Options
 
 ```powershell
-# Build with profiling
+# Build with profiling (default: triangle, computeheadless, gears)
 .\vulcan_quickstart.ps1 -EnableProfiler
 
 # Build without profiling (default)
 .\vulcan_quickstart.ps1
+
+# Build only specific examples
+.\vulcan_quickstart.ps1 -EnableProfiler -BuildTargets @("triangle")
+.\vulcan_quickstart.ps1 -EnableProfiler -BuildTargets @("computeheadless", "gears")
 
 # Clean and rebuild
 .\vulcan_quickstart.ps1 -Clean
@@ -62,6 +66,12 @@ Note: DD_SERVICE is automatically set from the executable name.
 # Force reconfiguration
 .\vulcan_quickstart.ps1 -EnableProfiler -ForceReconfigure
 ```
+
+## Optimizations
+
+- **Release-only builds**: Only builds Release configuration (no Debug folders)
+- **Targeted builds**: Only builds essential examples by default (triangle, computeheadless, gears)
+- **Minimal profiler scripts**: Only creates profiler scripts for examples that are actually built
 
 ## Manual Script Usage
 
