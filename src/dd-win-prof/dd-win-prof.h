@@ -44,9 +44,10 @@ extern "C" {
     //   - false/0: Blocks all profiling (security override)
     //   - true/1 or not set: Allows profiling
     // 
+    // Test setting ONLY
+    // Zero-code profiling: Use ProfilerInjector.exe to inject the DLL with auto-start
     // DD_PROFILING_AUTO_START: Controls whether profiler auto-starts when DLL loads
     //   - true/1: Auto-start when DLL is injected/loaded
     //   - false/0 or not set: Manual control only
     //
-    // Zero-code profiling: Use ProfilerInjector.exe to inject the DLL with auto-start
 }

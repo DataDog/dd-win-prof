@@ -27,7 +27,7 @@ public :
 
     bool IsStarted() const { return _isStarted; }
     size_t GetThreadCount() const { return _pThreadList ? _pThreadList->Count() : 0; }
-    const Configuration& GetConfiguration() const { return *_pConfiguration; }
+    bool IsAutoStartEnabled() const { return _pConfiguration->IsProfilerAutoStartEnabled(); }
 
 public:
     static Configuration* GetConfiguration()
