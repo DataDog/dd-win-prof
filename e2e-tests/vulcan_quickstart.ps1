@@ -307,7 +307,7 @@ try {
         if (!(Test-Path $Root)) {
             New-Item -ItemType Directory -Path $Root -Force | Out-Null
         }
-        & git clone --depth=1 $RepoUrl $Src
+        & git clone --recursive --depth=1 $RepoUrl $Src
         if ($LASTEXITCODE -ne 0) { throw "Git clone failed" }
     } else {
         Push-Location $Src
@@ -316,6 +316,21 @@ try {
             Pop-Location
             throw "Git pull failed" 
         }
+        
+        # Check if submodules are initialized (specifically the assets submodule)
+        $assetsPath = Join-Path $Src "assets"
+        if ((Test-Path $assetsPath) -and ((Get-ChildItem $assetsPath -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0)) {
+            Write-Step "Assets submodule not initialized - updating submodules..."
+            & git submodule update --init --recursive --depth=1
+            if ($LASTEXITCODE -ne 0) { 
+                Write-Step "Submodule update failed" "WARN"
+            } else {
+                Write-Step "Submodules updated successfully" "OK"
+            }
+        } elseif (Test-Path $assetsPath) {
+            Write-Step "Assets already available" "OK"
+        }
+        
         Pop-Location
     }
     
@@ -347,16 +362,16 @@ try {
             
             # Check if GLM is available, if not try to install it via vcpkg or suggest manual installation
             $glmPaths = @(
-                "$Src\external\glm",
-                "$Src\third_party\glm", 
-                "$Src\libs\glm",
-                "${env:VCPKG_ROOT}\installed\x64-windows\include\glm" 
+                "$Src\external\glm\glm\glm.hpp",
+                "$Src\third_party\glm\glm\glm.hpp", 
+                "$Src\libs\glm\glm\glm.hpp",
+                "${env:VCPKG_ROOT}\installed\x64-windows\include\glm\glm.hpp" 
             )
             
             $glmFound = $false
             foreach ($glmPath in $glmPaths) {
                 if (Test-Path $glmPath) {
-                    Write-Step "Found GLM at: $glmPath" "OK"
+                    Write-Step "Found GLM at: $(Split-Path $glmPath)" "OK"
                     $glmFound = $true
                     break
                 }
@@ -373,12 +388,28 @@ try {
                     } else {
                         Write-Step "vcpkg GLM installation failed" "WARN"
                     }
-                } else {
-                    Write-Step "vcpkg not found. GLM may need to be installed manually." "WARN"
-                    Write-Step "Solutions:" "WARN"
-                    Write-Step "  1. Install vcpkg and run: vcpkg install glm:x64-windows" "WARN"  
-                    Write-Step "  2. Download GLM from https://github.com/g-truc/glm and extract to $Src\external\glm" "WARN"
-                    Write-Step "  3. The project may handle GLM via CMake FetchContent - continuing anyway..." "WARN"
+                }
+                
+                if (!$glmFound) {
+                    Write-Step "GLM not available. Trying automatic setup..." "WARN"
+                    $setupGlmScript = Join-Path $PSScriptRoot "setup_glm.ps1"
+                    if (Test-Path $setupGlmScript) {
+                        Write-Step "Running GLM setup script..."
+                        & $setupGlmScript
+                        if ($LASTEXITCODE -eq 0) {
+                            Write-Step "GLM setup completed successfully" "OK"
+                            $glmFound = $true
+                        } else {
+                            Write-Step "GLM setup script failed" "ERROR"
+                            Write-Step "Please manually install GLM or the build may fail" "ERROR"
+                        }
+                    } else {
+                        Write-Step "GLM setup script not found" "WARN"
+                        Write-Step "Solutions:" "WARN"
+                        Write-Step "  1. Install vcpkg and run: vcpkg install glm:x64-windows" "WARN"  
+                        Write-Step "  2. Download GLM from https://github.com/g-truc/glm and extract to $Src\external\glm" "WARN"
+                        Write-Step "  3. The project may handle GLM via CMake FetchContent - continuing anyway..." "WARN"
+                    }
                 }
             }
             
@@ -495,9 +526,16 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "CMake configuration failed" }
     }
     
-    Write-Step "[5/7] Building targets (triangle, computeheadless, gears)..."
+    Write-Step "[5/7] Building project (optimized build)..."
+    
+    # Build only the essential targets for faster execution
+    Write-Step "Building essential targets: triangle, computeheadless, gears..."
     & cmake --build $Build --config $Config --target triangle computeheadless gears
-    if ($LASTEXITCODE -ne 0) { throw "Build failed" }
+    if ($LASTEXITCODE -ne 0) { 
+        Write-Step "Target build failed, trying full build as fallback..." "WARN"
+        & cmake --build $Build --config $Config
+        if ($LASTEXITCODE -ne 0) { throw "Build failed" }
+    }
     
     Write-Step "[6/7] Optional CI/SwiftShader setup..."
     if ($CI -and $env:SWIFTSHADER_DIR) {
@@ -510,30 +548,33 @@ try {
     
     Write-Step "[6.5/7] Setting up assets for runtime..."
     $binPath = Join-Path $Build "bin\$Config"
+    $binParentPath = Join-Path $Build "bin"
     $assetsSource = Join-Path $Src "assets"
     $shadersSource = Join-Path $Src "shaders"
-    $assetsDest = Join-Path $binPath "assets"
-    $shadersDest = Join-Path $binPath "shaders"
     
-    # Always copy assets and shaders to bin directory where executables expect them
+    # Executables are in bin/Release/, so assets should be in bin/ (one level up)
+    # This gives the correct ../assets and ../shaders relative paths
+    $assetsDest = Join-Path $binParentPath "assets"
+    $shadersDest = Join-Path $binParentPath "shaders"
+    
     if (Test-Path $assetsSource) {
-        Write-Step "Copying assets to bin directory..."
+        Write-Step "Copying assets one level up from executables ($assetsDest)..."
         if (Test-Path $assetsDest) {
             Remove-Item $assetsDest -Recurse -Force
         }
         Copy-Item $assetsSource $assetsDest -Recurse -Force
-        Write-Step "Assets copied successfully" "OK"
+        Write-Step "Assets copied to $assetsDest" "OK"
     } else {
         Write-Step "Assets not found at $assetsSource" "WARN"
     }
     
     if (Test-Path $shadersSource) {
-        Write-Step "Copying shaders to bin directory..."
+        Write-Step "Copying shaders one level up from executables ($shadersDest)..."
         if (Test-Path $shadersDest) {
             Remove-Item $shadersDest -Recurse -Force
         }
         Copy-Item $shadersSource $shadersDest -Recurse -Force
-        Write-Step "Shaders copied successfully" "OK"
+        Write-Step "Shaders copied to $shadersDest" "OK"
     } else {
         Write-Step "Shaders not found at $shadersSource" "WARN"
     }
@@ -677,8 +718,8 @@ catch {
     Write-Step "   - Manual GLM setup: .\setup_glm.ps1" "ERROR"
     Write-Step ""
     Write-Step "3. Asset/Shader Path Issues:" "ERROR"
-    Write-Step "   - Assets are automatically copied during build" "ERROR"
-    Write-Step "   - Manual copy: .\copy_vulkan_assets.ps1" "ERROR"
+    Write-Step "   - Assets are automatically copied to build/ directory during build" "ERROR"
+    Write-Step "   - Executables expect assets at ../assets and ../shaders relative to bin/Release/" "ERROR"
     Write-Step ""
     Write-Step "4. Build Issues:" "ERROR"
     Write-Step "   - Try: .\vulcan_quickstart.ps1 -ForceReconfigure" "ERROR"
