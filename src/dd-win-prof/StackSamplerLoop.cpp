@@ -139,6 +139,11 @@ void StackSamplerLoop::CpuProfilingIteration()
 
             if (isRunning)
             {
+                // if it was waiting, reset the waiting timestamp
+                // TODO: not sure if a wait sample should be generated in case it was waiting when we detect that it is now running...
+                //       maybe the cpu iteration should happen before the walltime iteration?
+                pThreadInfo->SetLastWaitSampleTimestamp(0ns);
+
                 auto cpuForSample = currentConsumption - lastConsumption;
 
                 // we don't collect a sample for this thread is no CPU was consumed since the last check
@@ -163,7 +168,7 @@ void StackSamplerLoop::CpuProfilingIteration()
 
                     pThreadInfo->SetCpuConsumption(currentConsumption, thisSampleTimestamp);
 
-                    CollectOneThreadSample(pThreadInfo, thisSampleTimestamp, cpuForSample, PROFILING_TYPE::CpuTime);
+                    CollectOneThreadSample(pThreadInfo, thisSampleTimestamp, cpuForSample, PROFILING_TYPE::CpuTime, WAIT_REASON_NONE);
 
                     // don't scan more threads than nb logical cores
                     sampledThreads++;
@@ -200,6 +205,7 @@ void StackSamplerLoop::WalltimeProfilingIteration()
         }
 
         // don't sample the sampling thread
+        DWORD threadId = pThreadInfo->GetThreadId();
         if (pThreadInfo->GetThreadId() == ::GetCurrentThreadId())
         {
             pThreadInfo.reset();
@@ -218,10 +224,18 @@ void StackSamplerLoop::WalltimeProfilingIteration()
         }
 
         auto thisSampleTimestamp = OpSysTools::GetHighPrecisionTimestamp();
-        auto prevSampleTimestamp = pThreadInfo->SetLastSampleTimestamp(thisSampleTimestamp);
+        auto prevSampleTimestamp = pThreadInfo->SetLastWalltimeSampleTimestamp(thisSampleTimestamp);
         auto duration = ComputeWallTime(thisSampleTimestamp, prevSampleTimestamp);
 
-        CollectOneThreadSample(pThreadInfo, thisSampleTimestamp, duration, PROFILING_TYPE::WallTime);
+        // check if the thread is waiting and for for which reason
+        auto [isWaiting, waitReason, failure] = OsSpecificApi::IsWaiting(pThreadInfo->GetOsThreadHandle());
+        if (failure || !isWaiting)
+        {
+            waitReason = WAIT_REASON_NONE;
+        }
+
+        // get callstack and create sample (possibly mixed with wait information)
+        CollectOneThreadSample(pThreadInfo, thisSampleTimestamp, duration, PROFILING_TYPE::WallTime, waitReason);
 
         pThreadInfo.reset();
         i++;
@@ -232,7 +246,8 @@ void StackSamplerLoop::WalltimeProfilingIteration()
 void StackSamplerLoop::CollectOneThreadSample(std::shared_ptr<ThreadInfo>& pThreadInfo,
     std::chrono::nanoseconds thisSampleTimestamp,
     std::chrono::nanoseconds duration,
-    PROFILING_TYPE profilingType)
+    PROFILING_TYPE profilingType,
+    ULONG waitingReason)
 {
     // the thread needs to be suspended before capturing the stack
     if (!_stackFrameCollector.TrySuspendThread(pThreadInfo))
@@ -266,19 +281,37 @@ void StackSamplerLoop::CollectOneThreadSample(std::shared_ptr<ThreadInfo>& pThre
             _pCpuTimeProvider->Add(std::move(sample), duration);
         }
         else
-            if (profilingType == PROFILING_TYPE::WallTime)
+        if (profilingType == PROFILING_TYPE::WallTime)
+        {
+            std::chrono::nanoseconds waitDuration = 0ns;
+
+            // check if the thread is waiting
+            if (waitingReason != WAIT_REASON_NONE)
             {
-                Sample sample = Sample(
-                    thisSampleTimestamp,
-                    pThreadInfo,
-                    frames,
-                    framesCount);
-                _pWallTimeProvider->Add(std::move(sample), duration);
+                // compute the "current" wait duration
+                // since we don't have the start/ end time of the wait, we "jump" from wait to wait
+                auto lastWaitTimestamp = pThreadInfo->SetLastWaitSampleTimestamp(thisSampleTimestamp);
+                if (lastWaitTimestamp != 0ns)
+                {
+                    waitDuration = thisSampleTimestamp - lastWaitTimestamp;
+                }
+                else
+                {
+                    waitDuration = _samplingPeriod; // at least one sampling period has elapsed since the last wait sample
+                }
             }
-            else
-            {
-                // should neven happen
-            }
+
+            Sample sample = Sample(
+                thisSampleTimestamp,
+                pThreadInfo,
+                frames,
+                framesCount);
+            _pWallTimeProvider->Add(std::move(sample), duration, waitDuration, waitingReason);
+        }
+        else
+        {
+            // should neven happen
+        }
     }
 }
 

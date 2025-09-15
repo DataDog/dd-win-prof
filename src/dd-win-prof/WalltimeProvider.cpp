@@ -6,7 +6,8 @@
 
 std::vector<SampleValueType> WallTimeProvider::SampleTypeDefinitions(
     {
-        {"wall-time", "nanoseconds"}
+        {"wall-time", "nanoseconds"},
+        {"wait-time", "nanoseconds"}
     }
 );
 
