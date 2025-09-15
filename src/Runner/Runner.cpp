@@ -17,7 +17,9 @@
 //  2 : C++ calls
 //  3 : create threads
 void ShowHelp(const char* programName);
-bool ParseCommandLine(int argc, char* argv[], int& scenario, int& iterations);
+bool ParseCommandLine(int argc, char* argv[],
+    int& scenario, int& iterations,
+    std::string& serviceName, std::string& serviceEnv, std::string& serviceVersion);
 
 void SimpleCall2()
 {
@@ -124,7 +126,10 @@ int main(int argc, char* argv[])
 {
     int scenario = 0;
     int iterations = 1;
-    if (!ParseCommandLine(argc, argv, scenario, iterations))
+    std::string serviceName;
+    std::string serviceEnv;
+    std::string serviceVersion;
+    if (!ParseCommandLine(argc, argv, scenario, iterations, serviceName, serviceEnv, serviceVersion))
     {
         return -1; // Exit if command line parsing fails or help was requested
     }
@@ -136,6 +141,14 @@ int main(int argc, char* argv[])
          scenario == 2 ? "C++ class method calls" :
          scenario == 3 ? "Multi-threaded execution" : "Unknown") << ")\n";
     std::cout << "Iterations: " << iterations << "\n\n";
+
+    ProfilerConfig config;
+    ::ZeroMemory(&config, sizeof(ProfilerConfig));
+    config.size = sizeof(ProfilerConfig);
+    config.serviceEnvironment = serviceEnv.empty() ? nullptr : serviceEnv.c_str();
+    config.serviceName = serviceName.empty() ? nullptr : serviceName.c_str();
+    config.serviceVersion = serviceVersion.empty() ? nullptr : serviceVersion.c_str();
+    SetupProfiler(&config);
 
     if (!StartProfiler())
     {
@@ -183,16 +196,23 @@ void ShowHelp(const char* programName)
     std::cout << "                       2 = C++ class method calls\n";
     std::cout << "                       3 = Multi-threaded execution\n";
     std::cout << "  --iterations <num>   Number of times to repeat the scenario\n\n";
+    std::cout << "  --name <service>     Name of the service to profile\n\n";
+    std::cout << "  --version <version>  Version of the service to profile\n\n";
+    std::cout << "  --env <environment>  Environment of the service to profile\n\n";
     std::cout << "Optional Arguments:\n";
     std::cout << "  --help, -h          Show this help message\n\n";
     std::cout << "Examples:\n";
     std::cout << "  " << programName << " --scenario 1 --iterations 5\n";
     std::cout << "  " << programName << " --scenario 3 --iterations 1\n\n";
+    std::cout << "  " << programName << " --scenario 2 --iterations 10 --name testApp --version 42 --env local\n\n";
     std::cout << "Environment Variables (for debug output):\n";
     std::cout << "  DD_INTERNAL_PROFILING_OUTPUT_DIR  Directory to write debug pprof files\n\n";
 }
 
-bool ParseCommandLine(int argc, char* argv[], int& scenario, int& iterations)
+bool ParseCommandLine(
+    int argc, char* argv[],
+    int& scenario, int& iterations,
+    std::string& serviceName, std::string& serviceEnv, std::string& serviceVersion)
 {
     // Check for help request first
     for (int i = 1; i < argc; ++i)
@@ -270,6 +290,39 @@ bool ParseCommandLine(int argc, char* argv[], int& scenario, int& iterations)
                 ShowHelp(argv[0]);
                 return false;
             }
+        }
+        else if (_stricmp(argv[i], "--name") == 0)
+        {
+            if (i + 1 >= argc)
+            {
+                std::cout << "Error: Missing value for --name argument.\n";
+                ShowHelp(argv[0]);
+                return false;
+            }
+
+            serviceName = argv[++i];
+        }
+        else if (_stricmp(argv[i], "--version") == 0)
+        {
+            if (i + 1 >= argc)
+            {
+                std::cout << "Error: Missing value for --version argument.\n";
+                ShowHelp(argv[0]);
+                return false;
+            }
+
+            serviceVersion = argv[++i];
+        }
+        else if (_stricmp(argv[i], "--env") == 0)
+        {
+            if (i + 1 >= argc)
+            {
+                std::cout << "Error: Missing value for --env argument.\n";
+                ShowHelp(argv[0]);
+                return false;
+            }
+
+            serviceEnv = argv[++i];
         }
         else if (argv[i][0] == '-')
         {

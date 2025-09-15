@@ -169,6 +169,7 @@ copy $(ProjectDir)..\..\third-party\libdatadog-x64-windows\$(Configuration)\dyna
     <ClInclude Include="PprofAggregator.h" />
     <ClInclude Include="ProfilingConstants.h" />
     <ClInclude Include="Uuid.h" />
+    <ClInclude Include="WalltimeProvider.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Configuration.cpp" />
@@ -194,6 +195,7 @@ copy $(ProjectDir)..\..\third-party\libdatadog-x64-windows\$(Configuration)\dyna
     <ClCompile Include="ThreadList.cpp" />
     <ClCompile Include="PprofAggregator.cpp" />
     <ClCompile Include="Uuid.cpp" />
+    <ClCompile Include="WalltimeProvider.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="Resource.rc" />

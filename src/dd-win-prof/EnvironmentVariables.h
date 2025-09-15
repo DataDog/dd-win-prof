@@ -13,7 +13,7 @@ public:
     inline static const char* CpuProfilingEnabled = "DD_PROFILING_CPU_ENABLED";
     inline static const char* WallTimeProfilingEnabled = "DD_PROFILING_WALLTIME_ENABLED";
     inline static const char* ExportEnabled = "DD_INTERNAL_PROFILING_EXPORT_ENABLED";
-    inline static const char* CpuWallTimeSamplingRate = "DD_INTERNAL_PROFILING_SAMPLING_RATE";
+    inline static const char* CpuWallTimeSamplingPeriod = "DD_INTERNAL_PROFILING_SAMPLING_RATE";
     inline static const char* WalltimeThreadsThreshold = "DD_INTERNAL_PROFILING_WALLTIME_THREADS_THRESHOLD";
     inline static const char* CpuTimeThreadsThreshold = "DD_INTERNAL_PROFILING_CPUTIME_THREADS_THRESHOLD";
 

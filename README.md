@@ -28,12 +28,10 @@ The profiler can be configured in two ways:
 
 ### Option 1: Agent-based (with Datadog Agent)
 **Required environment variables:**
-- `DD_PROFILING_ENABLED=1` - Enable profiling
 - `DD_SERVICE=your-app-name` - Application name
 
 ### Option 2: Agentless (direct to Datadog)
 **Required environment variables:**
-- `DD_PROFILING_ENABLED=1` - Enable profiling
 - `DD_SERVICE=your-app-name` - Application name
 - `DD_PROFILING_AGENTLESS=1` - Enable agentless mode
 - `DD_SITE=datadoghq.com` - Datadog site (varies by region)
@@ -43,14 +41,16 @@ The profiler can be configured in two ways:
 - `DD_VERSION=1.0.0` - Application version for profile identification
 - `DD_ENV=production` - Environment name (dev, staging, production, etc.)
 
+
 Call [StartProfiler](./src/dd-win-prof/dd-win-prof.h) when you are ready to run the profiler.
-[StopProfiler](./src/dd-win-prof/dd-win-prof.h) when you want to stop it.
+[StopProfiler](./src/dd-win-prof/dd-win-prof.h) when you want to stop it. Note that, instead of using environment variables, it is possible to configure some settings via `SetupProfiler()` API.
+
+### NOTE: use `DD_PROFILING_ENABLED=0`to disable profiling even if `StartProfiler` is called.
 
 ### Example configuration:
 
 **Agentless setup:**
 ```bash
-DD_PROFILING_ENABLED=1
 DD_SERVICE=my-windows-app
 DD_PROFILING_AGENTLESS=1
 DD_SITE=datadoghq.com
@@ -61,7 +61,6 @@ DD_ENV=production
 
 **Agent-based setup:**
 ```bash
-DD_PROFILING_ENABLED=1
 DD_SERVICE=my-windows-app
 DD_VERSION=1.2.3
 DD_ENV=production
@@ -80,7 +79,7 @@ This is a Windows native profiler that performs CPU sampling and exports profile
 - Manages thread cleanup on thread detach
 
 **`dd-win-prof.cpp/.h`** - Public external API for applications to control profiling
-- Exports `StartProfiler()` and `StopProfiler()` functions for controlling the profiler
+- Exports `SetupProfiler()`, `StartProfiler()` and `StopProfiler()` functions for controlling the profiler
 
 ### Core Profiler Management
 
@@ -142,6 +141,11 @@ This is a Windows native profiler that performs CPU sampling and exports profile
 **`CpuTimeProvider.cpp/.h`** - CPU sampling collector
 - Inherits from `CollectorBase`
 - Defines sample types: "cpu" (nanoseconds) and "cpu-samples" (count)
+- Stores samples collected by `StackSamplerLoop`
+
+**`WallTimeProvider.cpp/.h`** - Walltime sampling collector
+- Inherits from `CollectorBase`
+- Defines sample types: "wall-time" (nanoseconds)
 - Stores samples collected by `StackSamplerLoop`
 
 **`SampleValueTypeProvider.cpp/.h`** - Sample type registry
@@ -222,13 +226,13 @@ This is a Windows native profiler that performs CPU sampling and exports profile
 
 ### Configuration
 
-Configuration is retrieved in `Configuration.cpp` from environment variables defined in `EnvironmentVariables.h` such as sampling period (default 10ms), number of threads to sample (default 5) or upload period (default 60s)
+Configuration is retrieved in `Configuration.cpp` from environment variables defined in `EnvironmentVariables.h` such as sampling period (default 20ms), number of threads to sample (default 5) or upload period (default 60s). It is also possible to set a few parameters via the `SetupProfiler()` API.
 Other settings are hardcoded:
 - Collection period: 60ms  
 - Max stack frames: 512
 
 ## Next steps 
-- wall time provider: don't filter out not running/scheduled threads
+- lock provider: detect wait pauses (use Wait Chain Transversal Windows API)
 - thread lifetime events (start and stop) to identify short lived threads
 
 ## Limitations

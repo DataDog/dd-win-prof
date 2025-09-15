@@ -61,6 +61,9 @@
     <ClCompile Include="Uuid.cpp">
       <Filter>Source</Filter>
     </ClCompile>
+    <ClCompile Include="WalltimeProvider.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="CollectorBase.h">
@@ -148,6 +151,9 @@
       <Filter>Includes</Filter>
     </ClInclude>
     <ClInclude Include="resource.h" />
+    <ClInclude Include="WalltimeProvider.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Source">

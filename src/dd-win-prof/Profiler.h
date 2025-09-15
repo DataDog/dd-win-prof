@@ -30,6 +30,11 @@ public :
     const Configuration& GetConfiguration() const { return *_pConfiguration; }
 
 public:
+    static Configuration* GetConfiguration()
+    {
+        return _pConfiguration.get();
+    }
+
     static Profiler* GetInstance()
     {
         return _this;
@@ -50,17 +55,16 @@ private:
     inline static constexpr std::chrono::seconds UploadInterval = std::chrono::seconds(10);
 
     static Profiler* _this;
+    static std::unique_ptr<Configuration> _pConfiguration;
 
     bool _isStarted;
-
-    std::unique_ptr<Configuration> _pConfiguration;
 
     std::unique_ptr<ThreadList> _pThreadList;
     std::unique_ptr<StackSamplerLoop> _pStackSamplerLoop;
 
     // providers
     std::unique_ptr<CpuTimeProvider> _pCpuTimeProvider = nullptr;
-    // TODO: std::unique_ptr<WallTimeProvider> _pCpuWallTimeProvider = nullptr;
+    std::unique_ptr<WallTimeProvider> _pCpuWallTimeProvider = nullptr;
 
     // exporter
     std::unique_ptr<ProfileExporter> _pProfileExporter = nullptr;

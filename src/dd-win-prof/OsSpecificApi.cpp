@@ -4,6 +4,7 @@
 #include "pch.h"
 
 #include <winternl.h>
+#include <Windows.h>
 
 namespace OsSpecificApi {
 
@@ -171,7 +172,7 @@ namespace OsSpecificApi {
     uint32_t GetProcessorCount()
     {
         // https://devblogs.microsoft.com/oldnewthing/20200824-00/?p=104116
-        auto nbProcs = GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+        auto nbProcs = ::GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
         if (nbProcs == 0)
         {
             return 1;
@@ -179,4 +180,200 @@ namespace OsSpecificApi {
 
         return nbProcs;
     }
+
+    std::string GetCpuVendor()
+    {
+        int cpuInfo[4];
+
+        // the function id 0 returns model of CPU
+        ::ZeroMemory(cpuInfo, sizeof(cpuInfo));
+        __cpuid(cpuInfo, 0);
+
+        char vendorName[13]; // 3 x 4 characters + trailing \0
+        ::ZeroMemory(vendorName, sizeof(vendorName));
+        memcpy(vendorName, &(cpuInfo[1]), 4);
+        memcpy(vendorName + 4, &(cpuInfo[3]), 4);
+        memcpy(vendorName + 8, &(cpuInfo[2]), 4);
+
+        return vendorName;
+    }
+
+    std::string GetCpuModel()
+    {
+        int cpuInfo[4];
+
+        // the function id 0x80000000 returns the "last" number of extended slots (as function id)
+        ::ZeroMemory(cpuInfo, sizeof(cpuInfo));
+        __cpuid(cpuInfo, 0x80000000);
+
+        // the characters of the CPU name are stored in extended information at slots 2 up to 4
+        unsigned int lastSlot = cpuInfo[0];
+
+        char szModel[49]; // 3 x 4 x 4 characters + trailing \0
+        ::ZeroMemory(szModel, sizeof(szModel));
+
+        // get the information associated with each slot where the name can be found
+        for (uint32_t i = 0x80000002; i <= max(lastSlot, 0x80000004); ++i)
+        {
+            // get the extended information up to the slot 4
+            ::ZeroMemory(cpuInfo, sizeof(cpuInfo));
+            __cpuid(cpuInfo, i);
+
+            // each slot can contain up to 16 characters (hence the +16 offset to copy characters of each slot)
+            if (i == 0x80000002)
+            {
+                memcpy(szModel, cpuInfo, sizeof(cpuInfo));
+            }
+            else if (i == 0x80000003)
+            {
+                // no more character to add
+                if (cpuInfo[0] == 0)
+                {
+                    break;
+                }
+
+                memcpy(szModel + 16, cpuInfo, sizeof(cpuInfo));
+            }
+            else if (i == 0x80000004)
+            {
+                // no more character to add
+                if (cpuInfo[0] == 0)
+                {
+                    break;
+                }
+
+                memcpy(szModel + 32, cpuInfo, sizeof(cpuInfo));
+                break;
+            }
+        }
+
+        return szModel;
+    }
+
+    const char* KEY_GPU_PREFIX = "SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}\\000";
+
+    // could have more than one GPU so need to iterate on 0000, 0001 and so forth until no more key
+    bool GetGpuFromRegistry(
+        int device,
+        std::string& driverDesc,
+        std::string& driverVersion,
+        std::string& driverDate,
+        std::string& gpuName,
+        std::string& gpuChip,
+        uint64_t& gpuRam)
+    {
+        HKEY hKey;
+        std::string keyName = KEY_GPU_PREFIX + std::to_string(device);
+        //char keyName[256];
+        //::ZeroMemory(keyName, sizeof(keyName));
+        //strcpy_s(keyName, sizeof(keyName), KEY_GPU_PREFIX);
+        //int keyLen = strlen(keyName);
+        //keyName[keyLen] = static_cast<char>(48 + device);
+        //keyName[keyLen+1] = '\0';
+
+        if (::RegOpenKeyExA(
+            HKEY_LOCAL_MACHINE,
+            keyName.c_str(),
+            0, KEY_READ, &hKey) == ERROR_SUCCESS)
+        {
+            char szValue[256];
+            DWORD size = sizeof(szValue);
+            if (::RegQueryValueExA(hKey, "DriverDesc", nullptr, nullptr, (LPBYTE)szValue, &size) == ERROR_SUCCESS)
+            {
+                driverDesc = szValue;
+            }
+
+            size = sizeof(szValue);
+            if (::RegQueryValueExA(hKey, "DriverVersion", nullptr, nullptr, (LPBYTE)szValue, &size) == ERROR_SUCCESS)
+            {
+                driverVersion = szValue;
+            }
+
+            size = sizeof(szValue);
+            if (::RegQueryValueExA(hKey, "DriverDate", nullptr, nullptr, (LPBYTE)szValue, &size) == ERROR_SUCCESS)
+            {
+                driverDate = szValue;
+            }
+
+            size = sizeof(szValue);
+            if (::RegQueryValueExA(hKey, "HardwareInformation.AdapterString", nullptr, nullptr, (LPBYTE)szValue, &size) == ERROR_SUCCESS)
+            {
+                gpuName = szValue;
+            }
+
+            size = sizeof(szValue);
+            if (::RegQueryValueExA(hKey, "HardwareInformation.ChipType", nullptr, nullptr, (LPBYTE)szValue, &size) == ERROR_SUCCESS)
+            {
+                gpuChip = szValue;
+            }
+
+            gpuRam = 0;
+            size = sizeof(gpuRam);
+
+            // I don't know what HardwareInformation.MemorySize contains...
+            if (::RegQueryValueExA(hKey, "HardwareInformation.qwMemorySize", nullptr, nullptr, (LPBYTE)&gpuRam, &size) == ERROR_SUCCESS)
+            {
+                // RAM on the display card
+            }
+
+            ::RegCloseKey(hKey);
+            return true;
+        }
+
+        ::RegCloseKey(hKey);
+        return false;
+    }
+
+    bool GetCpuCores(int& physicalCores, int& logicalCores)
+    {
+        SYSTEM_INFO sysInfo;
+        ::ZeroMemory(&sysInfo, sizeof(sysInfo));
+        ::GetSystemInfo(&sysInfo);
+        logicalCores = sysInfo.dwNumberOfProcessors;
+
+        // get the count of cores information
+        DWORD len = 0;
+        ::GetLogicalProcessorInformationEx(RelationProcessorCore, nullptr, &len);
+        std::vector<uint8_t> buffer(len);
+
+        // iterate on all cores
+        if (::GetLogicalProcessorInformationEx(RelationProcessorCore,
+            reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(buffer.data()), &len))
+        {
+            physicalCores = 0;
+            auto ptr = reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(buffer.data());
+            size_t offset = 0;
+            while (offset < len)
+            {
+                if (ptr->Relationship == RelationProcessorCore)
+                    physicalCores++;
+                offset += ptr->Size;
+                ptr = reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(buffer.data() + offset);
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    bool GetMemoryInfo(uint64_t& totalPhys, uint64_t& availPhys, uint32_t& memoryLoad)
+    {
+        MEMORYSTATUSEX statex;
+        statex.dwLength = sizeof(statex);
+        if (::GlobalMemoryStatusEx(&statex))
+        {
+            totalPhys = statex.ullTotalPhys;
+            availPhys = statex.ullAvailPhys;
+            memoryLoad = statex.dwMemoryLoad;
+            return true;
+        }
+
+        totalPhys = 0;
+        availPhys = 0;
+        memoryLoad = 0;
+        return false;
+    }
+
+
 } // namespace OsSpecificApi
