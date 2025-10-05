@@ -24,6 +24,8 @@ param(
     [switch]$ForceReconfigure,  # Force CMake reconfiguration
     [switch]$ForceDependencies,  # Force dependency re-setup
     [switch]$EnableProfiler,     # Enable Datadog profiler integration
+    [string]$ProfilerDllDir = "",  # Optional: folder containing dd-win-prof.dll (defaults to src/x64/Release)
+    [string]$RepoRef = "",        # Optional: git ref/commit/tag to checkout for Vulkan examples cache keying
     [string[]]$BuildTargets = @("triangle", "computeheadless", "gears")  # Vulkan examples to build
 )
 
@@ -34,9 +36,41 @@ $Src = Join-Path $Root "Vulkan"
 $Build = Join-Path $Root "build"
 $Config = "Release"
 
+# Determine profiler DLL directory - look in src/x64/Release or src/dd-win-prof/x64/Release
+if ([string]::IsNullOrWhiteSpace($ProfilerDllDir)) {
+    $srcDir = Join-Path $PSScriptRoot "..\src"
+    $candidates = @(
+        (Join-Path $srcDir "x64\$Config"),
+        (Join-Path $srcDir "dd-win-prof\x64\$Config")
+    )
+    foreach ($candidate in $candidates) {
+        if (Test-Path (Join-Path $candidate "dd-win-prof.dll")) {
+            $ProfilerDllDir = $candidate
+            break
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($ProfilerDllDir)) {
+        $ProfilerDllDir = $candidates[0]  # Default to first candidate
+    }
+}
+
+# Also determine injector path
+$ProfilerInjectorExe = $null
+$injectorCandidates = @(
+    (Join-Path (Split-Path $ProfilerDllDir -Parent) "ProfilerInjector.exe"),
+    (Join-Path $ProfilerDllDir "ProfilerInjector.exe")
+)
+foreach ($candidate in $injectorCandidates) {
+    if (Test-Path $candidate) {
+        $ProfilerInjectorExe = $candidate
+        break
+    }
+}
+
 function Write-Step {
     param([string]$Message, [string]$Level = "INFO")
     $timestamp = Get-Date -Format "HH:mm:ss"
+    if ($Level -eq "INFO" -and -not $Verbose) { return }
     switch ($Level) {
         "ERROR" { Write-Host "[$timestamp] [ERROR] $Message" -ForegroundColor Red }
         "WARN"  { Write-Host "[$timestamp] [WARN] $Message" -ForegroundColor Yellow }
@@ -319,7 +353,12 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Git clone failed" }
     } else {
         Push-Location $Src
-        & git pull --ff-only
+        if ($RepoRef) {
+            & git fetch --tags --force
+            & git checkout --force $RepoRef
+        } else {
+            & git pull --ff-only
+        }
         if ($LASTEXITCODE -ne 0) { 
             Pop-Location
             throw "Git pull failed" 
@@ -437,10 +476,9 @@ try {
         Write-Step "Enabling Datadog profiler integration..."
         
         # Check if required profiler files exist
-        $dllPath = Join-Path $PSScriptRoot "..\src\x64\$Config\dd-win-prof.dll"
-        $injectorPath = Join-Path $PSScriptRoot "..\src\x64\$Config\ProfilerInjector.exe"
+        $dllPath = Join-Path $ProfilerDllDir "dd-win-prof.dll"
         
-        Write-Step "Checking for required profiler files..."
+        Write-Step "Profiler DLL directory: $ProfilerDllDir"
         
         if (Test-Path $dllPath) {
             Write-Step "dd-win-prof.dll found at: $dllPath" "OK"
@@ -449,25 +487,28 @@ try {
             Write-Step "Please build the profiler solution first using Visual Studio:" "ERROR"
             Write-Step "  1. Open src/WindowsProfiler.sln in Visual Studio" "ERROR"
             Write-Step "  2. Build -> Build Solution (or press Ctrl+Shift+B)" "ERROR"
-            Write-Step "  3. Ensure both dd-win-prof and ProfilerInjector projects build successfully" "ERROR"
-            Write-Step "Batch files will NOT be generated without the DLL!" "ERROR"
+            Write-Step "  3. Ensure dd-win-prof project builds successfully" "ERROR"
             exit 1
         }
         
-        if (Test-Path $injectorPath) {
-            Write-Step "ProfilerInjector.exe found at: $injectorPath" "OK"
+        if ($ProfilerInjectorExe -and (Test-Path $ProfilerInjectorExe)) {
+            Write-Step "ProfilerInjector.exe found at: $ProfilerInjectorExe" "OK"
         } else {
-            Write-Step "WARNING: ProfilerInjector.exe not found at: $injectorPath" "WARN"
+            Write-Step "WARNING: ProfilerInjector.exe not found" "WARN"
             Write-Step "Please ensure ProfilerInjector project is built in Visual Studio" "WARN"
         }
+        
+        # Add profiler DLL directory to PATH so it can be found at runtime
+        $env:PATH = "$ProfilerDllDir;$env:PATH"
+        Write-Step "Added profiler DLL directory to PATH" "OK"
         
         $patchScript = Join-Path $PSScriptRoot "patch_vulkan_for_profiling.ps1"
         if (Test-Path $patchScript) {
             try {
                 # Force reapply the patch by undoing first, then applying
                 Write-Step "Ensuring fresh profiler patch application..."
-                & $patchScript -Undo 2>$null  # Ignore errors if no backup exists
-                & $patchScript
+                & $patchScript -Undo -ProfilerDllDir $ProfilerDllDir -Verbose:$Verbose 2>$null  # Ignore errors if no backup exists
+                & $patchScript -ProfilerDllDir $ProfilerDllDir -Verbose:$Verbose
                 if ($LASTEXITCODE -eq 0) {
                     Write-Step "Vulkan examples patched for profiler integration" "OK"
                 } else {
@@ -627,10 +668,10 @@ try {
     # Run from bin directory where assets are now located
     Push-Location $binPath
     try {
-        # Check if profiler is enabled and use appropriate launcher
-        if ($EnableProfiler -and (Test-Path "run-computeheadless-with-profiler.bat")) {
+        # Check if profiler is enabled and use ProfilerInjector
+        if ($EnableProfiler -and $ProfilerInjectorExe -and (Test-Path $ProfilerInjectorExe)) {
             Write-Step "Running computeheadless with profiler integration..." "INFO"
-            & .\run-computeheadless-with-profiler.bat
+            & $ProfilerInjectorExe ".\computeheadless.exe"
             if ($LASTEXITCODE -eq 0) {
                 Write-Step "computeheadless with profiler ran successfully!" "OK"
             } else {
@@ -666,15 +707,9 @@ try {
         $exampleExe = Join-Path $binPath "$example.exe"
         if (Test-Path $exampleExe) {
             Write-Step "# $example (windowed example):" "INFO"
-            if ($EnableProfiler) {
-                $profilerBat = Join-Path $binPath "run-$example-with-profiler.bat"
-                if (Test-Path $profilerBat) {
-                    Write-Step "  cd `"$binPath`"" "INFO"
-                    Write-Step "  .\run-$example-with-profiler.bat" "INFO"
-                } else {
-                    Write-Step "  cd `"$binPath`"" "INFO"
-                    Write-Step "  ProfilerInjector.exe $example.exe" "INFO"
-                }
+            if ($EnableProfiler -and $ProfilerInjectorExe) {
+                Write-Step "  cd `"$binPath`"" "INFO"
+                Write-Step "  `"$ProfilerInjectorExe`" $example.exe" "INFO"
             } else {
                 Write-Step "  cd `"$binPath`"" "INFO"
                 Write-Step "  .\$example.exe" "INFO"
@@ -685,17 +720,11 @@ try {
     
     # Show available executables
     Write-Step "Available executables in build directory:" "INFO"
-    $availableExes = Get-ChildItem $binPath -Filter "*.exe" | Where-Object { $_.Name -ne "ProfilerInjector.exe" }
+    $availableExes = Get-ChildItem $binPath -Filter "*.exe" -ErrorAction SilentlyContinue
     foreach ($exe in $availableExes) {
-        $exeName = $exe.BaseName
         Write-Step "  $($exe.Name)" "INFO"
-        if ($EnableProfiler) {
-            $profilerBat = Join-Path $binPath "run-$exeName-with-profiler.bat"
-            if (Test-Path $profilerBat) {
-                Write-Step "    With profiler: .\run-$exeName-with-profiler.bat" "INFO"
-            } else {
-                Write-Step "    With profiler: ProfilerInjector.exe $($exe.Name)" "INFO"
-            }
+        if ($EnableProfiler -and $ProfilerInjectorExe) {
+            Write-Step "    With profiler: `"$ProfilerInjectorExe`" $($exe.Name)" "INFO"
         }
     }
     
