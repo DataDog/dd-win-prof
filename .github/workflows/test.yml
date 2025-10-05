@@ -86,3 +86,8 @@ jobs:
           third-party/libdatadog-x64-windows/Release/dynamic/datadog_profiling_ffi.dll
         retention-days: 7
 
+  e2e-tests:
+    needs: test
+    if: success()
+    uses: ./.github/workflows/e2e.yml
+

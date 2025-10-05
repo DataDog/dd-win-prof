@@ -1,17 +1,14 @@
 name: E2E Vulkan Tests
 
 on:
-  workflow_run:
-    workflows: ["Build and Test"]
-    types:
-      - completed
+  workflow_call:
+  workflow_dispatch:
 
 env:
   VULKAN_REF: "${{ vars.VULKAN_REF || 'ce235bffe1bc1fc3267ab6680b806c8110f70562' }}"
 
 jobs:
   e2e:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: windows-2022
 
     steps:
