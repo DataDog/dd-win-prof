@@ -1,5 +1,6 @@
 # Vulkan Quickstart Script - PowerShell Version
 # Enhanced environment setup for better tool detection
+# Runs headless examples automatically and provides command lines for windowed examples
 #
 # Usage Examples:
 #   .\vulcan_quickstart.ps1                    # Normal run (skips setup if already done)
@@ -10,6 +11,11 @@
 #   .\vulcan_quickstart.ps1 -Verbose           # Verbose output
 #   .\vulcan_quickstart.ps1 -EnableProfiler    # Enable Datadog profiler integration
 #   .\vulcan_quickstart.ps1 -BuildTargets @("triangle")  # Build only specific examples
+#
+# The script will:
+# - Copy .env files from various locations to the binary directory for profiler configuration
+# - Run only headless examples (computeheadless) automatically
+# - Display command lines for running windowed examples manually
 
 param(
     [switch]$CI,
@@ -550,7 +556,7 @@ try {
         }
     }
     
-    Write-Step "[6.5/7] Setting up assets for runtime..."
+    Write-Step "[6.5/7] Setting up assets and environment for runtime..."
     $binPath = Join-Path $Build "bin\$Config"
     $binParentPath = Join-Path $Build "bin"
     $assetsSource = Join-Path $Src "assets"
@@ -583,10 +589,39 @@ try {
         Write-Step "Shaders not found at $shadersSource" "WARN"
     }
     
-    Write-Step "[7/7] Running samples..."
+    # Copy .env file if found (for profiler configuration)
+    Write-Step "Checking for .env file..."
+    $envSearchPaths = @(
+        (Join-Path $PSScriptRoot ".env"),                    # Same directory as script
+        (Join-Path $PSScriptRoot "..\..\.env"),             # Project root
+        (Join-Path $Root ".env"),                           # Vulkan examples root
+        (Join-Path $Src ".env")                             # Vulkan source root
+    )
+    
+    $envFound = $false
+    foreach ($envPath in $envSearchPaths) {
+        if (Test-Path $envPath) {
+            $envDest = Join-Path $binPath ".env"
+            Write-Step "Found .env file at: $envPath"
+            Copy-Item $envPath $envDest -Force
+            Write-Step "Copied .env file to: $envDest" "OK"
+            $envFound = $true
+            break
+        }
+    }
+    
+    if (!$envFound) {
+        Write-Step "No .env file found. Profiler will use environment variables or defaults." "WARN"
+        Write-Step "You can create a .env file at any of these locations:" "WARN"
+        foreach ($path in $envSearchPaths) {
+            Write-Step "  $path" "WARN"
+        }
+    }
+    
+    Write-Step "[7/7] Running headless samples and providing command lines..."
     $exePath = Join-Path $binPath "computeheadless.exe"
     
-    Write-Step "== computeheadless (no window; good for CI) =="
+    Write-Step "== computeheadless (headless execution) =="
     Write-Step "Executable: $exePath"
     
     # Run from bin directory where assets are now located
@@ -612,25 +647,6 @@ try {
         } else {
             Write-Step "computeheadless.exe not found" "ERROR"
         }
-        
-        # If computeheadless failed, try gears as fallback
-        if ($LASTEXITCODE -ne 0) {
-            Write-Step "Trying gears as fallback (will run until manually closed)..." "WARN"
-            
-            if ($EnableProfiler -and (Test-Path "run-gears-with-profiler.bat")) {
-                Write-Step "Running gears with profiler integration..." "INFO"
-                Write-Step "Close the gears window to continue..." "INFO"
-                $process = Start-Process -FilePath ".\run-gears-with-profiler.bat" -PassThru -NoNewWindow
-                $process.WaitForExit()
-            } elseif (Test-Path "gears.exe") {
-                Write-Step "Running gears directly..." "INFO"
-                Write-Step "Close the gears window to continue..." "INFO"
-                $process = Start-Process -FilePath ".\gears.exe" -PassThru -NoNewWindow
-                $process.WaitForExit()
-            } else {
-                Write-Step "gears.exe not found" "WARN"
-            }
-        }
     }
     catch {
         Write-Step "Error running computeheadless: $($_.Exception.Message)" "WARN"
@@ -639,72 +655,52 @@ try {
         Pop-Location
     }
     
-    if (!$CI) {
-        Write-Step "== triangle (opens a window; close it to continue) =="
-        Push-Location $binPath
-        
-        # Check if profiler is enabled and use appropriate launcher
-        if ($EnableProfiler -and (Test-Path "run-triangle-with-profiler.bat")) {
-            Write-Step "Running triangle with profiler integration..." "INFO"
-            try {
-                & .\run-triangle-with-profiler.bat
-                Start-Sleep 5
-            } catch {
-                Write-Step "Profiler script failed, trying direct execution..." "WARN"
-                if (Test-Path "triangle.exe") {
-                    Start-Process -FilePath "triangle.exe" -WorkingDirectory $binPath -NoNewWindow
-                    Start-Sleep 5
-                }
-            }
-        } elseif (Test-Path "triangle.exe") {
-            Start-Process -FilePath "triangle.exe" -WorkingDirectory $binPath -NoNewWindow
-            Start-Sleep 5
-        } else {
-            Write-Step "triangle.exe not found" "WARN"
-        }
-        
-        Write-Step "== gears demo (runs until manually closed) =="
-        
-        # Check if profiler is enabled and use appropriate launcher
-        if ($EnableProfiler -and (Test-Path "run-gears-with-profiler.bat")) {
-            Write-Step "Running gears with profiler integration..." "INFO"
-            Write-Step "Close the gears window to continue..." "INFO"
-            try {
-                $process = Start-Process -FilePath ".\run-gears-with-profiler.bat" -PassThru -NoNewWindow
-                $process.WaitForExit()
-                if ($process.ExitCode -eq 0) {
-                    Write-Step "Gears completed successfully" "OK"
+    # Provide command lines for other examples
+    Write-Step ""
+    Write-Step "=== Command Lines for Other Examples ===" "INFO"
+    Write-Step "To run other Vulkan examples manually, use these commands:" "INFO"
+    Write-Step ""
+    
+    $examples = @("triangle", "gears", "vulkanscene", "bloom", "shadowmapping")
+    foreach ($example in $examples) {
+        $exampleExe = Join-Path $binPath "$example.exe"
+        if (Test-Path $exampleExe) {
+            Write-Step "# $example (windowed example):" "INFO"
+            if ($EnableProfiler) {
+                $profilerBat = Join-Path $binPath "run-$example-with-profiler.bat"
+                if (Test-Path $profilerBat) {
+                    Write-Step "  cd `"$binPath`"" "INFO"
+                    Write-Step "  .\run-$example-with-profiler.bat" "INFO"
                 } else {
-                    Write-Step "Gears exited with code: $($process.ExitCode)" "WARN"
+                    Write-Step "  cd `"$binPath`"" "INFO"
+                    Write-Step "  ProfilerInjector.exe $example.exe" "INFO"
                 }
-            } catch {
-                Write-Step "Profiler script failed: $($_.Exception.Message)" "WARN"
-                Write-Step "Trying direct execution..." "WARN"
-                if (Test-Path "gears.exe") {
-                    $process = Start-Process -FilePath ".\gears.exe" -PassThru -NoNewWindow
-                    $process.WaitForExit()
-                }
+            } else {
+                Write-Step "  cd `"$binPath`"" "INFO"
+                Write-Step "  .\$example.exe" "INFO"
             }
-        } elseif (Test-Path "gears.exe") {
-            Write-Step "Running gears directly..." "INFO"
-            Write-Step "Close the gears window to continue..." "INFO"
-            try {
-                $process = Start-Process -FilePath ".\gears.exe" -PassThru -NoNewWindow
-                $process.WaitForExit()
-                if ($process.ExitCode -eq 0) {
-                    Write-Step "Gears completed successfully" "OK"
-                } else {
-                    Write-Step "Gears exited with code: $($process.ExitCode)" "WARN"
-                }
-            }
-            catch {
-                Write-Step "Error running gears: $($_.Exception.Message)" "WARN"
-            }
-        } else {
-            Write-Step "gears.exe not found" "WARN"
+            Write-Step ""
         }
-        Pop-Location
     }
+    
+    # Show available executables
+    Write-Step "Available executables in build directory:" "INFO"
+    $availableExes = Get-ChildItem $binPath -Filter "*.exe" | Where-Object { $_.Name -ne "ProfilerInjector.exe" }
+    foreach ($exe in $availableExes) {
+        $exeName = $exe.BaseName
+        Write-Step "  $($exe.Name)" "INFO"
+        if ($EnableProfiler) {
+            $profilerBat = Join-Path $binPath "run-$exeName-with-profiler.bat"
+            if (Test-Path $profilerBat) {
+                Write-Step "    With profiler: .\run-$exeName-with-profiler.bat" "INFO"
+            } else {
+                Write-Step "    With profiler: ProfilerInjector.exe $($exe.Name)" "INFO"
+            }
+        }
+    }
+    
+    Write-Step ""
+    Write-Step "Note: Windowed examples will open a graphics window and need to be closed manually." "WARN"
     Write-Step "All done!" "OK"
 }
 catch {

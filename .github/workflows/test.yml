@@ -32,6 +32,14 @@ jobs:
           third-party-libdatadog-${{ env.LIBDATADOG_VERSION }}-spdlog-${{ env.SPDLOG_VERSION }}-
           third-party-libdatadog-${{ env.LIBDATADOG_VERSION }}-
           third-party-libdatadog-
+    
+    - name: Cache NuGet packages
+      uses: actions/cache@v4
+      with:
+        path: src/packages
+        key: nuget-packages-${{ hashFiles('src/Tests/packages.config') }}
+        restore-keys: |
+          nuget-packages-
       
     - name: Download dependencies
       run: |
@@ -54,6 +62,7 @@ jobs:
     - name: Build solution
       run: |
         msbuild src/dd-win-prof/dd-win-prof.vcxproj /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /p:RestorePackagesConfig=true
+        msbuild src/ProfilerInjector/ProfilerInjector.vcxproj /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /p:RestorePackagesConfig=true
         msbuild src/Runner/Runner.vcxproj /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /p:RestorePackagesConfig=true
         msbuild src/Tests/Tests.vcxproj /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /p:RestorePackagesConfig=true
         
@@ -61,34 +70,139 @@ jobs:
       run: |
         src/Tests/x64/${{ matrix.configuration }}/Tests.exe
 
-    # Todo: this can be enabled in DD infra when we no longer have limits on what we can upload     
-    # - name: Upload build logs
-    #   if: always()
-    #   uses: actions/upload-artifact@v4
-    #   with:
-    #     name: build-logs-${{ matrix.configuration }}-${{ matrix.platform }}
-    #     path: |
-    #       build-*.log
+    - name: Upload build artifacts
+      if: matrix.configuration == 'Release'
+      uses: actions/upload-artifact@v4
+      with:
+        name: profiler-artifacts-${{ matrix.platform }}
+        path: |
+          src/dd-win-prof/x64/${{ matrix.configuration }}/dd-win-prof.dll
+          src/dd-win-prof/x64/${{ matrix.configuration }}/dd-win-prof.pdb
+          src/ProfilerInjector/x64/${{ matrix.configuration }}/ProfilerInjector.exe
+          src/ProfilerInjector/x64/${{ matrix.configuration }}/ProfilerInjector.pdb
+          src/Runner/x64/${{ matrix.configuration }}/Runner.exe
+          src/Runner/x64/${{ matrix.configuration }}/Runner.pdb
+          src/Tests/x64/${{ matrix.configuration }}/Tests.exe
+          third-party/libdatadog-x64-windows/Release/dynamic/datadog_profiling_ffi.dll
+        retention-days: 7
 
-    # - name: Upload test results
-    #   if: always()
-    #   uses: actions/upload-artifact@v4
-    #   with:
-    #     name: test-results-${{ matrix.configuration }}-${{ matrix.platform }}
-    #     path: |
-    #       src/Tests/x64/${{ matrix.configuration }}/Tests.exe
-    #       src/Tests/x64/${{ matrix.configuration }}/*.pdb
-
-    - name: Build dd-win-prof
+  e2e-test:
+    runs-on: windows-2022
+    needs: test
+    if: success()
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Cache Vulkan examples repository
+      uses: actions/cache@v4
+      with:
+        path: |
+          e2e-tests/vulkan_examples/Vulkan
+        key: vulkan-examples-repo-${{ hashFiles('e2e-tests/vulcan_quickstart.ps1') }}
+        restore-keys: |
+          vulkan-examples-repo-
+      
+    - name: Cache Vulkan build outputs
+      uses: actions/cache@v4
+      with:
+        path: |
+          e2e-tests/vulkan_examples/build
+        key: vulkan-build-${{ runner.os }}-${{ hashFiles('e2e-tests/vulcan_quickstart.ps1') }}
+        restore-keys: |
+          vulkan-build-${{ runner.os }}-
+      
+    - name: Cache GLM dependency
+      uses: actions/cache@v4
+      with:
+        path: |
+          e2e-tests/vulkan_examples/Vulkan/external/glm
+          e2e-tests/.glm_setup_complete
+        key: glm-dependency-${{ hashFiles('e2e-tests/setup_glm.ps1') }}
+        restore-keys: |
+          glm-dependency-
+      
+    - name: Cache vcpkg
+      uses: actions/cache@v4
+      with:
+        path: |
+          C:/vcpkg
+        key: vcpkg-${{ runner.os }}-${{ hashFiles('e2e-tests/vulcan_quickstart.ps1') }}
+        restore-keys: |
+          vcpkg-${{ runner.os }}-
+      
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: profiler-artifacts-x64
+        path: artifacts/
+        
+    - name: Organize artifacts to correct locations
       run: |
-        msbuild src/dd-win-prof/dd-win-prof.vcxproj /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }}
-
-    # - name: Upload dd-win-prof artifacts
-    #   if: always()
-    #   uses: actions/upload-artifact@v4
-    #   with:
-    #     name: dd-win-prof-${{ matrix.configuration }}-${{ matrix.platform }}
-    #     path: |
-    #       src/dd-win-prof/x64/${{ matrix.configuration }}/dd-win-prof.dll
-    #       src/dd-win-prof/x64/${{ matrix.configuration }}/dd-win-prof.pdb
-          
+        Write-Host "Organizing build artifacts..."
+        
+        # Create target directories
+        New-Item -ItemType Directory -Path "src/dd-win-prof/x64/Release" -Force | Out-Null
+        New-Item -ItemType Directory -Path "src/ProfilerInjector/x64/Release" -Force | Out-Null
+        New-Item -ItemType Directory -Path "src/Runner/x64/Release" -Force | Out-Null
+        New-Item -ItemType Directory -Path "src/Tests/x64/Release" -Force | Out-Null
+        New-Item -ItemType Directory -Path "third-party/libdatadog-x64-windows/Release/dynamic" -Force | Out-Null
+        
+        # Copy artifacts to their expected locations
+        Copy-Item "artifacts/src/dd-win-prof/x64/Release/*" "src/dd-win-prof/x64/Release/" -Force -ErrorAction SilentlyContinue
+        Copy-Item "artifacts/src/ProfilerInjector/x64/Release/*" "src/ProfilerInjector/x64/Release/" -Force -ErrorAction SilentlyContinue
+        Copy-Item "artifacts/src/Runner/x64/Release/*" "src/Runner/x64/Release/" -Force -ErrorAction SilentlyContinue
+        Copy-Item "artifacts/src/Tests/x64/Release/*" "src/Tests/x64/Release/" -Force -ErrorAction SilentlyContinue
+        Copy-Item "artifacts/third-party/libdatadog-x64-windows/Release/dynamic/*" "third-party/libdatadog-x64-windows/Release/dynamic/" -Force -ErrorAction SilentlyContinue
+        
+        Write-Host "Artifacts organized successfully" -ForegroundColor Green
+      shell: pwsh
+        
+    - name: Verify artifacts
+      run: |
+        Write-Host "Checking for required profiler files..."
+        $requiredFiles = @(
+          "src/dd-win-prof/x64/Release/dd-win-prof.dll",
+          "src/ProfilerInjector/x64/Release/ProfilerInjector.exe"
+        )
+        
+        $allFound = $true
+        foreach ($file in $requiredFiles) {
+          if (Test-Path $file) {
+            Write-Host "✓ Found: $file" -ForegroundColor Green
+          } else {
+            Write-Host "✗ Missing: $file" -ForegroundColor Red
+            $allFound = $false
+          }
+        }
+        
+        if (-not $allFound) {
+          Write-Host "Required profiler files are missing!" -ForegroundColor Red
+          Write-Host "Listing artifacts directory:" -ForegroundColor Yellow
+          Get-ChildItem -Path "artifacts" -Recurse -File | Select-Object FullName
+          exit 1
+        }
+      shell: pwsh
+      
+    - name: Create .env file for testing
+      run: |
+        $envContent = @"
+        DD_SITE=datadoghq.com
+        DD_ENV=ci-test
+        DD_TRACE_DEBUG=1
+        DD_PROFILING_LOG_LEVEL=debug
+        DD_PROFILING_LOG_TO_CONSOLE=1
+        DD_INTERNAL_PROFILING_OUTPUT_DIR=e2e-tests/pprof
+        "@
+        
+        New-Item -Path "e2e-tests/.env" -Value $envContent -Force
+        Write-Host "Created .env file for e2e testing"
+      shell: pwsh
+      
+    - name: Run Vulkan e2e test (headless)
+      run: |
+        cd e2e-tests
+        .\vulcan_quickstart.ps1 -EnableProfiler -CI -Verbose 2>&1
+      shell: pwsh
+      timeout-minutes: 30
