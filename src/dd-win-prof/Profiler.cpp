@@ -30,9 +30,9 @@ bool Profiler::StartProfiling()
 {
     // no needed to look at env var to enable profiler
     // --> used only as kill switch to disable it
-    if (!_pConfiguration->IsProfilerEnabled())
+    if (_pConfiguration->IsProfilerExplicitlyDisabled())
     {
-        Log::Info("Profiler is explicitely disabled by environment variable.");
+        Log::Info("Profiler is explicitly disabled: check following environment variable DD_PROFILING_ENABLED");
         return false;
     }
 

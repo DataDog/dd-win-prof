@@ -47,11 +47,15 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
+    <OutDir>$(SolutionDir)x64\$(Configuration)\</OutDir>
+    <IntDir>$(SolutionDir)build\dd-win-prof\x64\$(Configuration)\</IntDir>
     <IncludePath>$(SolutionDir)third-party\libdatadog-x64-windows\include;$(IncludePath)</IncludePath>
     <LibraryPath>$(SolutionDir)third-party\libdatadog-x64-windows\debug\static;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
+    <OutDir>$(SolutionDir)x64\$(Configuration)\</OutDir>
+    <IntDir>$(SolutionDir)build\dd-win-prof\x64\$(Configuration)\</IntDir>
     <IncludePath>$(SolutionDir)third-party\libdatadog-x64-windows\include;$(IncludePath)</IncludePath>
     <LibraryPath>$(SolutionDir)third-party\libdatadog-x64-windows\release\static;$(LibraryPath)</LibraryPath>
   </PropertyGroup>

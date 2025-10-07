@@ -8,12 +8,23 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "dd-win-prof", "dd-win-prof\
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Tests", "Tests\Tests.vcxproj", "{B8F4A7E2-9C3D-4F1A-8E6B-2D5C9A7F3E8D}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ProfilerInjector", "ProfilerInjector\ProfilerInjector.vcxproj", "{B8F65F92-1234-5678-9ABC-DEF012345678}"
+EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{A1B2C3D4-E5F6-789A-BCDE-F0123456789A}"
 	ProjectSection(SolutionItems) = preProject
 		..\README.md = ..\README.md
 		..\LICENSE = ..\LICENSE
 		..\CONTRIBUTING.md = ..\CONTRIBUTING.md
 		..\.github\workflows\test.yml = ..\.github\workflows\test.yml
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "e2e-tests", "e2e-tests", "{E2E12345-6789-ABCD-EF01-234567890ABC}"
+	ProjectSection(SolutionItems) = preProject
+		..\e2e-tests\README.md = ..\e2e-tests\README.md
+		..\e2e-tests\vulcan_quickstart.ps1 = ..\e2e-tests\vulcan_quickstart.ps1
+		..\e2e-tests\patch_vulkan_for_profiling.ps1 = ..\e2e-tests\patch_vulkan_for_profiling.ps1
+		..\e2e-tests\setup_glm.ps1 = ..\e2e-tests\setup_glm.ps1
+		..\e2e-tests\vulcan_quickstart.bat = ..\e2e-tests\vulcan_quickstart.bat
 	EndProjectSection
 EndProject
 Global
@@ -34,6 +45,10 @@ Global
 		{B8F4A7E2-9C3D-4F1A-8E6B-2D5C9A7F3E8D}.Debug|x64.Build.0 = Debug|x64
 		{B8F4A7E2-9C3D-4F1A-8E6B-2D5C9A7F3E8D}.Release|x64.ActiveCfg = Release|x64
 		{B8F4A7E2-9C3D-4F1A-8E6B-2D5C9A7F3E8D}.Release|x64.Build.0 = Release|x64
+		{B8F65F92-1234-5678-9ABC-DEF012345678}.Debug|x64.ActiveCfg = Debug|x64
+		{B8F65F92-1234-5678-9ABC-DEF012345678}.Debug|x64.Build.0 = Debug|x64
+		{B8F65F92-1234-5678-9ABC-DEF012345678}.Release|x64.ActiveCfg = Release|x64
+		{B8F65F92-1234-5678-9ABC-DEF012345678}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

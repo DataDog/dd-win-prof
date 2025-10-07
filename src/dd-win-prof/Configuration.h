@@ -32,6 +32,8 @@ public:
     const std::string& GetNamedPipeName() const;
 
     bool IsProfilerEnabled() const;
+    bool IsProfilerExplicitlyDisabled() const;
+    bool IsProfilerAutoStartEnabled() const;
     bool IsCpuProfilingEnabled() const;
     bool IsWallTimeProfilingEnabled() const;
     bool IsExportEnabled() const;
@@ -70,6 +72,7 @@ private:
     static fs::path ExtractPprofDirectory();
     static std::chrono::seconds GetDefaultUploadInterval();
     static bool GetDefaultDebugLogEnabled();
+    static bool GetBooleanEnvironmentValue(char const* name, bool const& defaultValue);
     static std::chrono::nanoseconds ExtractCpuWallTimeSamplingRate();
     static int32_t ExtractWallTimeThreadsThreshold();
     static int32_t ExtractCpuThreadsThreshold();
@@ -89,6 +92,7 @@ private:
 
 private:
     bool _isProfilerEnabled;
+    bool _isProfilerAutoStartEnabled;
     bool _isCpuProfilingEnabled;
     bool _isWallTimeProfilingEnabled;
     bool _isExportEnabled;
