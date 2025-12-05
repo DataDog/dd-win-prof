@@ -343,7 +343,7 @@ std::optional<ddog_prof_LocationId> ProfileExporter::InternLocation(uint64_t add
     }
 
     // Intern the mapping using the cached symbol info (module name and build ID)
-    std::optional<ddog_prof_MappingId> mappingIdOpt = std::nullopt;
+    std::optional<ddog_prof_MappingId> mappingIdOpt;
     if (symbolInfo.ModuleNameId.value != 0 || symbolInfo.BuildIdId.value != 0) {
         mappingIdOpt = InternMapping(symbolInfo, profile);
         // Note: We continue even if mapping creation fails - location can exist without mapping
@@ -393,9 +393,9 @@ std::optional<ddog_prof_LocationId> ProfileExporter::InternLocation(uint64_t add
 std::optional<ddog_prof_MappingId> ProfileExporter::InternMapping(const CachedSymbolInfo& symbolInfo, ddog_prof_Profile* profile)
 {
     // Create a cache key based on module name and build ID
-    // Use a simple hash combination of the two IDs for uniqueness
-    uint64_t mappingKey = (static_cast<uint64_t>(symbolInfo.ModuleNameId.value) << 32) |
-                          static_cast<uint64_t>(symbolInfo.BuildIdId.value);
+    // Use hash_combine for proper hash combination
+    uint64_t mappingKey = static_cast<uint64_t>(symbolInfo.ModuleNameId.value);
+    hash_combine(mappingKey, static_cast<uint64_t>(symbolInfo.BuildIdId.value));
 
     // Check if we've already interned this mapping
     auto it = _currentExportMappingCache.find(mappingKey);
@@ -649,6 +649,11 @@ bool ProfileExporter::PrepareStableTags(ddog_Vec_Tag& tags)
 
     // Add remote_symbols tag to indicate symbolication support
     if (!AddSingleTag(tags, TAG_REMOTE_SYMBOLS, "yes")) {
+        return false;
+    }
+
+    // Add runtime_os tag to indicate the operating system
+    if (!AddSingleTag(tags, TAG_RUNTIME_OS, "windows")) {
         return false;
     }
 

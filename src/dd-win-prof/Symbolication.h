@@ -7,6 +7,13 @@
 #include "datadog/profiling.h"
 #include <optional>
 #include <unordered_map>
+#include <cstdint>
+
+// Boost-style hash_combine for combining hash values
+inline void hash_combine(uint64_t& seed, uint64_t value)
+{
+    seed ^= value + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
+}
 
 /// <summary>
 /// Symbolication result using libdatadog string IDs

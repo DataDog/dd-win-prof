@@ -220,8 +220,10 @@ CachedSymbolInfo Symbolication::CreateUnknownSymbol(uint64_t address, ddog_prof_
 
 uint64_t Symbolication::ComputeModuleCacheKey(uint64_t baseAddress, uint32_t moduleSize) const
 {
-    // Simple hash combination of base address and size
-    return baseAddress ^ (static_cast<uint64_t>(moduleSize) << 32);
+    // Combine base address and size using hash_combine
+    uint64_t hash = baseAddress;
+    hash_combine(hash, static_cast<uint64_t>(moduleSize));
+    return hash;
 }
 
 bool Symbolication::ExtractBuildIdFromPEHeaderRaw(uint64_t baseAddress, char* buildIdBuffer, size_t bufferSize)

@@ -89,6 +89,7 @@ private:
     static constexpr const char* TAG_RUNTIME_ID = "runtime-id";
     static constexpr const char* TAG_PROFILE_SEQ = "profile_seq";
     static constexpr const char* TAG_REMOTE_SYMBOLS = "remote_symbols";
+    static constexpr const char* TAG_RUNTIME_OS = "runtime_os";
     static constexpr const char* TAG_CPU_CORES_COUNT = "number_of_cpu_cores";
     static constexpr const char* TAG_CPU_LOGICAL_CORES_COUNT = "number_of_logical_cores";
     static constexpr const char* TAG_CPU_VENDOR = "cpu_vendor";
