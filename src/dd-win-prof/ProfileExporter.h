@@ -60,9 +60,10 @@ public:
     void CleanupExporter();
 
 private:
-    // Helper methods for location/function management
+    // Helper methods for location/function/mapping management
     std::optional<ddog_prof_LocationId> InternLocation(uint64_t address);
     std::optional<ddog_prof_FunctionId> InternFunction(const CachedSymbolInfo& symbolInfo, ddog_prof_Profile* profile);
+    std::optional<ddog_prof_MappingId> InternMapping(const CachedSymbolInfo& symbolInfo, ddog_prof_Profile* profile);
 
     // Sample labels (per-sample metadata that gets interned)
     struct SampleLabels {
@@ -87,6 +88,7 @@ private:
     // Tag key constants (for stable export tags)
     static constexpr const char* TAG_RUNTIME_ID = "runtime-id";
     static constexpr const char* TAG_PROFILE_SEQ = "profile_seq";
+    static constexpr const char* TAG_REMOTE_SYMBOLS = "remote_symbols";
     static constexpr const char* TAG_CPU_CORES_COUNT = "number_of_cpu_cores";
     static constexpr const char* TAG_CPU_LOGICAL_CORES_COUNT = "number_of_logical_cores";
     static constexpr const char* TAG_CPU_VENDOR = "cpu_vendor";
@@ -157,6 +159,10 @@ private:
 
     // Per-export cache - cleared on each export since location IDs become invalid after profile reset
     std::unordered_map<uint64_t, ddog_prof_LocationId> _currentExportLocationCache;
+
+    // Mapping cache - maps module identifier to mapping ID (cleared per export like locations)
+    // Key: hash of (ModuleNameId, BuildIdId) for uniqueness
+    std::unordered_map<uint64_t, ddog_prof_MappingId> _currentExportMappingCache;
 
     // Export tracking
     uint32_t _currentExportId;

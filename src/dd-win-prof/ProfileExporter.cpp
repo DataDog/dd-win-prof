@@ -319,7 +319,7 @@ std::optional<ddog_prof_LocationId> ProfileExporter::InternLocation(uint64_t add
 
     // Get profile for interning operations
     ddog_prof_Profile* profile = _aggregator->GetProfile();
-    if (!profile) {
+    if (profile == nullptr) {
         // this should never happen if aggregator is properly initialized
         //  i.e. we should avoid calling InternLocation before aggregator is ready
         return std::nullopt;
@@ -342,6 +342,13 @@ std::optional<ddog_prof_LocationId> ProfileExporter::InternLocation(uint64_t add
         _persistentSymbolCache[address] = symbolInfo;
     }
 
+    // Intern the mapping using the cached symbol info (module name and build ID)
+    std::optional<ddog_prof_MappingId> mappingIdOpt = std::nullopt;
+    if (symbolInfo.ModuleNameId.value != 0 || symbolInfo.BuildIdId.value != 0) {
+        mappingIdOpt = InternMapping(symbolInfo, profile);
+        // Note: We continue even if mapping creation fails - location can exist without mapping
+    }
+
     // Intern the function using the cached symbol info
     // todo: we could have a cache that has start / end addresses of the function (cf ddprof)
     auto functionIdOpt = InternFunction(symbolInfo, profile);
@@ -350,8 +357,27 @@ std::optional<ddog_prof_LocationId> ProfileExporter::InternLocation(uint64_t add
         return std::nullopt;
     }
 
-    // Create location using the function and address
-    auto locationResult = ddog_prof_Profile_intern_location(profile, functionIdOpt.value(), address, static_cast<int64_t>(symbolInfo.lineNumber));
+    // Create location using the function, address, and optionally the mapping
+    ddog_prof_LocationId_Result locationResult;
+    if (mappingIdOpt.has_value()) {
+        // Create location with mapping ID
+        locationResult = ddog_prof_Profile_intern_location_with_mapping_id(
+            profile,
+            mappingIdOpt.value(),
+            functionIdOpt.value(),
+            address,
+            static_cast<int64_t>(symbolInfo.lineNumber)
+        );
+    } else {
+        // Create location without mapping (fallback)
+        locationResult = ddog_prof_Profile_intern_location(
+            profile,
+            functionIdOpt.value(),
+            address,
+            static_cast<int64_t>(symbolInfo.lineNumber)
+        );
+    }
+
     if (locationResult.tag == DDOG_PROF_LOCATION_ID_RESULT_OK_GENERATIONAL_ID_LOCATION_ID)
     {
         // Cache the result for this export only
@@ -363,6 +389,67 @@ std::optional<ddog_prof_LocationId> ProfileExporter::InternLocation(uint64_t add
     return std::nullopt;
 }
 
+
+std::optional<ddog_prof_MappingId> ProfileExporter::InternMapping(const CachedSymbolInfo& symbolInfo, ddog_prof_Profile* profile)
+{
+    // Create a cache key based on module name and build ID
+    // Use a simple hash combination of the two IDs for uniqueness
+    uint64_t mappingKey = (static_cast<uint64_t>(symbolInfo.ModuleNameId.value) << 32) |
+                          static_cast<uint64_t>(symbolInfo.BuildIdId.value);
+
+    // Check if we've already interned this mapping
+    auto it = _currentExportMappingCache.find(mappingKey);
+    if (it != _currentExportMappingCache.end()) {
+        return it->second;
+    }
+
+    // Intern module name and build ID as strings in the profile
+    ddog_prof_StringId moduleNameStringId = ddog_prof_Profile_interned_empty_string();
+    ddog_prof_StringId buildIdStringId = ddog_prof_Profile_interned_empty_string();
+
+    // Intern module name if available
+    if (symbolInfo.ModuleNameId.value != 0) {
+        auto moduleNameResult = ddog_prof_Profile_intern_managed_string(profile, symbolInfo.ModuleNameId);
+        if (moduleNameResult.tag == DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
+            moduleNameStringId = moduleNameResult.ok;
+        } else {
+            LogOnce(Error, "InternMapping: Failed to intern module name (tag: ", moduleNameResult.tag, ")");
+        }
+    }
+
+    // Intern build ID if available
+    if (symbolInfo.BuildIdId.value != 0) {
+        auto buildIdResult = ddog_prof_Profile_intern_managed_string(profile, symbolInfo.BuildIdId);
+        if (buildIdResult.tag == DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
+            buildIdStringId = buildIdResult.ok;
+        } else {
+            LogOnce(Error, "InternMapping: Failed to intern build ID (tag: ", buildIdResult.tag, ")");
+        }
+    }
+
+    // Create mapping with module information including memory range
+    // The memory range enables automatic association of locations with this mapping
+    uint64_t memoryStart = symbolInfo.ModuleBaseAddress;
+    uint64_t memoryLimit = symbolInfo.ModuleBaseAddress + symbolInfo.ModuleSize;
+
+    auto mappingResult = ddog_prof_Profile_intern_mapping(
+        profile,
+        memoryStart,         // memory_start (module base address)
+        memoryLimit,         // memory_limit (module end address)
+        0,                   // file_offset
+        moduleNameStringId,  // filename (module name)
+        buildIdStringId      // build_id
+    );
+
+    if (mappingResult.tag == DDOG_PROF_MAPPING_ID_RESULT_OK_GENERATIONAL_ID_MAPPING_ID) {
+        // Cache the mapping for reuse
+        _currentExportMappingCache[mappingKey] = mappingResult.ok;
+        return mappingResult.ok;
+    }
+
+    LogOnce(Error, "InternMapping: Failed to intern mapping (tag: ", mappingResult.tag, ")");
+    return std::nullopt;
+}
 
 static bool s_hasLoggedInternFunctionNameError = false;
 
@@ -413,16 +500,18 @@ std::optional<ddog_prof_FunctionId> ProfileExporter::InternFunction(const Cached
 
 void ProfileExporter::OnExportStart()
 {
-    // Clear only the per-export location cache since location IDs become invalid after profile reset
+    // Clear per-export caches since location and mapping IDs become invalid after profile reset
     _currentExportLocationCache.clear();
+    _currentExportMappingCache.clear();
 
-    Log::Debug("Cleared location cache, keeping ", _persistentSymbolCache.size(), " persistent symbol entries");
+    Log::Debug("Cleared location and mapping caches, keeping ", _persistentSymbolCache.size(), " persistent symbol entries");
 }
 
 void ProfileExporter::ClearCaches()
 {
     // This method can now be used for emergency cleanup or testing
     _currentExportLocationCache.clear();
+    _currentExportMappingCache.clear();
     _persistentSymbolCache.clear();
 
     Log::Debug("Cleared all caches");
@@ -556,6 +645,11 @@ bool ProfileExporter::PrepareStableTags(ddog_Vec_Tag& tags)
         if (!AddSingleTag(tags, TAG_RAM_SIZE, std::to_string(totalPhys))) {
             return false;
         }
+    }
+
+    // Add remote_symbols tag to indicate symbolication support
+    if (!AddSingleTag(tags, TAG_REMOTE_SYMBOLS, "yes")) {
+        return false;
     }
 
     return true;
