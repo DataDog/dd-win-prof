@@ -5,7 +5,7 @@
 # Usage Examples:
 #   .\vulcan_quickstart.ps1                    # Normal run (skips setup if already done)
 #   .\vulcan_quickstart.ps1 -Clean             # Clean build directory and dependency cache
-#   .\vulcan_quickstart.ps1 -ForceReconfigure  # Force CMake reconfiguration
+#   .\vulcan_quickstart.ps1 -ForceReconfigure  # Force CMake reconfiguration (regenerates bat files)
 #   .\vulcan_quickstart.ps1 -ForceDependencies # Force dependency re-setup (GLM, etc.)
 #   .\vulcan_quickstart.ps1 -CI                # CI mode (headless)
 #   .\vulcan_quickstart.ps1 -Verbose           # Verbose output
@@ -14,6 +14,9 @@
 #
 # The script will:
 # - Copy .env files from various locations to the binary directory for profiler configuration
+# - Copy dd-win-prof.dll and ProfilerInjector.exe to the binary directory for profiling
+# - Generate *_with_profiler.bat files that use local copies of profiler artifacts
+# - Re-copy profiler artifacts and regenerate bat files when -ForceReconfigure is used
 # - Run only headless examples (computeheadless) automatically
 # - Display command lines for running windowed examples manually
 
@@ -539,6 +542,29 @@ try {
             Remove-Item $cmakeFiles -Recurse -Force
             Write-Step "Removed CMakeFiles directory" "OK"
         }
+        
+        # Clean up old profiler artifacts so they get re-copied
+        $binPathForCleanup = Join-Path $Build "bin\$Config"
+        if (Test-Path $binPathForCleanup) {
+            $oldBatFiles = Get-ChildItem $binPathForCleanup -Filter "*_with_profiler.bat" -ErrorAction SilentlyContinue
+            foreach ($batFile in $oldBatFiles) {
+                Remove-Item $batFile.FullName -Force
+                Write-Step "Removed old profiler bat file: $($batFile.Name)" "OK"
+            }
+            
+            # Also remove copied DLL and injector to force re-copy
+            $oldDll = Join-Path $binPathForCleanup "dd-win-prof.dll"
+            if (Test-Path $oldDll) {
+                Remove-Item $oldDll -Force
+                Write-Step "Removed old dd-win-prof.dll" "OK"
+            }
+            
+            $oldInjector = Join-Path $binPathForCleanup "ProfilerInjector.exe"
+            if (Test-Path $oldInjector) {
+                Remove-Item $oldInjector -Force
+                Write-Step "Removed old ProfilerInjector.exe" "OK"
+            }
+        }
     }
     
     $cmakeArgs = @(
@@ -607,6 +633,62 @@ try {
     # This gives the correct ../assets and ../shaders relative paths
     $assetsDest = Join-Path $binParentPath "assets"
     $shadersDest = Join-Path $binParentPath "shaders"
+    
+    # Generate bat files for running examples with profiler (if profiler is enabled)
+    if ($EnableProfiler -and $ProfilerInjectorExe -and (Test-Path $ProfilerInjectorExe)) {
+        Write-Step "Copying profiler artifacts to bin directory..."
+        
+        # Copy DLL to bin directory (so injector can find it next to executables)
+        $dllSource = Join-Path $ProfilerDllDir "dd-win-prof.dll"
+        $dllDest = Join-Path $binPath "dd-win-prof.dll"
+        Copy-Item $dllSource $dllDest -Force
+        Write-Step "Copied dd-win-prof.dll to $dllDest" "OK"
+        
+        # Copy injector to bin directory for convenience
+        $injectorDest = Join-Path $binPath "ProfilerInjector.exe"
+        Copy-Item $ProfilerInjectorExe $injectorDest -Force
+        Write-Step "Copied ProfilerInjector.exe to $injectorDest" "OK"
+        
+        # Get list of executables
+        $exeFiles = Get-ChildItem $binPath -Filter "*.exe" -ErrorAction SilentlyContinue
+        
+        foreach ($exe in $exeFiles) {
+            $batFileName = "$($exe.BaseName)_with_profiler.bat"
+            $batFilePath = Join-Path $binPath $batFileName
+            
+            # Generate bat file content using local copies
+            $batContent = @"
+@echo off
+REM Auto-generated profiler runner for $($exe.Name)
+REM Uses local copies of profiler artifacts
+
+cd /d "%~dp0"
+
+if not exist "dd-win-prof.dll" (
+    echo ERROR: Profiler DLL not found in current directory
+    echo Please re-run: vulcan_quickstart.ps1 -EnableProfiler -ForceReconfigure
+    exit /b 1
+)
+
+if not exist "ProfilerInjector.exe" (
+    echo ERROR: ProfilerInjector.exe not found in current directory
+    echo Please re-run: vulcan_quickstart.ps1 -EnableProfiler -ForceReconfigure
+    exit /b 1
+)
+
+echo Running $($exe.Name) with Datadog profiler...
+echo Working directory: %CD%
+echo.
+
+ProfilerInjector.exe $($exe.Name) %*
+"@
+            
+            Set-Content -Path $batFilePath -Value $batContent -Encoding ASCII
+            Write-Step "Created $batFileName" "OK"
+        }
+        
+        Write-Step "Profiler runner bat files generated in $binPath" "OK"
+    }
     
     if (Test-Path $assetsSource) {
         Write-Step "Copying assets one level up from executables ($assetsDest)..."
@@ -681,7 +763,12 @@ try {
         foreach ($exe in $availableExes) {
             Write-Step "  $($exe.Name)" "INFO"
             if ($EnableProfiler -and $ProfilerInjectorExe) {
-                Write-Step "    With profiler: `"$ProfilerInjectorExe`" $($exe.Name)" "INFO"
+                $batFileName = "$($exe.BaseName)_with_profiler.bat"
+                $batFilePath = Join-Path $binPath $batFileName
+                if (Test-Path $batFilePath) {
+                    Write-Step "    With profiler (via bat): .\$batFileName" "INFO"
+                }
+                Write-Step "    With profiler (direct): .\ProfilerInjector.exe $($exe.Name)" "INFO"
             } else {
                 Write-Step "    Run directly: .\$($exe.Name)" "INFO"
             }
