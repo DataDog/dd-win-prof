@@ -8,10 +8,10 @@
 #pragma comment(lib, "dbghelp.lib")
 
 // Symbolication implementation
-Symbolication::Symbolication(bool symbolizeFrames)
+Symbolication::Symbolication()
     :
     _isInitialized(false),
-    _symbolizeFrames(symbolizeFrames)
+    _symbolizeFrames(false)
 {
     _emptyStringId = ddog_prof_ManagedStringId{0};
 }
@@ -21,13 +21,10 @@ Symbolication::~Symbolication()
     Cleanup();
 }
 
-bool Symbolication::Initialize(ddog_prof_ManagedStringStorage& stringStorage)
+bool Symbolication::Initialize(ddog_prof_ManagedStringStorage& stringStorage, bool symbolizeFrames)
 {
     if (_isInitialized)
         return true;
-
-    if (!InitializeSymbolHandler())
-        return false;
 
     // Intern empty string used when symbols are missing or disabled
     const char* emptyString = "";
@@ -39,6 +36,10 @@ bool Symbolication::Initialize(ddog_prof_ManagedStringStorage& stringStorage)
         return false;
     }
     _emptyStringId = fileNameResult.ok;
+    _symbolizeFrames = symbolizeFrames;
+
+    if (!InitializeSymbolHandler())
+        return false;
 
     _isInitialized = true;
     return true;

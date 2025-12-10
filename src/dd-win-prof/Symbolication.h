@@ -52,11 +52,11 @@ struct CachedModuleInfo
 class Symbolication
 {
 public:
-    Symbolication(bool symbolizeFrames);
+    Symbolication();
     virtual ~Symbolication();
 
     // Initialize the symbolication engine
-    bool Initialize(ddog_prof_ManagedStringStorage& stringStorage);
+    bool Initialize(ddog_prof_ManagedStringStorage& stringStorage, bool symbolizeFrames);
 
     // Cleanup resources
     void Cleanup();

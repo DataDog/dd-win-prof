@@ -22,7 +22,7 @@ protected:
         }
 
         // Initialize symbolication for each test
-        ASSERT_TRUE(symbolication.Initialize()) << "Symbolication should initialize successfully";
+        ASSERT_TRUE(symbolication.Initialize(storageResult.ok, true)) << "Symbolication should initialize successfully";
         ASSERT_TRUE(_hasStringStorage) << "String storage should be initialized";
     }
 
