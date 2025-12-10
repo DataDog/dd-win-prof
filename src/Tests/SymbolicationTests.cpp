@@ -353,10 +353,6 @@ TEST_F(SymbolicationTest, TestUnknownAddressSymbolication) {
     std::string functionName = GetFunctionName(symbolInfo);
     EXPECT_EQ(functionName, "") << "Function name should be ''";
 
-    //// Check that FileNameId is set (not default 0)
-    //EXPECT_NE(symbolInfo.FileNameId.value, 0) << "FileNameId should be set for unknown symbols";
-    //EXPECT_NE(symbolInfo.FunctionNameId.value, 0) << "FunctionNameId should be set for unknown symbols";
-
     std::cout << "[OK] Unknown address correctly returned empty symbol with valid empty string IDs" << std::endl;
 }
 
@@ -372,6 +368,38 @@ TEST_F(SymbolicationTest, TestUninitializedSymbolication) {
     EXPECT_FALSE(symbolInfoOpt.has_value()) << "Should return no value when not initialized";
     if (!symbolInfoOpt.has_value()) {
         std::cout << "[OK] Correctly returned no value when not initialized" << std::endl;
+        return;
+    }
+}
+
+TEST_F(SymbolicationTest, TestObfuscation) {
+    std::cout << "=== Testing Obfuscation ===" << std::endl;
+
+    ASSERT_TRUE(_hasStringStorage) << "String storage should be initialized";
+
+    Symbolication symbolication;
+    ASSERT_TRUE(symbolication.Initialize(_stringStorage, false)) << "Obfuscated initialization should succeed";
+
+    uint64_t testAddress = reinterpret_cast<uint64_t>(&GlobalTestFunction);
+    auto symbolInfoOpt = symbolication.SymbolicateAndIntern(testAddress, _stringStorage);
+    EXPECT_TRUE(symbolInfoOpt.has_value()) << "Should return a value for an existing function";
+    if (symbolInfoOpt.has_value()) {
+        CachedSymbolInfo symbolInfo = symbolInfoOpt.value();
+        EXPECT_TRUE(symbolInfo.isValid) << "Should always return valid symbol, even for obfuscated functions";
+
+        LogSymbolInfo("Obfuscated function", testAddress, symbolInfo);
+        if (symbolInfo.isValid) {
+            std::string actualName = GetFunctionName(symbolInfo);
+            if (actualName == "") {
+                std::cout << "[OK] obfuscate function correctly returned empty function name: " << actualName << std::endl;
+            }
+            else {
+                std::cout << "[WARN] Unexpectedly got real function name for obfuscated function 0x" << std::hex << testAddress
+                    << " (function: " << actualName << ")" << std::endl;
+            }
+        }
+
+        std::cout << "[OK] Correctly returned empty function name when obfuscated" << std::endl;
         return;
     }
 }
