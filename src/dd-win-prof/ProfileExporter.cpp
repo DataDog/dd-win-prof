@@ -116,8 +116,8 @@ bool ProfileExporter::Initialize()
         _stringStorage = storageResult.ok;
 
         // Initialize symbolication engine
-        _symbolication = std::make_unique<Symbolication>();
-        if (!_symbolication->Initialize()) {
+        _symbolication = std::make_unique<Symbolication>(_pConfiguration->AreCallstacksSymbolized());
+        if (!_symbolication->Initialize(_stringStorage)) {
             _lastError = "Failed to initialize symbolication engine";
             return false;
         }

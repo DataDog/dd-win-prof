@@ -52,11 +52,11 @@ struct CachedModuleInfo
 class Symbolication
 {
 public:
-    Symbolication();
+    Symbolication(bool symbolizeFrames);
     virtual ~Symbolication();
 
     // Initialize the symbolication engine
-    bool Initialize();
+    bool Initialize(ddog_prof_ManagedStringStorage& stringStorage);
 
     // Cleanup resources
     void Cleanup();
@@ -73,6 +73,10 @@ public:
 
 private:
     bool _isInitialized;
+    bool _symbolizeFrames;
+
+    // empty symbol
+    ddog_prof_ManagedStringId _emptyStringId;
 
     // Module cache - key is hash of (BaseOfImage, ImageSize)
     std::unordered_map<uint64_t, CachedModuleInfo> _moduleCache;

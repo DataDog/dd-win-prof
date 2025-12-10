@@ -38,6 +38,7 @@ public:
     bool IsWallTimeProfilingEnabled() const;
     bool IsExportEnabled() const;
     double MinimumCores() const;
+    bool AreCallstacksSymbolized() const;
 
     // Manual configuration methods (primarily for testing)
     void SetExportEnabled(bool enabled);
@@ -56,6 +57,7 @@ public:
     void SetVersion(const char* version);
     void SetEndpoint(const char* url);
     void SetApiKey(const char* apiKey);
+    void EnableSymbolizedCallstacks();
 
     void SetCpuWallTimeSamplingPeriod(std::chrono::nanoseconds rate) { _cpuWallTimeSamplingPeriod = rate; }
     void SetWalltimeThreadsThreshold(int32_t threshold) { _walltimeThreadsThreshold = threshold; }
@@ -96,6 +98,7 @@ private:
     bool _isCpuProfilingEnabled;
     bool _isWallTimeProfilingEnabled;
     bool _isExportEnabled;
+    bool _areCallstacksSymbolized;
     bool _debugLogEnabled;
     fs::path _logDirectory;
     fs::path _pprofDirectory;

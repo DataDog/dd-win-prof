@@ -28,6 +28,9 @@ typedef struct _ProfilerConfig
     uint64_t cpuWallTimeSamplingPeriodNs; // sampling period in nanoseconds (default: 20ms = 20,000,000ns)
     int32_t walltimeThreadsThreshold;     // number of threads to sample for wall time (default: 5, min: 5, max: 64)
     int32_t cpuThreadsThreshold;          // number of threads to sample for CPU time (default: 64, min: 5, max: 128)
+
+    // symbolization
+    bool symbolizeCallstacks;        // whether to symbolize stack traces (default: false)
 } ProfilerConfig;
 
 
