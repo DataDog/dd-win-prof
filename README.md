@@ -198,9 +198,9 @@ This is a Windows native profiler that performs CPU sampling and exports profile
 - High-precision timestamp generation
 - Dynamic API loading for Windows version compatibility
 
-**`Symbolication.cpp/.h`** - Debug symbol resolution
+**`Symbolication.cpp/.h`** - Function name resolution
 - Integrates with Windows Debug Help Library (DbgHelp)
-- Resolves instruction pointers to function names and line numbers
+- Resolves instruction pointers to function names and line numbers if requested (obfuscated by default - i.e. empty function name)
 - Manages symbol handler initialization and cleanup
 - Supports module refresh for dynamically loaded libraries
 
@@ -226,7 +226,7 @@ This is a Windows native profiler that performs CPU sampling and exports profile
 
 ### Configuration
 
-Configuration is retrieved in `Configuration.cpp` from environment variables defined in `EnvironmentVariables.h` such as sampling period (default 20ms), number of threads to sample (default 5) or upload period (default 60s). It is also possible to set a few parameters via the `SetupProfiler()` API.
+Configuration is retrieved in `Configuration.cpp` from environment variables defined in `EnvironmentVariables.h` such as sampling period (default 20ms), number of threads to sample (default 5) or upload period (default 60s). It is also possible to set a few parameters via the `SetupProfiler()` API. Note that function names are not symbolized by default. To enable symbolization, set `ProfilerConfig.symbolizeCallstacks` to `true` before calling `SetupProfiler`. 
 Other settings are hardcoded:
 - Collection period: 60ms  
 - Max stack frames: 512
