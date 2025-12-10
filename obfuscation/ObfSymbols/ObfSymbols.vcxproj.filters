@@ -18,5 +18,24 @@
     <ClCompile Include="ObfSymbols.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="PdbParser.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="PdbParser.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="resource.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="ObfSymbols.rc">
+      <Filter>Resource Files</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="msdia140.dll" />
   </ItemGroup>
 </Project>
