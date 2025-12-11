@@ -1,5 +1,4 @@
 // PdbParser.h - PDB file parser using DIA SDK
-// Handles COM initialization and maintains DIA session for efficient access
 
 #pragma once
 
@@ -36,75 +35,42 @@ struct ModuleInfo
     std::wstring moduleName;    // Module name (DLL/EXE name)
 };
 
-// PDB Parser class - maintains DIA session for efficient parsing
 class PdbParser
 {
 public:
-    // Constructor - initializes COM and loads PDB file
     explicit PdbParser(const std::wstring& pdbFilePath);
-
-    // Destructor - cleans up COM resources
     ~PdbParser();
 
-    // Check if parser is ready (PDB loaded successfully)
-    bool IsValid() const { return m_isValid; }
-
-    // Extract module information (OS, architecture, build ID, module name)
+    bool IsValid() const { return _isValid; }
     bool ExtractModuleInfo(ModuleInfo& moduleInfo);
-
-    // Extract all function symbols from the PDB
     bool ExtractSymbols(std::vector<SymbolInfo>& symbols);
-
-    // Get the PDB file path
-    const std::wstring& GetPdbPath() const { return m_pdbFilePath; }
+    const std::wstring& GetPdbPath() const { return _pdbFilePath; }
 
 private:
-    // Helper: Initialize DIA SDK and load PDB
     bool InitializeDiaAndLoadPdb();
-
-    // Helper: Extract embedded msdia140.dll if needed
     bool ExtractEmbeddedDll(std::wstring& dllPath);
-
-    // Helper: Get executable directory
     std::wstring GetExecutableDirectory();
-
-    // Helper: Get architecture string from machine type
     std::wstring GetArchitectureString(DWORD machineType);
-
-    // Helper: Get type name from DIA type symbol
     std::wstring GetDiaTypeName(IDiaSymbol* pType);
-
-    // Helper: Get complete type string (with pointers, references, etc.)
     std::wstring GetDiaTypeString(IDiaSymbol* pType);
-
-    // Helper: Get function signature (without return type)
     std::wstring GetDiaFunctionSignature(IDiaSymbol* pSymbol, const std::wstring& functionName);
-
-    // Helper: Load OMAP tables from PDB
     bool LoadOMAPTables();
-
-    // Helper: Translate RVA using OMAPFROM (original -> optimized)
     DWORD TranslateRVAFromOriginal(DWORD rvaOriginal) const;
-
-    // Helper: Translate RVA using OMAPTO (optimized -> original)
     DWORD TranslateRVAToOriginal(DWORD rvaOptimized) const;
-
-    // Helper: Calculate size with OMAP translation
     ULONG CalculateSizeWithOMAP(DWORD rvaOriginal, ULONGLONG sizeOriginal) const;
 
 private:
-    std::wstring m_pdbFilePath;
-    bool m_isValid;
-    bool m_comInitialized;
+    std::wstring _pdbFilePath;
+    bool _isValid;
+    bool _comInitialized;
 
-    // DIA SDK objects (maintained for reuse)
-    CComPtr<IDiaDataSource> m_pSource;
-    CComPtr<IDiaSession> m_pSession;
-    CComPtr<IDiaSymbol> m_pGlobal;
+    CComPtr<IDiaDataSource> _pSource;
+    CComPtr<IDiaSession> _pSession;
+    CComPtr<IDiaSymbol> _pGlobal;
 
     // OMAP tables for address translation
-    std::vector<OMAPRVA> m_omapFrom;  // Original RVA -> Optimized RVA
-    std::vector<OMAPRVA> m_omapTo;    // Optimized RVA -> Original RVA
-    bool m_hasOMAP;                   // Whether OMAP tables are present
+    std::vector<OMAPRVA> _omapFrom;  // Original RVA -> Optimized RVA
+    std::vector<OMAPRVA> _omapTo;    // Optimized RVA -> Original RVA
+    bool _hasOMAP;                   // Whether OMAP tables are present
 };
 

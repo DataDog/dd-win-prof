@@ -137,14 +137,9 @@ After building, the executable will be located at:
    **Signature Extraction:**
    - Function signatures are extracted using the DIA (Debug Interface Access) SDK
    - Signatures include function names, parameter types, and qualifiers (const)
-   - Return types are omitted for cleaner output
-   - Distinguishes between overloaded functions and template instantiations
-   - If DIA SDK is unavailable, falls back to showing just the symbol name
+   - Return types are omitted
 
-   **Known Limitation:** The Windows DbgHelp API (SymEnumSymbols) does not reliably set
-   export flags when enumerating symbols from PDB files. As a result, most symbols will
-   be marked as PRIVATE, even for DLL exports. This is a documented Windows API limitation.
-   The PUBLIC/PRIVATE column provides best-effort visibility information where available.
+   **Known Limitation:**  The PUBLIC/PRIVATE column provides best-effort visibility information where available.
 
 2. **Obfuscated symbol file** (auto-generated or specified by `--obf`): Contains only obfuscated names without revealing real function information
    ```

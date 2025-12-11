@@ -8,37 +8,32 @@
 
 #pragma comment(lib, "diaguids.lib")
 
-// Constructor
 PdbParser::PdbParser(const std::wstring& pdbFilePath)
-    : m_pdbFilePath(pdbFilePath)
-    , m_isValid(false)
-    , m_comInitialized(false)
-    , m_hasOMAP(false)
+    : _pdbFilePath(pdbFilePath)
+    , _isValid(false)
+    , _comInitialized(false)
+    , _hasOMAP(false)
 {
-    m_isValid = InitializeDiaAndLoadPdb();
-    if (m_isValid)
+    _isValid = InitializeDiaAndLoadPdb();
+    if (_isValid)
     {
         // Load OMAP tables if present
         LoadOMAPTables();
     }
 }
 
-// Destructor
 PdbParser::~PdbParser()
 {
-    // Release COM objects (CComPtr handles this automatically)
-    m_pGlobal.Release();
-    m_pSession.Release();
-    m_pSource.Release();
+    _pGlobal.Release();
+    _pSession.Release();
+    _pSource.Release();
 
-    // Uninitialize COM if we initialized it
-    if (m_comInitialized)
+    if (_comInitialized)
     {
         CoUninitialize();
     }
 }
 
-// Get executable directory
 std::wstring PdbParser::GetExecutableDirectory()
 {
     wchar_t path[MAX_PATH];
@@ -52,10 +47,8 @@ std::wstring PdbParser::GetExecutableDirectory()
     return L".";
 }
 
-// Extract embedded msdia140.dll from resources
 bool PdbParser::ExtractEmbeddedDll(std::wstring& dllPath)
 {
-    // Get executable directory
     std::wstring exeDir = GetExecutableDirectory();
     dllPath = exeDir + L"\\msdia140.dll";
 
@@ -65,7 +58,6 @@ bool PdbParser::ExtractEmbeddedDll(std::wstring& dllPath)
         return true;
     }
 
-    // Find the DLL resource
     HRSRC hResource = FindResourceW(NULL, MAKEINTRESOURCEW(IDR_MSDIA140_DLL), RT_RCDATA);
     if (!hResource)
     {
@@ -73,7 +65,6 @@ bool PdbParser::ExtractEmbeddedDll(std::wstring& dllPath)
         return false;
     }
 
-    // Load the resource
     HGLOBAL hLoadedResource = LoadResource(NULL, hResource);
     if (!hLoadedResource)
     {
@@ -81,7 +72,6 @@ bool PdbParser::ExtractEmbeddedDll(std::wstring& dllPath)
         return false;
     }
 
-    // Lock the resource to get a pointer to the data
     LPVOID pResourceData = LockResource(hLoadedResource);
     if (!pResourceData)
     {
@@ -89,7 +79,6 @@ bool PdbParser::ExtractEmbeddedDll(std::wstring& dllPath)
         return false;
     }
 
-    // Get the size of the resource
     DWORD resourceSize = SizeofResource(NULL, hResource);
     if (resourceSize == 0)
     {
@@ -97,7 +86,6 @@ bool PdbParser::ExtractEmbeddedDll(std::wstring& dllPath)
         return false;
     }
 
-    // Write the resource to a file
     HANDLE hFile = CreateFileW(dllPath.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (hFile == INVALID_HANDLE_VALUE)
     {
@@ -121,23 +109,21 @@ bool PdbParser::ExtractEmbeddedDll(std::wstring& dllPath)
     return true;
 }
 
-// Initialize DIA SDK and load PDB
 bool PdbParser::InitializeDiaAndLoadPdb()
 {
-    // Initialize COM
     HRESULT hr = CoInitialize(NULL);
-    m_comInitialized = SUCCEEDED(hr);
+    _comInitialized = SUCCEEDED(hr);
 
-    // Try to create DIA data source
+    // DIA could be registered on the machine
     hr = CoCreateInstance(__uuidof(DiaSource),
         NULL,
         CLSCTX_INPROC_SERVER,
         __uuidof(IDiaDataSource),
-        (void**)&m_pSource);
+        (void**)&_pSource);
 
+	// otherwise, try to load DIA from embedded/local msdia140.dll
     if (FAILED(hr))
     {
-        // Extract and load embedded DLL
         std::wstring embeddedDllPath;
         if (!ExtractEmbeddedDll(embeddedDllPath))
         {
@@ -153,7 +139,6 @@ bool PdbParser::InitializeDiaAndLoadPdb()
             return false;
         }
 
-        // Get DllGetClassObject
         typedef HRESULT(__stdcall* DllGetClassObjectFunc)(REFCLSID, REFIID, LPVOID*);
         DllGetClassObjectFunc pDllGetClassObject = (DllGetClassObjectFunc)GetProcAddress(hDia, "DllGetClassObject");
 
@@ -163,11 +148,11 @@ bool PdbParser::InitializeDiaAndLoadPdb()
             hr = pDllGetClassObject(__uuidof(DiaSource), IID_IClassFactory, (void**)&pClassFactory);
             if (SUCCEEDED(hr) && pClassFactory)
             {
-                hr = pClassFactory->CreateInstance(NULL, __uuidof(IDiaDataSource), (void**)&m_pSource);
+                hr = pClassFactory->CreateInstance(NULL, __uuidof(IDiaDataSource), (void**)&_pSource);
             }
         }
 
-        if (FAILED(hr) || !m_pSource)
+        if (FAILED(hr) || !_pSource)
         {
             std::wcerr << L"Failed to create DIA source from embedded msdia140.dll" << std::endl;
             std::wcerr << L"Error code: " << std::hex << hr << std::endl;
@@ -175,25 +160,22 @@ bool PdbParser::InitializeDiaAndLoadPdb()
         }
     }
 
-    // Load PDB file
-    hr = m_pSource->loadDataFromPdb(m_pdbFilePath.c_str());
+    hr = _pSource->loadDataFromPdb(_pdbFilePath.c_str());
     if (FAILED(hr))
     {
-        std::wcerr << L"Failed to load PDB file: " << m_pdbFilePath << std::endl;
+        std::wcerr << L"Failed to load PDB file: " << _pdbFilePath << std::endl;
         return false;
     }
 
-    // Open session
-    hr = m_pSource->openSession(&m_pSession);
-    if (FAILED(hr) || !m_pSession)
+    hr = _pSource->openSession(&_pSession);
+    if (FAILED(hr) || !_pSession)
     {
         std::wcerr << L"Failed to open DIA session" << std::endl;
         return false;
     }
 
-    // Get global scope
-    hr = m_pSession->get_globalScope(&m_pGlobal);
-    if (FAILED(hr) || !m_pGlobal)
+    hr = _pSession->get_globalScope(&_pGlobal);
+    if (FAILED(hr) || !_pGlobal)
     {
         std::wcerr << L"Failed to get global scope" << std::endl;
         return false;
@@ -202,7 +184,6 @@ bool PdbParser::InitializeDiaAndLoadPdb()
     return true;
 }
 
-// Get architecture string from machine type
 std::wstring PdbParser::GetArchitectureString(DWORD machineType)
 {
     switch (machineType)
@@ -220,7 +201,6 @@ std::wstring PdbParser::GetArchitectureString(DWORD machineType)
     }
 }
 
-// Get type name from DIA type symbol
 std::wstring PdbParser::GetDiaTypeName(IDiaSymbol* pType)
 {
     if (!pType)
@@ -273,7 +253,6 @@ std::wstring PdbParser::GetDiaTypeName(IDiaSymbol* pType)
     return L"<unknown>";
 }
 
-// Get complete type string including pointers, references, etc.
 std::wstring PdbParser::GetDiaTypeString(IDiaSymbol* pType)
 {
     if (!pType)
@@ -327,7 +306,6 @@ std::wstring PdbParser::GetDiaTypeString(IDiaSymbol* pType)
     }
 }
 
-// Get function signature (without return type)
 std::wstring PdbParser::GetDiaFunctionSignature(IDiaSymbol* pSymbol, const std::wstring& functionName)
 {
     if (!pSymbol)
@@ -335,7 +313,6 @@ std::wstring PdbParser::GetDiaFunctionSignature(IDiaSymbol* pSymbol, const std::
 
     std::wstring signature;
 
-    // Get function type
     CComPtr<IDiaSymbol> pFunctionType;
     if (FAILED(pSymbol->get_type(&pFunctionType)) || !pFunctionType)
     {
@@ -345,7 +322,6 @@ std::wstring PdbParser::GetDiaFunctionSignature(IDiaSymbol* pSymbol, const std::
     // Start with function name (no return type)
     signature = functionName + L"(";
 
-    // Get parameters
     CComPtr<IDiaEnumSymbols> pEnumChildren;
     if (SUCCEEDED(pFunctionType->findChildren(SymTagFunctionArgType, NULL, nsNone, &pEnumChildren)) && pEnumChildren)
     {
@@ -371,7 +347,6 @@ std::wstring PdbParser::GetDiaFunctionSignature(IDiaSymbol* pSymbol, const std::
 
     signature += L")";
 
-    // Check for const qualifier
     BOOL isConst = FALSE;
     if (SUCCEEDED(pFunctionType->get_constType(&isConst)) && isConst)
     {
@@ -381,10 +356,9 @@ std::wstring PdbParser::GetDiaFunctionSignature(IDiaSymbol* pSymbol, const std::
     return signature;
 }
 
-// Extract module information
 bool PdbParser::ExtractModuleInfo(ModuleInfo& moduleInfo)
 {
-    if (!m_isValid || !m_pGlobal)
+    if (!_isValid || !_pGlobal)
     {
         return false;
     }
@@ -392,9 +366,9 @@ bool PdbParser::ExtractModuleInfo(ModuleInfo& moduleInfo)
     // Get GUID and age, concatenate them to form build ID
     GUID guid;
     DWORD age = 0;
-    if (SUCCEEDED(m_pGlobal->get_guid(&guid)))
+    if (SUCCEEDED(_pGlobal->get_guid(&guid)))
     {
-        m_pGlobal->get_age(&age);
+        _pGlobal->get_age(&age);
 
         wchar_t buildIdStr[80];
         swprintf_s(buildIdStr, 80, L"%08x%04x%04x%02x%02x%02x%02x%02x%02x%02x%02x%x",
@@ -405,29 +379,26 @@ bool PdbParser::ExtractModuleInfo(ModuleInfo& moduleInfo)
         moduleInfo.buildId = buildIdStr;
     }
 
-    // Get architecture
     DWORD machineType = 0;
-    if (SUCCEEDED(m_pGlobal->get_machineType(&machineType)))
+    if (SUCCEEDED(_pGlobal->get_machineType(&machineType)))
     {
         moduleInfo.architecture = GetArchitectureString(machineType);
     }
 
-    // Get module name directly from PDB
     BSTR bstrName = NULL;
-    if (SUCCEEDED(m_pGlobal->get_name(&bstrName)) && bstrName)
+    if (SUCCEEDED(_pGlobal->get_name(&bstrName)) && bstrName)
     {
         moduleInfo.moduleName = bstrName;
         SysFreeString(bstrName);
 
-        // Check if the name already has an extension
         if (moduleInfo.moduleName.find(L'.') == std::wstring::npos)
         {
             // No extension - try to determine it from the PDB filename or filesystem
-            size_t lastSlash = m_pdbFilePath.find_last_of(L"\\/");
-            size_t lastDot = m_pdbFilePath.find_last_of(L'.');
+            size_t lastSlash = _pdbFilePath.find_last_of(L"\\/");
+            size_t lastDot = _pdbFilePath.find_last_of(L'.');
             if (lastSlash != std::wstring::npos && lastDot != std::wstring::npos && lastDot > lastSlash)
             {
-                std::wstring basePath = m_pdbFilePath.substr(0, lastDot);
+                std::wstring basePath = _pdbFilePath.substr(0, lastDot);
                 if (GetFileAttributesW((basePath + L".dll").c_str()) != INVALID_FILE_ATTRIBUTES)
                     moduleInfo.moduleName += L".dll";
                 else if (GetFileAttributesW((basePath + L".exe").c_str()) != INVALID_FILE_ATTRIBUTES)
@@ -444,13 +415,13 @@ bool PdbParser::ExtractModuleInfo(ModuleInfo& moduleInfo)
     else
     {
         // Fallback: extract from PDB filename
-        size_t lastSlash = m_pdbFilePath.find_last_of(L"\\/");
-        size_t lastDot = m_pdbFilePath.find_last_of(L'.');
+        size_t lastSlash = _pdbFilePath.find_last_of(L"\\/");
+        size_t lastDot = _pdbFilePath.find_last_of(L'.');
         if (lastSlash != std::wstring::npos && lastDot != std::wstring::npos && lastDot > lastSlash)
         {
-            moduleInfo.moduleName = m_pdbFilePath.substr(lastSlash + 1, lastDot - lastSlash - 1);
+            moduleInfo.moduleName = _pdbFilePath.substr(lastSlash + 1, lastDot - lastSlash - 1);
             // Try to determine extension from nearby files
-            std::wstring basePath = m_pdbFilePath.substr(0, lastDot);
+            std::wstring basePath = _pdbFilePath.substr(0, lastDot);
             if (GetFileAttributesW((basePath + L".dll").c_str()) != INVALID_FILE_ATTRIBUTES)
                 moduleInfo.moduleName += L".dll";
             else if (GetFileAttributesW((basePath + L".exe").c_str()) != INVALID_FILE_ATTRIBUTES)
@@ -464,12 +435,12 @@ bool PdbParser::ExtractModuleInfo(ModuleInfo& moduleInfo)
         }
     }
 
-    // Detect OS from PDB by examining source file paths
-    std::wstring detectedOS = L"windows"; // Default
+    std::wstring detectedOS = L"windows";
 
+    // Detect OS from PDB by examining source file paths
     // Try to enumerate source files to detect path style
     CComPtr<IDiaEnumSourceFiles> pEnumSourceFiles;
-    if (SUCCEEDED(m_pSession->findFile(NULL, NULL, nsNone, &pEnumSourceFiles)) && pEnumSourceFiles)
+    if (SUCCEEDED(_pSession->findFile(NULL, NULL, nsNone, &pEnumSourceFiles)) && pEnumSourceFiles)
     {
         CComPtr<IDiaSourceFile> pSourceFile;
         ULONG celt = 0;
@@ -477,7 +448,6 @@ bool PdbParser::ExtractModuleInfo(ModuleInfo& moduleInfo)
         int unixPaths = 0;
         int filesChecked = 0;
 
-        // Check first few source files
         while (filesChecked < 10 && SUCCEEDED(pEnumSourceFiles->Next(1, &pSourceFile, &celt)) && celt == 1 && pSourceFile)
         {
             BSTR bstrFileName = NULL;
@@ -543,16 +513,15 @@ bool PdbParser::ExtractModuleInfo(ModuleInfo& moduleInfo)
 // Load OMAP tables from debug streams
 bool PdbParser::LoadOMAPTables()
 {
-    if (!m_pSession)
+    if (!_pSession)
         return false;
 
-    m_hasOMAP = false;
-    m_omapFrom.clear();
-    m_omapTo.clear();
+    _hasOMAP = false;
+    _omapFrom.clear();
+    _omapTo.clear();
 
-    // Get the debug streams enumerator
     CComPtr<IDiaEnumDebugStreams> pEnumStreams;
-    HRESULT hr = m_pSession->getEnumDebugStreams(&pEnumStreams);
+    HRESULT hr = _pSession->getEnumDebugStreams(&pEnumStreams);
     if (SUCCEEDED(hr) && pEnumStreams)
     {
         CComPtr<IDiaEnumDebugStreamData> pStream;
@@ -571,9 +540,9 @@ bool PdbParser::LoadOMAPTables()
                 if (streamName == L"OMAPTO" && count > 0)
                 {
                     // Read OMAPTO entries (optimized -> original)
-                    m_omapTo.resize(count);
+                    _omapTo.resize(count);
                     DWORD cbData = 0;
-                    hr = pStream->Next(count, sizeof(OMAPRVA), &cbData, (BYTE*)m_omapTo.data(), NULL);
+                    hr = pStream->Next(count, sizeof(OMAPRVA), &cbData, (BYTE*)_omapTo.data(), NULL);
                     if (SUCCEEDED(hr))
                     {
                         std::wcout << L"Loaded OMAPTO table with " << count << L" entries" << std::endl;
@@ -582,9 +551,9 @@ bool PdbParser::LoadOMAPTables()
                 else if (streamName == L"OMAPFROM" && count > 0)
                 {
                     // Read OMAPFROM entries (original -> optimized)
-                    m_omapFrom.resize(count);
+                    _omapFrom.resize(count);
                     DWORD cbData = 0;
-                    hr = pStream->Next(count, sizeof(OMAPRVA), &cbData, (BYTE*)m_omapFrom.data(), NULL);
+                    hr = pStream->Next(count, sizeof(OMAPRVA), &cbData, (BYTE*)_omapFrom.data(), NULL);
                     if (SUCCEEDED(hr))
                     {
                         std::wcout << L"Loaded OMAPFROM table with " << count << L" entries" << std::endl;
@@ -595,9 +564,8 @@ bool PdbParser::LoadOMAPTables()
         }
     }
 
-    // Check if we successfully loaded OMAP tables
-    m_hasOMAP = !m_omapFrom.empty() && !m_omapTo.empty();
-    if (m_hasOMAP)
+    _hasOMAP = !_omapFrom.empty() && !_omapTo.empty();
+    if (_hasOMAP)
     {
         std::wcout << L"OMAP tables loaded successfully - this is an optimized binary" << std::endl;
     }
@@ -606,24 +574,24 @@ bool PdbParser::LoadOMAPTables()
         std::wcout << L"No OMAP tables found - this is a non-optimized binary" << std::endl;
     }
 
-    return m_hasOMAP;
+    return _hasOMAP;
 }
 
 // Translate RVA using OMAPFROM table (original -> optimized)
 DWORD PdbParser::TranslateRVAFromOriginal(DWORD rvaOriginal) const
 {
-    if (!m_hasOMAP || m_omapFrom.empty())
+    if (!_hasOMAP || _omapFrom.empty())
         return rvaOriginal;
 
     // Binary search for the entry with rva <= rvaOriginal
     // OMAP tables are sorted by rva
     size_t left = 0;
-    size_t right = m_omapFrom.size();
+    size_t right = _omapFrom.size();
 
     while (left < right)
     {
         size_t mid = left + (right - left) / 2;
-        if (m_omapFrom[mid].rva <= rvaOriginal)
+        if (_omapFrom[mid].rva <= rvaOriginal)
         {
             left = mid + 1;
         }
@@ -639,7 +607,7 @@ DWORD PdbParser::TranslateRVAFromOriginal(DWORD rvaOriginal) const
         return rvaOriginal;  // No mapping found
 
     size_t idx = left - 1;
-    const OMAPRVA& entry = m_omapFrom[idx];
+    const OMAPRVA& entry = _omapFrom[idx];
 
     // Check for special case: rvaTo == 0 means the code was eliminated
     if (entry.rvaTo == 0)
@@ -653,17 +621,17 @@ DWORD PdbParser::TranslateRVAFromOriginal(DWORD rvaOriginal) const
 // Translate RVA using OMAPTO table (optimized -> original)
 DWORD PdbParser::TranslateRVAToOriginal(DWORD rvaOptimized) const
 {
-    if (!m_hasOMAP || m_omapTo.empty())
+    if (!_hasOMAP || _omapTo.empty())
         return rvaOptimized;
 
     // Binary search for the entry with rva <= rvaOptimized
     size_t left = 0;
-    size_t right = m_omapTo.size();
+    size_t right = _omapTo.size();
 
     while (left < right)
     {
         size_t mid = left + (right - left) / 2;
-        if (m_omapTo[mid].rva <= rvaOptimized)
+        if (_omapTo[mid].rva <= rvaOptimized)
         {
             left = mid + 1;
         }
@@ -677,7 +645,7 @@ DWORD PdbParser::TranslateRVAToOriginal(DWORD rvaOptimized) const
         return rvaOptimized;
 
     size_t idx = left - 1;
-    const OMAPRVA& entry = m_omapTo[idx];
+    const OMAPRVA& entry = _omapTo[idx];
 
     if (entry.rvaTo == 0)
         return 0;
@@ -686,16 +654,12 @@ DWORD PdbParser::TranslateRVAToOriginal(DWORD rvaOptimized) const
     return entry.rvaTo + offset;
 }
 
-// Calculate accurate size using OMAP translation
 ULONG PdbParser::CalculateSizeWithOMAP(DWORD rvaOriginal, ULONGLONG sizeOriginal) const
 {
-    if (!m_hasOMAP || sizeOriginal == 0)
+    if (!_hasOMAP || sizeOriginal == 0)
         return static_cast<ULONG>(sizeOriginal);
 
-    // Translate the start address
     DWORD rvaOptimizedStart = TranslateRVAFromOriginal(rvaOriginal);
-
-    // Translate the end address
     DWORD rvaOriginalEnd = rvaOriginal + static_cast<DWORD>(sizeOriginal);
     DWORD rvaOptimizedEnd = TranslateRVAFromOriginal(rvaOriginalEnd);
 
@@ -718,27 +682,25 @@ ULONG PdbParser::CalculateSizeWithOMAP(DWORD rvaOriginal, ULONGLONG sizeOriginal
     }
 }
 
-// Extract all function symbols
 bool PdbParser::ExtractSymbols(std::vector<SymbolInfo>& symbols)
 {
-    if (!m_isValid || !m_pGlobal)
+    if (!_isValid || !_pGlobal)
     {
         return false;
     }
 
-    // Enumerate all function symbols
+    // Enumerate all function symbols by passing SymTagFunction
     CComPtr<IDiaEnumSymbols> pEnumSymbols;
-    HRESULT hr = m_pGlobal->findChildren(SymTagFunction, NULL, nsNone, &pEnumSymbols);
+    HRESULT hr = _pGlobal->findChildren(SymTagFunction, NULL, nsNone, &pEnumSymbols);
     if (FAILED(hr) || !pEnumSymbols)
     {
         return false;
     }
 
     // Use a map to deduplicate symbols by translated RVA
-    // This handles OMAP translations from optimized code
+    // This also handles OMAP translations from optimized code
     std::map<DWORD, SymbolInfo> symbolMap;
 
-    // Process each function
     CComPtr<IDiaSymbol> pSymbol;
     ULONG celt = 0;
     int skippedSymbols = 0;
@@ -747,7 +709,6 @@ bool PdbParser::ExtractSymbols(std::vector<SymbolInfo>& symbols)
     {
         SymbolInfo info;
 
-        // Get original RVA (Relative Virtual Address)
         DWORD rvaOriginal = 0;
         if (FAILED(pSymbol->get_relativeVirtualAddress(&rvaOriginal)))
         {
@@ -755,7 +716,6 @@ bool PdbParser::ExtractSymbols(std::vector<SymbolInfo>& symbols)
             continue;
         }
 
-        // Get original function size
         ULONGLONG sizeOriginal = 0;
         pSymbol->get_length(&sizeOriginal);
 
@@ -763,9 +723,8 @@ bool PdbParser::ExtractSymbols(std::vector<SymbolInfo>& symbols)
         DWORD rvaOptimized = 0;
         ULONG sizeOptimized = 0;
 
-        if (m_hasOMAP)
+        if (_hasOMAP)
         {
-            // Use explicit OMAP translation for optimized binaries
             rvaOptimized = TranslateRVAFromOriginal(rvaOriginal);
 
             // Check if code was eliminated during optimization
@@ -776,7 +735,6 @@ bool PdbParser::ExtractSymbols(std::vector<SymbolInfo>& symbols)
                 continue;
             }
 
-            // Calculate accurate size with OMAP
             sizeOptimized = CalculateSizeWithOMAP(rvaOriginal, sizeOriginal);
 
             // Skip symbols with zero size after optimization
@@ -789,7 +747,6 @@ bool PdbParser::ExtractSymbols(std::vector<SymbolInfo>& symbols)
         }
         else
         {
-            // No OMAP - use addresses as-is for non-optimized builds
             rvaOptimized = rvaOriginal;
             sizeOptimized = static_cast<ULONG>(sizeOriginal);
         }
@@ -797,7 +754,6 @@ bool PdbParser::ExtractSymbols(std::vector<SymbolInfo>& symbols)
         info.rva = rvaOptimized;
         info.size = sizeOptimized;
 
-        // Get name
         BSTR bstrName = NULL;
         if (FAILED(pSymbol->get_name(&bstrName)) || !bstrName)
         {
@@ -807,14 +763,12 @@ bool PdbParser::ExtractSymbols(std::vector<SymbolInfo>& symbols)
         info.name = bstrName;
         SysFreeString(bstrName);
 
-        // Get signature
         info.signature = GetDiaFunctionSignature(pSymbol, info.name);
 
         // Check if symbol is exported (public)
         DWORD locationType = 0;
         if (SUCCEEDED(pSymbol->get_locationType(&locationType)))
         {
-            // LocIsStatic (1) = internal/static
             // LocIsExport (2) = external/exported
             info.isPublic = (locationType == 2);  // LocIsExport
         }
@@ -824,7 +778,6 @@ bool PdbParser::ExtractSymbols(std::vector<SymbolInfo>& symbols)
             info.isPublic = false;
         }
 
-        // Initialize conflict count to 0 (no conflicts yet)
         info.conflictCount = 0;
 
         // Check if this RVA already has a symbol
@@ -838,19 +791,16 @@ bool PdbParser::ExtractSymbols(std::vector<SymbolInfo>& symbols)
             // Keep the lexically smaller name
             if (info.name < it->second.name)
             {
-                // Current symbol has lexically smaller name, use it
                 info.conflictCount = newConflictCount;
                 symbolMap[rvaOptimized] = info;
             }
             else
             {
-                // Existing symbol has lexically smaller name, keep it and update count
                 it->second.conflictCount = newConflictCount;
             }
         }
         else
         {
-            // First symbol at this RVA, add it
             symbolMap[rvaOptimized] = info;
         }
 
@@ -886,4 +836,3 @@ bool PdbParser::ExtractSymbols(std::vector<SymbolInfo>& symbols)
 
     return true;
 }
-
