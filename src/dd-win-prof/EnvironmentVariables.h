@@ -38,4 +38,5 @@ public:
     constexpr static const char* LogLevel = "DD_PROFILING_LOG_LEVEL";
     constexpr static const char* LogToConsole = "DD_PROFILING_LOG_TO_CONSOLE";
     constexpr static const char* CoreMinimumOverride = "DD_PROFILING_MIN_CORES_THRESHOLD";
+    constexpr static const char* SymbolizeCallstacks = "DD_PROFILING_INTERNAL_SYMBOLIZE_CALLSTACKS";
 };

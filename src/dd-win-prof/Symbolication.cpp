@@ -9,8 +9,11 @@
 
 // Symbolication implementation
 Symbolication::Symbolication()
-    : _isInitialized(false)
+    :
+    _isInitialized(false),
+    _symbolizeFrames(false)
 {
+    _emptyStringId = ddog_prof_ManagedStringId{0};
 }
 
 Symbolication::~Symbolication()
@@ -18,10 +21,22 @@ Symbolication::~Symbolication()
     Cleanup();
 }
 
-bool Symbolication::Initialize()
+bool Symbolication::Initialize(ddog_prof_ManagedStringStorage& stringStorage, bool symbolizeFrames)
 {
     if (_isInitialized)
         return true;
+
+    // Intern empty string used when symbols are missing or disabled
+    const char* emptyString = "";
+    ddog_CharSlice emptyStringSlice = { emptyString, strlen(emptyString) };
+    auto fileNameResult = ddog_prof_ManagedStringStorage_intern(stringStorage, emptyStringSlice);
+    if (fileNameResult.tag != DDOG_PROF_MANAGED_STRING_STORAGE_INTERN_RESULT_OK)
+    {
+        // String interning failed - major failure
+        return false;
+    }
+    _emptyStringId = fileNameResult.ok;
+    _symbolizeFrames = symbolizeFrames;
 
     if (!InitializeSymbolHandler())
         return false;
@@ -89,6 +104,16 @@ std::optional<CachedSymbolInfo> Symbolication::SymbolicateAndIntern(uint64_t add
         }
     }
 
+    // get the symbol corresponding to the address if needed
+    if (!_symbolizeFrames)
+    {
+        // Symbolization disabled - return module info only
+        result.FunctionNameId = _emptyStringId;
+
+        result.isValid = true;
+        return result;
+    }
+
     DWORD64 displacement64 = 0;
     if (SymFromAddr(GetCurrentProcess(), address, &displacement64, pSymbol))
     {
@@ -103,7 +128,6 @@ std::optional<CachedSymbolInfo> Symbolication::SymbolicateAndIntern(uint64_t add
 
         result.FunctionNameId = functionNameResult.ok;
         result.displacement = static_cast<uint64_t>(displacement64);
-        result.isValid = true;
 
         // Try to get line information
         IMAGEHLP_LINE64 line = { 0 };
@@ -122,26 +146,16 @@ std::optional<CachedSymbolInfo> Symbolication::SymbolicateAndIntern(uint64_t add
             }
             // Note: If file name interning fails, we still return the function symbol
         }
-
-        return result;
     }
     else
     {
         // SymFromAddr failed - address not found, return unknown symbol
         // Note: module info was already populated above if available
-        auto unknownSymbol = CreateUnknownSymbol(address, stringStorage);
-        if (unknownSymbol.FunctionNameId.value == 0)
-        {
-            // Even unknown symbol creation failed (string interning failed) - major failure
-            return std::nullopt;
-        }
-
-        // Preserve module info from result into unknownSymbol
-        unknownSymbol.ModuleNameId = result.ModuleNameId;
-        unknownSymbol.BuildIdId = result.BuildIdId;
-
-        return unknownSymbol;
+        result.FunctionNameId = _emptyStringId;
     }
+
+    result.isValid = true;
+    return result;
 }
 
 bool Symbolication::RefreshModules()
@@ -177,45 +191,6 @@ bool Symbolication::InitializeSymbolHandler()
 void Symbolication::CleanupSymbolHandler()
 {
     SymCleanup(GetCurrentProcess());
-}
-
-CachedSymbolInfo Symbolication::CreateUnknownSymbol(uint64_t address, ddog_prof_ManagedStringStorage& stringStorage)
-{
-    CachedSymbolInfo result;
-    result.Address = address;
-    result.isValid = true; // Always valid, even if unknown
-
-    // Initialize IDs to zero (invalid) in case interning fails
-    result.FunctionNameId = ddog_prof_ManagedStringId{0};
-    result.FileNameId = ddog_prof_ManagedStringId{0};
-    result.ModuleNameId = ddog_prof_ManagedStringId{0};
-    result.BuildIdId = ddog_prof_ManagedStringId{0};
-    result.ModuleBaseAddress = 0;
-    result.ModuleSize = 0;
-
-    // Intern unknown function name
-    const char* unknownFunction = "<unknown>";
-    ddog_CharSlice unknownFunctionSlice = { unknownFunction, strlen(unknownFunction) };
-    auto functionNameResult = ddog_prof_ManagedStringStorage_intern(stringStorage, unknownFunctionSlice);
-    if (functionNameResult.tag == DDOG_PROF_MANAGED_STRING_STORAGE_INTERN_RESULT_OK)
-    {
-        result.FunctionNameId = functionNameResult.ok;
-    }
-
-    // Intern unknown filename - ProfileExporter expects this to be set
-    const char* unknownFile = "<unknown>";
-    ddog_CharSlice unknownFileSlice = { unknownFile, strlen(unknownFile) };
-    auto fileNameResult = ddog_prof_ManagedStringStorage_intern(stringStorage, unknownFileSlice);
-    if (fileNameResult.tag == DDOG_PROF_MANAGED_STRING_STORAGE_INTERN_RESULT_OK)
-    {
-        result.FileNameId = fileNameResult.ok;
-    }
-
-    // Note: module name and build ID are left as zero IDs
-    // They should be filled by the caller if module info is available
-    // Note: If even the unknown string interning fails, we still return a valid symbol
-    // but with zero IDs which ProfileExporter should handle gracefully
-    return result;
 }
 
 uint64_t Symbolication::ComputeModuleCacheKey(uint64_t baseAddress, uint32_t moduleSize) const

@@ -67,6 +67,11 @@ DD_WIN_PROF_API bool SetupProfiler(ProfilerConfig* pSettings)
         configuration->SetCpuThreadsThreshold(pSettings->cpuThreadsThreshold);
     }
 
+    if (pSettings->symbolizeCallstacks)
+    {
+        configuration->EnableSymbolizedCallstacks();
+    }
+
     return true;
 }
 
