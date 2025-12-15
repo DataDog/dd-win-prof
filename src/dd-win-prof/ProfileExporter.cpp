@@ -17,7 +17,7 @@
 #include <fcntl.h>
 #include <io.h>
 #include "Log.h"
-#include "ProfilerVersion.h"
+#include "version.h"
 
 
 using namespace dd_win_prof;
@@ -38,6 +38,9 @@ ProfileExporter::ProfileExporter(Configuration* pConfiguration, std::span<const 
     _consecutiveErrors(0)
 {
     _runtimeId = ComputeRuntimeId();
+
+    _kProfilerVersion = PROFILER_VERSION_STRING;
+    _kProfilerUserAgent = DLL_NAME;
 
     // Configure debug output from Configuration
     if (_pConfiguration != nullptr) {
@@ -550,7 +553,7 @@ bool ProfileExporter::PrepareStableTags(ddog_Vec_Tag& tags)
         return false;
     }
 
-    if (!AddSingleTag(tags, "profiler_version", kProfilerVersion)) {
+    if (!AddSingleTag(tags, "profiler_version", _kProfilerVersion)) {
         return false;
     }
 
@@ -968,8 +971,8 @@ bool ProfileExporter::InitializeExporter()
 
     // Create exporter
     auto exporterResult = ddog_prof_Exporter_new(
-        to_CharSlice(kProfilerUserAgent), // user_agent
-        to_CharSlice(kProfilerVersion),   // profiler_version
+        to_CharSlice(_kProfilerUserAgent), // user_agent
+        to_CharSlice(_kProfilerVersion),   // profiler_version
         to_CharSlice("native"),           // family
         &stableTags,
         endpoint
