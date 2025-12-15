@@ -17,6 +17,7 @@
 #include <fcntl.h>
 #include <io.h>
 #include "Log.h"
+#include "ProfilerVersion.h"
 
 
 using namespace dd_win_prof;
@@ -549,6 +550,11 @@ bool ProfileExporter::PrepareStableTags(ddog_Vec_Tag& tags)
         return false;
     }
 
+    // Profiler version (stable tag for symbol/debug uploads)
+    if (!AddSingleTag(tags, "profiler_version", kProfilerVersion)) {
+        return false;
+    }
+
     // add CPU related tags
     int physicalCores;
     int logicalCores;
@@ -962,8 +968,8 @@ bool ProfileExporter::InitializeExporter()
     }
 
     // Create exporter
-    std::string userAgent = "dd-win-profiler/" + (_pConfiguration ? _pConfiguration->GetVersion() : "1.0.0");
-    std::string profilerVersion = _pConfiguration ? _pConfiguration->GetVersion() : "1.0.0";
+    std::string userAgent = std::string("dd-win-profiler/") + kProfilerVersion;
+    std::string profilerVersion = kProfilerVersion;
 
     auto exporterResult = ddog_prof_Exporter_new(
         to_CharSlice(userAgent),       // user_agent
