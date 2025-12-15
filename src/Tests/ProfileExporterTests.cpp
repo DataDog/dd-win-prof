@@ -155,7 +155,6 @@ TEST_F(ProfileExporterExportTests, ConfigurationIntegration) {
     EXPECT_TRUE(exporter->Export());
 }
 
-
 // Note: These tests will attempt to connect to localhost:8126 (Datadog Agent)
 // If no agent is running, the export will fail but the test should still pass
 // since we're testing the export logic, not the actual network connectivity

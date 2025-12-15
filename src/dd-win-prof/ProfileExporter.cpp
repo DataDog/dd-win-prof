@@ -550,7 +550,6 @@ bool ProfileExporter::PrepareStableTags(ddog_Vec_Tag& tags)
         return false;
     }
 
-    // Profiler version (stable tag for symbol/debug uploads)
     if (!AddSingleTag(tags, "profiler_version", kProfilerVersion)) {
         return false;
     }
@@ -968,13 +967,10 @@ bool ProfileExporter::InitializeExporter()
     }
 
     // Create exporter
-    std::string userAgent = std::string("dd-win-profiler/") + kProfilerVersion;
-    std::string profilerVersion = kProfilerVersion;
-
     auto exporterResult = ddog_prof_Exporter_new(
-        to_CharSlice(userAgent),       // user_agent
-        to_CharSlice(profilerVersion), // profiler_version
-        to_CharSlice("native"),        // family
+        to_CharSlice(kProfilerUserAgent), // user_agent
+        to_CharSlice(kProfilerVersion),   // profiler_version
+        to_CharSlice("native"),           // family
         &stableTags,
         endpoint
     );
