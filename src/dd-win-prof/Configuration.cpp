@@ -90,6 +90,8 @@ Configuration::Configuration()
     _namedPipeName = GetEnvironmentValue(EnvironmentVariables::NamedPipeName, DefaultEmptyString);
 
     _minimumCores = GetEnvironmentValue<double>(EnvironmentVariables::CoreMinimumOverride, 1.0);
+
+    _areCallstacksSymbolized = GetEnvironmentValue<bool>(EnvironmentVariables::SymbolizeCallstacks, false);
 }
 
 
@@ -314,6 +316,16 @@ bool Configuration::IsExportEnabled() const
 void Configuration::SetExportEnabled(bool enabled)
 {
     _isExportEnabled = enabled;
+}
+
+bool Configuration::AreCallstacksSymbolized() const
+{
+    return _areCallstacksSymbolized;
+}
+
+void Configuration::EnableSymbolizedCallstacks()
+{
+    _areCallstacksSymbolized = true;
 }
 
 std::chrono::nanoseconds Configuration::CpuWallTimeSamplingPeriod() const
