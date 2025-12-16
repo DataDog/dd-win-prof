@@ -584,6 +584,13 @@ bool ProfileExporter::PrepareStableTags(ddog_Vec_Tag& tags)
         }
     }
 
+    std::string cpuArch = GetCpuArchitecture();
+    if (!cpuArch.empty()) {
+        if (!AddSingleTag(tags, TAG_CPU_ARCH, cpuArch)) {
+            return false;
+        }
+    }
+
     // GPU tags depend on the number of GPUs
     std::string driverDescTag;
     std::string driverVersionTag;
