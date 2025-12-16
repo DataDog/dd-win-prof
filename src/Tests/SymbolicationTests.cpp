@@ -211,6 +211,24 @@ TEST_F(SymbolicationTest, TestBasicSymbolication) {
 
     EXPECT_TRUE(symbolInfo.isValid) << "Symbolication should succeed for valid address";
     EXPECT_EQ(symbolInfo.Address, testAddress) << "Address should match the input address";
+    if (symbolInfo.ModuleBaseAddress != 0 && testAddress >= symbolInfo.ModuleBaseAddress) {
+        EXPECT_EQ(symbolInfo.RelativeAddress, testAddress - symbolInfo.ModuleBaseAddress)
+            << "RelativeAddress should be module-relative (absolute - module base)";
+        if (symbolInfo.ModuleSize != 0) {
+            EXPECT_LT(symbolInfo.RelativeAddress, static_cast<uint64_t>(symbolInfo.ModuleSize))
+                << "RelativeAddress should fall within module size when available";
+        }
+    }
+    if (symbolInfo.BuildIdId.value != 0) {
+        auto buildIdResult = ddog_prof_ManagedStringStorage_get_string(_stringStorage, symbolInfo.BuildIdId);
+        if (buildIdResult.tag == DDOG_STRING_WRAPPER_RESULT_OK) {
+            const char* str_data = reinterpret_cast<const char*>(buildIdResult.ok.message.ptr);
+            size_t str_len = buildIdResult.ok.message.len;
+            std::string buildId(str_data, str_len);
+            ddog_StringWrapper_drop(&buildIdResult.ok);
+            EXPECT_EQ(buildId.find('-'), std::string::npos) << "Build ID must be contiguous (no dashes)";
+        }
+    }
 
     // Verify we got the correct function name (allowing for name mangling)
     if (symbolInfo.isValid) {
