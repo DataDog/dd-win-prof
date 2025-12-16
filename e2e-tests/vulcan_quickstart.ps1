@@ -585,7 +585,10 @@ try {
         "-G", "Visual Studio 17 2022",
         "-A", "x64",
         "-DUSE_RELATIVE_ASSET_PATH=ON",
-        "-DCMAKE_CONFIGURATION_TYPES=Release"  # Only build Release, skip Debug
+        "-DCMAKE_CONFIGURATION_TYPES=Release",             # Only build Release, skip Debug
+        "-DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=ProgramDatabase", # Emit PDBs in Release
+        "-DCMAKE_EXE_LINKER_FLAGS_RELEASE=/DEBUG",
+        "-DCMAKE_SHARED_LINKER_FLAGS_RELEASE=/DEBUG"
     )
     
     # Add additional options to help with asset/shader paths

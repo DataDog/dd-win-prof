@@ -123,6 +123,8 @@ private:
     std::string BuildAgentEndpoint();
 
     // Configuration and state
+    std::string _kProfilerVersion;
+    std::string _kProfilerUserAgent;
     Configuration* _pConfiguration;
     std::vector<SampleValueType> _sampleTypeDefinitions;
     std::string _runtimeId;
