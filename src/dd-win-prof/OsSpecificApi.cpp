@@ -268,7 +268,7 @@ namespace OsSpecificApi {
             case PROCESSOR_ARCHITECTURE_INTEL:
                 return "x86";
             default:
-                return "unknown";
+                return {};
         }
     }
 

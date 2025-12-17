@@ -3,6 +3,7 @@
 
 #include "pch.h"
 #include "Symbolication.h"
+#include "Log.h"
 #include <DbgHelp.h>
 
 #pragma comment(lib, "dbghelp.lib")
@@ -70,7 +71,6 @@ std::optional<CachedSymbolInfo> Symbolication::SymbolicateAndIntern(uint64_t add
     pSymbol->MaxNameLen = maxNameLength;
 
     CachedSymbolInfo result;
-    result.Address = address;
 
     // Initialize string IDs to zero (invalid)
     result.FunctionNameId = ddog_prof_ManagedStringId{0};
@@ -101,6 +101,18 @@ std::optional<CachedSymbolInfo> Symbolication::SymbolicateAndIntern(uint64_t add
             result.BuildIdId = cachedModule.BuildIdId;
             result.ModuleBaseAddress = cachedModule.ModuleBaseAddress;
             result.ModuleSize = cachedModule.ModuleSize;
+
+            if (result.ModuleBaseAddress != 0 && result.ModuleSize != 0)
+            {
+                if (address < result.ModuleBaseAddress || (address - result.ModuleBaseAddress) >= result.ModuleSize)
+                {
+                    LogOnce(Debug,
+                            "Address 0x", std::hex, address,
+                            " outside module range [0x", result.ModuleBaseAddress,
+                            ", 0x", (result.ModuleBaseAddress + result.ModuleSize), ")",
+                            std::dec);
+                }
+            }
         }
     }
 
@@ -260,15 +272,13 @@ bool Symbolication::ExtractBuildIdFromPEHeaderRaw(uint64_t baseAddress, char* bu
 
                     CV_INFO_PDB70* cvInfo = reinterpret_cast<CV_INFO_PDB70*>(cvData);
 
-                    // Format GUID and Age as build ID
-                    // Format: GUID-Age (e.g., "12345678-1234-1234-AB-CD-ABCDEF123456-1")
+                    // Format GUID and Age as contiguous hex string (no dashes), consistent with PDB parsing tooling.
+                    // Example: 1234567812341234ABCDEF12345678901
                     snprintf(buildIdBuffer, bufferSize,
-                        "%08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X-%X",
+                        "%08X%04X%04X%02X%02X%02X%02X%02X%02X%02X%02X%X",
                         cvInfo->Guid.Data1, cvInfo->Guid.Data2, cvInfo->Guid.Data3,
-                        cvInfo->Guid.Data4[0], cvInfo->Guid.Data4[1],
-                        cvInfo->Guid.Data4[2], cvInfo->Guid.Data4[3],
-                        cvInfo->Guid.Data4[4], cvInfo->Guid.Data4[5],
-                        cvInfo->Guid.Data4[6], cvInfo->Guid.Data4[7],
+                        cvInfo->Guid.Data4[0], cvInfo->Guid.Data4[1], cvInfo->Guid.Data4[2], cvInfo->Guid.Data4[3],
+                        cvInfo->Guid.Data4[4], cvInfo->Guid.Data4[5], cvInfo->Guid.Data4[6], cvInfo->Guid.Data4[7],
                         cvInfo->Age);
 
                     return true;
