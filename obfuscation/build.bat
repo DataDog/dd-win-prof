@@ -34,7 +34,29 @@ echo ========================================
 echo.
 
 REM Initialize Visual Studio environment
-call "C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\Tools\VsDevCmd.bat" -arch=amd64
+REM Try to find Visual Studio in this order: Enterprise, Professional, Community
+set VS_PATH=
+set VS_EDITION=
+
+if exist "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" (
+    set VS_PATH=C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat
+    set VS_EDITION=Enterprise
+) else if exist "C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\Tools\VsDevCmd.bat" (
+    set VS_PATH=C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\Tools\VsDevCmd.bat
+    set VS_EDITION=Professional
+) else if exist "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" (
+    set VS_PATH=C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat
+    set VS_EDITION=Community
+)
+
+if "%VS_PATH%"=="" (
+    echo ERROR: Visual Studio 2022 not found!
+    echo Please install Visual Studio 2022 (Community, Professional, or Enterprise edition^)
+    exit /b 1
+)
+
+echo Using Visual Studio 2022 %VS_EDITION%
+call "%VS_PATH%" -arch=amd64
 
 if errorlevel 1 (
     echo ERROR: Failed to initialize Visual Studio environment
