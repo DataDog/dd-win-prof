@@ -94,6 +94,7 @@ private:
     static constexpr const char* TAG_CPU_LOGICAL_CORES_COUNT = "number_of_logical_cores";
     static constexpr const char* TAG_CPU_VENDOR = "cpu_vendor";
     static constexpr const char* TAG_CPU_DESC = "cpu_desc";
+    static constexpr const char* TAG_CPU_ARCH = "cpu_arch";
     // GPU specific tags (for as many as GPUs)
     static constexpr const char* TAG_GPU_COUNT = "gpu_count";
     static constexpr const char* TAG_GPU_DRIVER_DESC_PREFIX = "gpu_driver_desc_";

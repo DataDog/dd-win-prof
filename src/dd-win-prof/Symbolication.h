@@ -21,7 +21,6 @@ inline void hash_combine(uint64_t& seed, uint64_t value)
 /// </summary>
 struct CachedSymbolInfo
 {
-    uint64_t Address;                    // Original address (used as cache key)
     ddog_prof_ManagedStringId FunctionNameId;   // Interned function name ID
     ddog_prof_ManagedStringId FileNameId;       // Interned filename ID
     ddog_prof_ManagedStringId ModuleNameId;     // Interned module name ID
@@ -32,7 +31,7 @@ struct CachedSymbolInfo
     uint32_t lineNumber;
     bool isValid;
 
-    CachedSymbolInfo() : Address(0), FunctionNameId{0}, FileNameId{0}, ModuleNameId{0}, BuildIdId{0},
+    CachedSymbolInfo() : FunctionNameId{0}, FileNameId{0}, ModuleNameId{0}, BuildIdId{0},
                          ModuleBaseAddress(0), ModuleSize(0), displacement(0), lineNumber(0), isValid(false) {}
 };
 

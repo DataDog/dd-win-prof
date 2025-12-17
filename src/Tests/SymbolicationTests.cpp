@@ -210,7 +210,16 @@ TEST_F(SymbolicationTest, TestBasicSymbolication) {
     LogSymbolInfo("GlobalTestFunction Symbolication", testAddress, symbolInfo);
 
     EXPECT_TRUE(symbolInfo.isValid) << "Symbolication should succeed for valid address";
-    EXPECT_EQ(symbolInfo.Address, testAddress) << "Address should match the input address";
+    if (symbolInfo.BuildIdId.value != 0) {
+        auto buildIdResult = ddog_prof_ManagedStringStorage_get_string(_stringStorage, symbolInfo.BuildIdId);
+        if (buildIdResult.tag == DDOG_STRING_WRAPPER_RESULT_OK) {
+            const char* str_data = reinterpret_cast<const char*>(buildIdResult.ok.message.ptr);
+            size_t str_len = buildIdResult.ok.message.len;
+            std::string buildId(str_data, str_len);
+            ddog_StringWrapper_drop(&buildIdResult.ok);
+            EXPECT_EQ(buildId.find('-'), std::string::npos) << "Build ID must be contiguous (no dashes)";
+        }
+    }
 
     // Verify we got the correct function name (allowing for name mangling)
     if (symbolInfo.isValid) {
@@ -347,7 +356,6 @@ TEST_F(SymbolicationTest, TestUnknownAddressSymbolication) {
     LogSymbolInfo("Fake Address Symbolication", fakeAddress, symbolInfo);
 
     EXPECT_TRUE(symbolInfo.isValid) << "Unknown symbol should still be marked as valid";
-    EXPECT_EQ(symbolInfo.Address, fakeAddress) << "Address should match input";
 
     // Check that we got unknown function and filename
     std::string functionName = GetFunctionName(symbolInfo);
