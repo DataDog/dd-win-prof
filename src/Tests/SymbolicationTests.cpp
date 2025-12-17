@@ -210,15 +210,6 @@ TEST_F(SymbolicationTest, TestBasicSymbolication) {
     LogSymbolInfo("GlobalTestFunction Symbolication", testAddress, symbolInfo);
 
     EXPECT_TRUE(symbolInfo.isValid) << "Symbolication should succeed for valid address";
-    EXPECT_EQ(symbolInfo.Address, testAddress) << "Address should match the input address";
-    if (symbolInfo.ModuleBaseAddress != 0 && testAddress >= symbolInfo.ModuleBaseAddress) {
-        EXPECT_EQ(symbolInfo.RelativeAddress, testAddress - symbolInfo.ModuleBaseAddress)
-            << "RelativeAddress should be module-relative (absolute - module base)";
-        if (symbolInfo.ModuleSize != 0) {
-            EXPECT_LT(symbolInfo.RelativeAddress, static_cast<uint64_t>(symbolInfo.ModuleSize))
-                << "RelativeAddress should fall within module size when available";
-        }
-    }
     if (symbolInfo.BuildIdId.value != 0) {
         auto buildIdResult = ddog_prof_ManagedStringStorage_get_string(_stringStorage, symbolInfo.BuildIdId);
         if (buildIdResult.tag == DDOG_STRING_WRAPPER_RESULT_OK) {
@@ -365,7 +356,6 @@ TEST_F(SymbolicationTest, TestUnknownAddressSymbolication) {
     LogSymbolInfo("Fake Address Symbolication", fakeAddress, symbolInfo);
 
     EXPECT_TRUE(symbolInfo.isValid) << "Unknown symbol should still be marked as valid";
-    EXPECT_EQ(symbolInfo.Address, fakeAddress) << "Address should match input";
 
     // Check that we got unknown function and filename
     std::string functionName = GetFunctionName(symbolInfo);

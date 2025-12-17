@@ -3,6 +3,7 @@
 
 #include "pch.h"
 #include "Symbolication.h"
+#include "Log.h"
 #include <DbgHelp.h>
 
 #pragma comment(lib, "dbghelp.lib")
@@ -70,8 +71,6 @@ std::optional<CachedSymbolInfo> Symbolication::SymbolicateAndIntern(uint64_t add
     pSymbol->MaxNameLen = maxNameLength;
 
     CachedSymbolInfo result;
-    result.Address = address;
-    result.RelativeAddress = address;
 
     // Initialize string IDs to zero (invalid)
     result.FunctionNameId = ddog_prof_ManagedStringId{0};
@@ -103,9 +102,16 @@ std::optional<CachedSymbolInfo> Symbolication::SymbolicateAndIntern(uint64_t add
             result.ModuleBaseAddress = cachedModule.ModuleBaseAddress;
             result.ModuleSize = cachedModule.ModuleSize;
 
-            if (result.ModuleBaseAddress != 0 && address >= result.ModuleBaseAddress)
+            if (result.ModuleBaseAddress != 0 && result.ModuleSize != 0)
             {
-                result.RelativeAddress = address - result.ModuleBaseAddress;
+                if (address < result.ModuleBaseAddress || (address - result.ModuleBaseAddress) >= result.ModuleSize)
+                {
+                    LogOnce(Debug,
+                            "Address 0x", std::hex, address,
+                            " outside module range [0x", result.ModuleBaseAddress,
+                            ", 0x", (result.ModuleBaseAddress + result.ModuleSize), ")",
+                            std::dec);
+                }
             }
         }
     }

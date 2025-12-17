@@ -348,11 +348,8 @@ std::optional<ddog_prof_LocationId> ProfileExporter::InternLocation(uint64_t add
 
     uint64_t addressForProfile = address;
 
-    if (symbolInfo.ModuleBaseAddress != 0 &&
-        symbolInfo.ModuleSize != 0 &&
-        address >= symbolInfo.ModuleBaseAddress)
-    {
-        addressForProfile = symbolInfo.RelativeAddress;
+    if (symbolInfo.ModuleBaseAddress != 0) {
+        addressForProfile = address - symbolInfo.ModuleBaseAddress;
     }
 
     // Intern the mapping using the cached symbol info (module name and build ID)
@@ -440,10 +437,10 @@ std::optional<ddog_prof_MappingId> ProfileExporter::InternMapping(const CachedSy
         }
     }
 
-    // Use module-relative address space (like ELF virtual addresses on Linux):
-    // locations use (absolute - module_base), so mapping range is [0, module_size).
-    uint64_t memoryStart = 0;
-    uint64_t memoryLimit = symbolInfo.ModuleSize;
+    // Process address space for Windows mappings: [module_base, module_base + module_size).
+    // This is only for debug purposes
+    uint64_t memoryStart = symbolInfo.ModuleBaseAddress;
+    uint64_t memoryLimit = symbolInfo.ModuleBaseAddress + symbolInfo.ModuleSize;
 
     auto mappingResult = ddog_prof_Profile_intern_mapping(
         profile,
