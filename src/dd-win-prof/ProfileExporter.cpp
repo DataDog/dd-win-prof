@@ -346,6 +346,12 @@ std::optional<ddog_prof_LocationId> ProfileExporter::InternLocation(uint64_t add
         _persistentSymbolCache[address] = symbolInfo;
     }
 
+    uint64_t addressForProfile = address;
+
+    if (symbolInfo.ModuleBaseAddress != 0) {
+        addressForProfile = address - symbolInfo.ModuleBaseAddress;
+    }
+
     // Intern the mapping using the cached symbol info (module name and build ID)
     std::optional<ddog_prof_MappingId> mappingIdOpt;
     if (symbolInfo.ModuleNameId.value != 0 || symbolInfo.BuildIdId.value != 0) {
@@ -369,7 +375,7 @@ std::optional<ddog_prof_LocationId> ProfileExporter::InternLocation(uint64_t add
             profile,
             mappingIdOpt.value(),
             functionIdOpt.value(),
-            address,
+            addressForProfile,
             static_cast<int64_t>(symbolInfo.lineNumber)
         );
     } else {
@@ -377,7 +383,7 @@ std::optional<ddog_prof_LocationId> ProfileExporter::InternLocation(uint64_t add
         locationResult = ddog_prof_Profile_intern_location(
             profile,
             functionIdOpt.value(),
-            address,
+            addressForProfile,
             static_cast<int64_t>(symbolInfo.lineNumber)
         );
     }
@@ -431,8 +437,8 @@ std::optional<ddog_prof_MappingId> ProfileExporter::InternMapping(const CachedSy
         }
     }
 
-    // Create mapping with module information including memory range
-    // The memory range enables automatic association of locations with this mapping
+    // Process address space for Windows mappings: [module_base, module_base + module_size).
+    // This is only for debug purposes
     uint64_t memoryStart = symbolInfo.ModuleBaseAddress;
     uint64_t memoryLimit = symbolInfo.ModuleBaseAddress + symbolInfo.ModuleSize;
 

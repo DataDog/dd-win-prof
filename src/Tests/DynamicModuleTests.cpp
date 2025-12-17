@@ -123,7 +123,6 @@ TEST_F(DynamicModuleTest, TestActualDynamicLoading) {
     if (!beforeRefreshOpt.has_value()) {
         std::cout << "Before refresh - No value returned" << std::endl;
         beforeRefresh.isValid = false;
-        beforeRefresh.Address = testAddress;
     } else {
         beforeRefresh = beforeRefreshOpt.value();
         std::cout << "Before refresh - Valid: " << (beforeRefresh.isValid ? "YES" : "NO") << std::endl;
@@ -144,7 +143,6 @@ TEST_F(DynamicModuleTest, TestActualDynamicLoading) {
     if (!afterRefreshOpt.has_value()) {
         std::cout << "After refresh - No value returned" << std::endl;
         afterRefresh.isValid = false;
-        afterRefresh.Address = testAddress;
     } else {
         afterRefresh = afterRefreshOpt.value();
         std::cout << "After refresh - Valid: " << (afterRefresh.isValid ? "YES" : "NO") << std::endl;
@@ -187,7 +185,6 @@ TEST_F(DynamicModuleTest, TestSymbolicationWithRefresh) {
     if (!beforeRefreshOpt2.has_value()) {
         std::cout << "Before refresh - No value returned" << std::endl;
         beforeRefresh.isValid = false;
-        beforeRefresh.Address = testAddress;
     } else {
         beforeRefresh = beforeRefreshOpt2.value();
         std::cout << "Before refresh - Valid: " << (beforeRefresh.isValid ? "YES" : "NO") << std::endl;
@@ -207,7 +204,6 @@ TEST_F(DynamicModuleTest, TestSymbolicationWithRefresh) {
     if (!afterRefreshOpt2.has_value()) {
         std::cout << "After refresh - No value returned" << std::endl;
         afterRefresh.isValid = false;
-        afterRefresh.Address = testAddress;
     } else {
         afterRefresh = afterRefreshOpt2.value();
         std::cout << "After refresh - Valid: " << (afterRefresh.isValid ? "YES" : "NO") << std::endl;
