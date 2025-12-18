@@ -44,6 +44,7 @@ public:
     bool IsValid() const { return _isValid; }
     bool ExtractModuleInfo(ModuleInfo& moduleInfo);
     bool ExtractSymbols(std::vector<SymbolInfo>& symbols);
+    bool DumpAllSymbols();
     const std::wstring& GetPdbPath() const { return _pdbFilePath; }
 
 private:

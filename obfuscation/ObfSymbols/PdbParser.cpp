@@ -3,10 +3,78 @@
 #include "PdbParser.h"
 #include "resource.h"
 #include <iostream>
+#include <iomanip>
 #include <algorithm>
 #include <map>
+#include <vector>
+#include <DbgHelp.h>
 
 #pragma comment(lib, "diaguids.lib")
+#pragma comment(lib, "dbghelp.lib")
+
+// Forward declaration
+std::wstring DemangleName(const std::wstring& mangledName, DWORD flags);
+
+// Helper function to parse demangled name and extract visibility + clean signature
+struct DemangledInfo
+{
+    std::wstring cleanSignature;
+    bool isPublic;
+};
+
+DemangledInfo ParseDemangledName(const std::wstring& mangledName)
+{
+    DemangledInfo result;
+    result.isPublic = true; // Default to public
+
+    if (mangledName.empty())
+    {
+        result.cleanSignature = mangledName;
+        return result;
+    }
+
+    // First, get the COMPLETE demangled name to check for visibility
+    std::wstring fullDemangled = DemangleName(mangledName, UNDNAME_COMPLETE);
+
+    // Check for visibility prefix
+    if (fullDemangled.find(L"private:") == 0)
+    {
+        result.isPublic = false;
+    }
+    else if (fullDemangled.find(L"protected:") == 0)
+    {
+        result.isPublic = false;
+    }
+    else if (fullDemangled.find(L"public:") == 0)
+    {
+        result.isPublic = true;
+    }
+
+    // Now get a clean signature without return types, access specifiers, and MS keywords
+    // UNDNAME_NO_FUNCTION_RETURNS (0x0004) - Remove return type
+    // UNDNAME_NO_ACCESS_SPECIFIERS (0x0080) - Remove private:/protected:/public:
+    // UNDNAME_NO_MS_KEYWORDS (0x0002) - Remove __cdecl, __ptr64, etc.
+    // UNDNAME_NO_MEMBER_TYPE (0x0200) - Remove static/virtual/const for members
+    DWORD cleanFlags = 0x0004 | 0x0080 | 0x0002 | 0x0200;
+    result.cleanSignature = DemangleName(mangledName, cleanFlags);
+
+    // Post-process to clean up remaining qualifiers
+    // Replace (void) with ()
+    size_t voidPos = result.cleanSignature.find(L"(void)");
+    if (voidPos != std::wstring::npos)
+    {
+        result.cleanSignature.replace(voidPos, 6, L"()");
+    }
+
+    // Remove everything after the last closing parenthesis (const, volatile, &, &&, __ptr64, etc.)
+    size_t lastParen = result.cleanSignature.find_last_of(L')');
+    if (lastParen != std::wstring::npos)
+    {
+        result.cleanSignature = result.cleanSignature.substr(0, lastParen + 1);
+    }
+
+    return result;
+}
 
 PdbParser::PdbParser(const std::wstring& pdbFilePath)
     : _pdbFilePath(pdbFilePath)
@@ -807,6 +875,112 @@ bool PdbParser::ExtractSymbols(std::vector<SymbolInfo>& symbols)
         pSymbol.Release();
     }
 
+    // Now enumerate all public symbols
+    int publicSymbolsAdded = 0;
+    int publicSymbolsSkipped = 0;
+    CComPtr<IDiaEnumSymbols> pEnumPublicSymbols;
+    hr = _pGlobal->findChildren(SymTagPublicSymbol, NULL, nsNone, &pEnumPublicSymbols);
+    if (SUCCEEDED(hr) && pEnumPublicSymbols)
+    {
+        CComPtr<IDiaSymbol> pPublicSymbol;
+        ULONG celtPublic = 0;
+
+        while (SUCCEEDED(pEnumPublicSymbols->Next(1, &pPublicSymbol, &celtPublic)) && celtPublic == 1 && pPublicSymbol)
+        {
+            DWORD rvaOriginal = 0;
+            if (FAILED(pPublicSymbol->get_relativeVirtualAddress(&rvaOriginal)))
+            {
+                pPublicSymbol.Release();
+                continue;
+            }
+
+            ULONGLONG sizeOriginal = 0;
+            pPublicSymbol->get_length(&sizeOriginal);
+
+            // Explicitly translate RVA and size using OMAP tables
+            DWORD rvaOptimized = 0;
+            ULONG sizeOptimized = 0;
+
+            if (_hasOMAP)
+            {
+                rvaOptimized = TranslateRVAFromOriginal(rvaOriginal);
+
+                // Check if code was eliminated during optimization
+                if (rvaOptimized == 0)
+                {
+                    publicSymbolsSkipped++;
+                    pPublicSymbol.Release();
+                    continue;
+                }
+
+                sizeOptimized = CalculateSizeWithOMAP(rvaOriginal, sizeOriginal);
+            }
+            else
+            {
+                rvaOptimized = rvaOriginal;
+                sizeOptimized = static_cast<ULONG>(sizeOriginal);
+            }
+
+            // Check if this RVA already has a function symbol
+            auto it = symbolMap.find(rvaOptimized);
+            if (it != symbolMap.end())
+            {
+                // Already have a function at this RVA, skip
+                publicSymbolsSkipped++;
+                pPublicSymbol.Release();
+                continue;
+            }
+
+            // Get the name
+            BSTR bstrName = NULL;
+            if (FAILED(pPublicSymbol->get_name(&bstrName)) || !bstrName)
+            {
+                pPublicSymbol.Release();
+                continue;
+            }
+
+            SymbolInfo info;
+            info.rva = rvaOptimized;
+            info.size = sizeOptimized;
+            info.name = bstrName;
+            SysFreeString(bstrName);
+
+            // Try to get function signature first
+            info.signature = GetDiaFunctionSignature(pPublicSymbol, info.name);
+
+            // If signature is empty, try demangling the name (for C++ decorated names)
+            if (info.signature.empty())
+            {
+                std::wstring demangledName = DemangleName(info.name, UNDNAME_COMPLETE);
+                if (demangledName != info.name)
+                {
+                    // Demangling succeeded, parse the mangled name to get clean signature and visibility
+                    DemangledInfo demangledInfo = ParseDemangledName(info.name);
+                    info.signature = demangledInfo.cleanSignature;
+                    info.isPublic = demangledInfo.isPublic;
+                }
+                else
+                {
+                    // Demangling failed or not needed, use simple format
+                    info.signature = info.name + L"()";
+                    info.isPublic = true;
+                }
+            }
+            else
+            {
+                // Got signature from DIA, assume public
+                info.isPublic = true;
+            }
+
+            info.conflictCount = 0;
+
+            symbolMap[rvaOptimized] = info;
+            publicSymbolsAdded++;
+
+            pPublicSymbol.Release();
+        }
+    }
+
     // Convert map to vector (already sorted by RVA due to map ordering)
     symbols.reserve(symbolMap.size());
     int rvasWithConflicts = 0;
@@ -822,10 +996,14 @@ bool PdbParser::ExtractSymbols(std::vector<SymbolInfo>& symbols)
         }
     }
 
-    std::wcout << L"Successfully extracted " << symbols.size() << L" function symbols";
-    if (skippedSymbols > 0)
+    std::wcout << L"Successfully extracted " << symbols.size() << L" symbols";
+    if (skippedSymbols > 0 || publicSymbolsSkipped > 0)
     {
-        std::wcout << L" (skipped " << skippedSymbols << L" eliminated symbols)";
+        std::wcout << L" (skipped " << (skippedSymbols + publicSymbolsSkipped) << L" eliminated symbols)";
+    }
+    if (publicSymbolsAdded > 0)
+    {
+        std::wcout << L" (added " << publicSymbolsAdded << L" public symbols)";
     }
     if (rvasWithConflicts > 0)
     {
@@ -833,6 +1011,242 @@ bool PdbParser::ExtractSymbols(std::vector<SymbolInfo>& symbols)
                    << totalConflictingSymbols << L" total symbols)";
     }
     std::wcout << std::endl;
+
+    return true;
+}
+
+// Helper function to demangle C++ names with specified flags
+std::wstring DemangleName(const std::wstring& mangledName, DWORD flags)
+{
+    // Convert wstring to narrow string for UnDecorateSymbolName
+    int narrowSize = WideCharToMultiByte(CP_ACP, 0, mangledName.c_str(), -1, NULL, 0, NULL, NULL);
+    if (narrowSize <= 0)
+    {
+        return mangledName;
+    }
+
+    std::vector<char> narrowName(narrowSize);
+    WideCharToMultiByte(CP_ACP, 0, mangledName.c_str(), -1, narrowName.data(), narrowSize, NULL, NULL);
+
+    char demangledBuffer[2048];
+    DWORD result = UnDecorateSymbolName(
+        narrowName.data(),
+        demangledBuffer,
+        sizeof(demangledBuffer),
+        flags
+    );
+
+    if (result > 0)
+    {
+        // Successfully demangled - convert back to wstring
+        int wideSize = MultiByteToWideChar(CP_ACP, 0, demangledBuffer, -1, NULL, 0);
+        if (wideSize > 0)
+        {
+            std::vector<wchar_t> wideBuffer(wideSize);
+            MultiByteToWideChar(CP_ACP, 0, demangledBuffer, -1, wideBuffer.data(), wideSize);
+            return std::wstring(wideBuffer.data());
+        }
+    }
+
+    // If demangling failed, return the original name
+    return mangledName;
+}
+
+// Structure to hold symbol information for sorting
+struct SymbolDisplayInfo
+{
+    DWORD rva;
+    ULONG size;
+    std::wstring type;
+    std::wstring name;
+    std::wstring demangledName;
+};
+
+bool PdbParser::DumpAllSymbols()
+{
+    if (!_isValid || !_pGlobal)
+    {
+        return false;
+    }
+
+    // Enumerate all symbols (no filter on SymTag)
+    CComPtr<IDiaEnumSymbols> pEnumSymbols;
+    HRESULT hr = _pGlobal->findChildren(SymTagNull, NULL, nsNone, &pEnumSymbols);
+    if (FAILED(hr) || !pEnumSymbols)
+    {
+        return false;
+    }
+
+    LONG totalCount = 0;
+    pEnumSymbols->get_Count(&totalCount);
+
+    std::wcout << L"\nCollecting symbols from PDB..." << std::endl;
+    std::wcout << L"Total symbols in PDB: " << totalCount << std::endl;
+
+    // Collect all symbols first
+    std::vector<SymbolDisplayInfo> symbols;
+    symbols.reserve(totalCount / 2); // Estimate, not all symbols have RVAs
+
+    CComPtr<IDiaSymbol> pSymbol;
+    ULONG celt = 0;
+    int skippedCount = 0;
+
+    while (SUCCEEDED(pEnumSymbols->Next(1, &pSymbol, &celt)) && celt == 1 && pSymbol)
+    {
+        DWORD symTag = SymTagNull;
+        pSymbol->get_symTag(&symTag);
+
+        // Get symbol name
+        BSTR bstrName = NULL;
+        std::wstring name = L"<unnamed>";
+        if (SUCCEEDED(pSymbol->get_name(&bstrName)) && bstrName)
+        {
+            name = bstrName;
+            SysFreeString(bstrName);
+        }
+
+        // Get RVA
+        DWORD rva = 0;
+        bool hasRVA = SUCCEEDED(pSymbol->get_relativeVirtualAddress(&rva));
+
+        // Get size
+        ULONGLONG size = 0;
+        pSymbol->get_length(&size);
+
+        // Get symbol tag name
+        std::wstring symTagName = L"Unknown";
+        switch (symTag)
+        {
+        case SymTagNull: symTagName = L"Null"; break;
+        case SymTagExe: symTagName = L"Exe"; break;
+        case SymTagCompiland: symTagName = L"Compiland"; break;
+        case SymTagCompilandDetails: symTagName = L"CompilandDetails"; break;
+        case SymTagCompilandEnv: symTagName = L"CompilandEnv"; break;
+        case SymTagFunction: symTagName = L"Function"; break;
+        case SymTagBlock: symTagName = L"Block"; break;
+        case SymTagData: symTagName = L"Data"; break;
+        case SymTagAnnotation: symTagName = L"Annotation"; break;
+        case SymTagLabel: symTagName = L"Label"; break;
+        case SymTagPublicSymbol: symTagName = L"PublicSymbol"; break;
+        case SymTagUDT: symTagName = L"UDT"; break;
+        case SymTagEnum: symTagName = L"Enum"; break;
+        case SymTagFunctionType: symTagName = L"FunctionType"; break;
+        case SymTagPointerType: symTagName = L"PointerType"; break;
+        case SymTagArrayType: symTagName = L"ArrayType"; break;
+        case SymTagBaseType: symTagName = L"BaseType"; break;
+        case SymTagTypedef: symTagName = L"Typedef"; break;
+        case SymTagBaseClass: symTagName = L"BaseClass"; break;
+        case SymTagFriend: symTagName = L"Friend"; break;
+        case SymTagFunctionArgType: symTagName = L"FunctionArgType"; break;
+        case SymTagFuncDebugStart: symTagName = L"FuncDebugStart"; break;
+        case SymTagFuncDebugEnd: symTagName = L"FuncDebugEnd"; break;
+        case SymTagUsingNamespace: symTagName = L"UsingNamespace"; break;
+        case SymTagVTableShape: symTagName = L"VTableShape"; break;
+        case SymTagVTable: symTagName = L"VTable"; break;
+        case SymTagCustom: symTagName = L"Custom"; break;
+        case SymTagThunk: symTagName = L"Thunk"; break;
+        case SymTagCustomType: symTagName = L"CustomType"; break;
+        case SymTagManagedType: symTagName = L"ManagedType"; break;
+        case SymTagDimension: symTagName = L"Dimension"; break;
+        case SymTagCallSite: symTagName = L"CallSite"; break;
+        case SymTagInlineSite: symTagName = L"InlineSite"; break;
+        case SymTagBaseInterface: symTagName = L"BaseInterface"; break;
+        case SymTagVectorType: symTagName = L"VectorType"; break;
+        case SymTagMatrixType: symTagName = L"MatrixType"; break;
+        case SymTagHLSLType: symTagName = L"HLSLType"; break;
+        case SymTagCaller: symTagName = L"Caller"; break;
+        case SymTagCallee: symTagName = L"Callee"; break;
+        case SymTagExport: symTagName = L"Export"; break;
+        case SymTagHeapAllocationSite: symTagName = L"HeapAllocationSite"; break;
+        case SymTagCoffGroup: symTagName = L"CoffGroup"; break;
+        default: symTagName = L"Other(" + std::to_wstring(symTag) + L")"; break;
+        }
+
+        // Only collect symbols with RVA
+        if (hasRVA)
+        {
+            // Apply OMAP translation if available
+            DWORD translatedRVA = rva;
+            ULONG translatedSize = static_cast<ULONG>(size);
+
+            if (_hasOMAP)
+            {
+                translatedRVA = TranslateRVAFromOriginal(rva);
+                if (translatedRVA == 0)
+                {
+                    skippedCount++;
+                    pSymbol.Release();
+                    continue;
+                }
+                translatedSize = CalculateSizeWithOMAP(rva, size);
+            }
+
+            SymbolDisplayInfo info;
+            info.rva = translatedRVA;
+            info.size = translatedSize;
+            info.type = symTagName;
+            info.name = name;
+
+            // Try to demangle and clean up function names and public symbols
+            if (symTag == SymTagFunction || symTag == SymTagPublicSymbol)
+            {
+                std::wstring fullDemangled = DemangleName(name, UNDNAME_COMPLETE);
+                if (fullDemangled != name)
+                {
+                    // Demangling succeeded, use the clean signature from ParseDemangledName
+                    DemangledInfo demangledInfo = ParseDemangledName(name);
+                    info.demangledName = demangledInfo.cleanSignature;
+                }
+                else
+                {
+                    // Not a mangled name, use as is
+                    info.demangledName = name;
+                }
+            }
+            else
+            {
+                info.demangledName = name;
+            }
+
+            symbols.push_back(info);
+        }
+        else
+        {
+            skippedCount++;
+        }
+
+        pSymbol.Release();
+    }
+
+    // Sort symbols by address (RVA)
+    std::wcout << L"Sorting symbols by address..." << std::endl;
+    std::sort(symbols.begin(), symbols.end(),
+        [](const SymbolDisplayInfo& a, const SymbolDisplayInfo& b) {
+            return a.rva < b.rva;
+        });
+
+    // Display sorted symbols
+    std::wcout << L"\n========================================" << std::endl;
+    std::wcout << L"Sorted symbols (by address):" << std::endl;
+    std::wcout << L"========================================\n" << std::endl;
+    std::wcout << L"Address    Size       Type                    Name" << std::endl;
+    std::wcout << L"------------------------------------------------------------------------" << std::endl;
+
+    for (const auto& symbol : symbols)
+    {
+        std::wcout << L"0x" << std::hex << std::setw(8) << std::setfill(L' ') << symbol.rva
+                   << L"  " << std::dec << std::setw(8) << std::setfill(L' ') << symbol.size
+                   << L"  " << std::setw(22) << std::left << symbol.type
+                   << L"  " << symbol.demangledName << std::endl;
+    }
+
+    std::wcout << L"\n========================================" << std::endl;
+    std::wcout << L"Displayed symbols: " << symbols.size() << std::endl;
+    if (skippedCount > 0)
+    {
+        std::wcout << L"Skipped symbols (no RVA or eliminated): " << skippedCount << std::endl;
+    }
+    std::wcout << L"========================================" << std::endl;
 
     return true;
 }
