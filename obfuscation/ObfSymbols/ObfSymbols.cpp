@@ -6,8 +6,10 @@
 #include <vector>
 #include "PdbParser.h"
 
-bool ParseCommandLine(int argc, wchar_t* argv[], std::wstring& pdbFile, std::wstring& outFile, std::wstring& obfFile)
+bool ParseCommandLine(int argc, wchar_t* argv[], std::wstring& pdbFile, std::wstring& outFile, std::wstring& obfFile, bool& dumpAll)
 {
+    dumpAll = false;
+
     for (int i = 1; i < argc; i++)
     {
         std::wstring arg = argv[i];
@@ -24,10 +26,20 @@ bool ParseCommandLine(int argc, wchar_t* argv[], std::wstring& pdbFile, std::wst
         {
             obfFile = argv[++i];
         }
+        else if (arg == L"--all")
+        {
+            dumpAll = true;
+        }
         else
         {
             return false;
         }
+    }
+
+    // If --all flag is present, we only need pdb file
+    if (dumpAll)
+    {
+        return !pdbFile.empty();
     }
 
     if (obfFile.empty() && !outFile.empty())
@@ -177,27 +189,61 @@ bool ExtractSymbols(const std::wstring& pdbFile, const std::wstring& outFile, co
     return success;
 }
 
+bool DumpAllSymbols(const std::wstring& pdbFile)
+{
+    PdbParser parser(pdbFile);
+    if (!parser.IsValid())
+    {
+        std::wcerr << L"Failed to initialize PDB parser or load PDB file" << std::endl;
+        return false;
+    }
+
+    std::wcout << L"Dumping all symbols from PDB..." << std::endl;
+
+    if (!parser.DumpAllSymbols())
+    {
+        std::wcerr << L"Failed to dump symbols from PDB file" << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
 int wmain(int argc, wchar_t* argv[])
 {
     std::wstring pdbFile;
     std::wstring outFile;
     std::wstring obfFile;
+    bool dumpAll = false;
 
-    if (!ParseCommandLine(argc, argv, pdbFile, outFile, obfFile))
+    if (!ParseCommandLine(argc, argv, pdbFile, outFile, obfFile, dumpAll))
     {
-        std::wcerr << L"Usage: ObfSymbols --pdb <pdb_file> --out <output_file> [--obf <obfuscated_output_file>]" << std::endl;
+        std::wcerr << L"Usage: ObfSymbols --pdb <pdb_file> [--out <output_file>] [--obf <obfuscated_output_file>] [--all]" << std::endl;
+        std::wcerr << L"  --all: Dump all symbols from PDB to console (no file output)" << std::endl;
         std::wcerr << L"  If --obf is not specified, the obfuscated file will be auto-generated" << std::endl;
         return 1;
     }
 
     std::wcout << L"PDB File: " << pdbFile << std::endl;
-    std::wcout << L"Output File: " << outFile << std::endl;
-    std::wcout << L"Obfuscated Output File: " << obfFile << std::endl;
 
-    if (!ExtractSymbols(pdbFile, outFile, obfFile))
+    if (dumpAll)
     {
-        std::wcerr << L"Failed to extract symbols" << std::endl;
-        return 1;
+        if (!DumpAllSymbols(pdbFile))
+        {
+            std::wcerr << L"Failed to dump all symbols" << std::endl;
+            return 1;
+        }
+    }
+    else
+    {
+        std::wcout << L"Output File: " << outFile << std::endl;
+        std::wcout << L"Obfuscated Output File: " << obfFile << std::endl;
+
+        if (!ExtractSymbols(pdbFile, outFile, obfFile))
+        {
+            std::wcerr << L"Failed to extract symbols" << std::endl;
+            return 1;
+        }
     }
 
     return 0;
