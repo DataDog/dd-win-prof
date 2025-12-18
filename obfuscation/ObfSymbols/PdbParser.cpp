@@ -259,7 +259,7 @@ std::wstring PdbParser::GetArchitectureString(DWORD machineType)
     case 0x014c: // IMAGE_FILE_MACHINE_I386
         return L"x86";
     case 0x8664: // IMAGE_FILE_MACHINE_AMD64
-        return L"x64";
+        return L"x86_64";
     case 0xAA64: // IMAGE_FILE_MACHINE_ARM64
         return L"arm64";
     case 0x01c0: // IMAGE_FILE_MACHINE_ARM
