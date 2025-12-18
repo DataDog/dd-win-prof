@@ -51,7 +51,9 @@ jobs:
           obfuscation/ObfSymbols/${{ matrix.platform }}/${{ matrix.configuration }}/ObfSymbols.pdb
           obfuscation/TestSymbols/${{ matrix.platform }}/${{ matrix.configuration }}/TestSymbols.exe
           obfuscation/TestSymbols/${{ matrix.platform }}/${{ matrix.configuration }}/TestSymbols.pdb
-          obfuscation/*.sym
+          obfuscation/TestSymbolsDll/${{ matrix.platform }}/${{ matrix.configuration }}/TestSymbolsDll.dll
+          obfuscation/TestSymbolsDll/${{ matrix.platform }}/${{ matrix.configuration }}/TestSymbolsDll.pdb
+          obfuscation/TestSymbolsDll/${{ matrix.platform }}/${{ matrix.configuration }}/*.sym
         retention-days: 7
         if-no-files-found: warn
         
