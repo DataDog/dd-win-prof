@@ -29,15 +29,9 @@ jobs:
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v2
       
-    - name: Build ObfSymbols
+    - name: Build Solution
       run: |
-        cd obfuscation
-        .\build.ps1 -Configuration ${{ matrix.configuration }} -Platform ${{ matrix.platform }}
-      shell: pwsh
-      
-    - name: Build TestSymbols
-      run: |
-        msbuild obfuscation/TestSymbols/TestSymbols.vcxproj /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /v:minimal
+        msbuild obfuscation/Symbols.slnx /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /v:minimal
       shell: cmd
       
     - name: Run tests
