@@ -70,6 +70,10 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <OutDir>$(ProjectDir)$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(ProjectDir)$(Platform)\$(Configuration)\Intermediate\</IntDir>
+  </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
@@ -111,10 +115,10 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>$(SolutionDir)x64\Debug\TestSymbolsDll.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(SolutionDir)TestSymbolsDll\$(Platform)\$(Configuration)\TestSymbolsDll.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>xcopy "$(SolutionDir)x64\Debug\TestSymbolsDll.dll" "$(OutDir)" /Y /D</Command>
+      <Command>xcopy "$(SolutionDir)TestSymbolsDll\$(Platform)\$(Configuration)\TestSymbolsDll.dll" "$(OutDir)" /Y /D</Command>
       <Message>Copying TestSymbolsDll.dll to output directory</Message>
     </PostBuildEvent>
   </ItemDefinitionGroup>
@@ -133,10 +137,10 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>$(SolutionDir)x64\Release\TestSymbolsDll.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(SolutionDir)TestSymbolsDll\$(Platform)\$(Configuration)\TestSymbolsDll.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>xcopy "$(SolutionDir)x64\Release\TestSymbolsDll.dll" "$(OutDir)" /Y /D</Command>
+      <Command>xcopy "$(SolutionDir)TestSymbolsDll\$(Platform)\$(Configuration)\TestSymbolsDll.dll" "$(OutDir)" /Y /D</Command>
       <Message>Copying TestSymbolsDll.dll to output directory</Message>
     </PostBuildEvent>
   </ItemDefinitionGroup>
