@@ -25,15 +25,32 @@ if (-not (Get-Command msbuild -ErrorAction SilentlyContinue)) {
     Write-Host "Initializing Visual Studio Developer Environment..." -ForegroundColor Green
 
     # Try to find and load Visual Studio Developer PowerShell
-    $vsDevShell = "C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\Tools\Launch-VsDevShell.ps1"
+    # Check for editions in this order: Enterprise, Professional, Community
+    $vsEditions = @(
+        @{Name = "Enterprise"; Path = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\Launch-VsDevShell.ps1"},
+        @{Name = "Professional"; Path = "C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\Tools\Launch-VsDevShell.ps1"},
+        @{Name = "Community"; Path = "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1"}
+    )
 
-    if (Test-Path $vsDevShell) {
+    $vsDevShell = $null
+    $vsEdition = $null
+
+    foreach ($edition in $vsEditions) {
+        if (Test-Path $edition.Path) {
+            $vsDevShell = $edition.Path
+            $vsEdition = $edition.Name
+            break
+        }
+    }
+
+    if ($vsDevShell) {
+        Write-Host "Using Visual Studio 2022 $vsEdition" -ForegroundColor Yellow
         & $vsDevShell -Arch amd64 -SkipAutomaticLocation
         # Return to solution directory after VS initialization
         Set-Location $PSScriptRoot
     } else {
-        Write-Host "ERROR: Visual Studio 2022 Professional not found!" -ForegroundColor Red
-        Write-Host "Please install Visual Studio 2022 or update the path in this script." -ForegroundColor Red
+        Write-Host "ERROR: Visual Studio 2022 not found!" -ForegroundColor Red
+        Write-Host "Please install Visual Studio 2022 (Community, Professional, or Enterprise edition)." -ForegroundColor Red
         exit 1
     }
 }
