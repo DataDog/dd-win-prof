@@ -2,12 +2,12 @@ name: Obfuscation Tools Build and Test
 
 on:
   push:
-    branches: [ main, master, develop ]
+    branches: [ main ]
     paths:
       - 'obfuscation/**'
       - '.github/workflows/obfuscation.yml'
   pull_request:
-    branches: [ main, master, develop ]
+    branches: [ main ]
     paths:
       - 'obfuscation/**'
       - '.github/workflows/obfuscation.yml'
