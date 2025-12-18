@@ -63,7 +63,7 @@ jobs:
       with:
         name: test-results-${{ matrix.configuration }}-${{ matrix.platform }}
         path: |
-          obfuscation/*.sym
+          obfuscation/TestSymbolsDll/${{ matrix.platform }}/${{ matrix.configuration }}/*.sym
         retention-days: 7
         if-no-files-found: ignore
 
