@@ -268,6 +268,28 @@ namespace OsSpecificApi {
         return szModel;
     }
 
+    std::string GetCpuArchitecture()
+    {
+        SYSTEM_INFO sysInfo;
+        ::GetNativeSystemInfo(&sysInfo);
+
+        switch (sysInfo.wProcessorArchitecture)
+        {
+            case PROCESSOR_ARCHITECTURE_AMD64:
+                return "amd64";
+            case PROCESSOR_ARCHITECTURE_ARM:
+                return "arm";
+            case PROCESSOR_ARCHITECTURE_ARM64:
+                return "arm64";
+            case PROCESSOR_ARCHITECTURE_IA64:
+                return "ia64";
+            case PROCESSOR_ARCHITECTURE_INTEL:
+                return "x86";
+            default:
+                return {};
+        }
+    }
+
     const char* KEY_GPU_PREFIX = "SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}\\000";
 
     // could have more than one GPU so need to iterate on 0000, 0001 and so forth until no more key

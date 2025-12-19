@@ -154,6 +154,9 @@
     <ClInclude Include="WalltimeProvider.h">
       <Filter>Includes</Filter>
     </ClInclude>
+    <ClInclude Include="version.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Source">

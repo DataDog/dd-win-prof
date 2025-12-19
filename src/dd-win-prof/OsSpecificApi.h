@@ -19,6 +19,7 @@ namespace OsSpecificApi
 
     std::string GetCpuVendor();
     std::string GetCpuModel();
+    std::string GetCpuArchitecture();
     bool GetGpuFromRegistry(
         int device,
         std::string& driverDesc,

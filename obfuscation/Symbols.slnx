@@ -1,0 +1,9 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="ObfSymbols/ObfSymbols.vcxproj" Id="7c15e8d6-692a-46f4-9820-52a169c1959c" />
+  <Project Path="TestSymbols/TestSymbols.vcxproj" Id="8d24f5c3-789b-47e2-a931-63f2c8a7b5f1" />
+  <Project Path="TestSymbolsDll/TestSymbolsDll.vcxproj" Id="9a24c7d4-890c-48f3-b942-74e3d9b6c8a2" />
+</Solution>

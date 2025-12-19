@@ -1,0 +1,56 @@
+name: E2E Vulkan Tests
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+env:
+  VULKAN_REF: "${{ vars.VULKAN_REF || 'ce235bffe1bc1fc3267ab6680b806c8110f70562' }}"
+
+jobs:
+  e2e:
+    runs-on: windows-2022
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: profiler-artifacts-x64
+        path: profiler-bin/
+
+    - name: Cache Vulkan dependencies and build
+      uses: actions/cache@v4
+      with:
+        path: |
+          e2e-tests/vulkan_examples/Vulkan
+          e2e-tests/vulkan_examples/build
+          e2e-tests/.glm_setup_complete
+          C:/vcpkg
+        key: vulkan-e2e-${{ runner.os }}-${{ env.VULKAN_REF }}-${{ hashFiles('e2e-tests/*.ps1') }}
+        restore-keys: |
+          vulkan-e2e-${{ runner.os }}-${{ env.VULKAN_REF }}-
+          vulkan-e2e-${{ runner.os }}-
+
+    - name: Create .env file for testing
+      run: |
+        $envContent = @"
+        DD_SITE=datadoghq.com
+        DD_ENV=ci-test
+        DD_TRACE_DEBUG=1
+        DD_PROFILING_LOG_LEVEL=debug
+        DD_PROFILING_LOG_TO_CONSOLE=1
+        DD_INTERNAL_PROFILING_OUTPUT_DIR=e2e-tests/pprof
+        "@
+        New-Item -Path "e2e-tests/.env" -Value $envContent -Force
+      shell: pwsh
+
+    - name: Run Vulkan e2e test (headless)
+      run: |
+        cd e2e-tests
+        .\vulcan_quickstart.ps1 -EnableProfiler -CI -Verbose -ProfilerDllDir ..\profiler-bin\src\dd-win-prof\x64\Release -RepoRef "${{ env.VULKAN_REF }}" 2>&1
+      shell: pwsh
+      timeout-minutes: 30
+
