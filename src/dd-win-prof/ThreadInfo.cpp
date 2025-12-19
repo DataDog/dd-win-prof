@@ -8,7 +8,8 @@ ThreadInfo::ThreadInfo(uint32_t tid, HANDLE hThread)
     :
     _tid(tid),
     _hThread(ScopedHandle(hThread)),
-    _lastSampleHighPrecisionTimestamp{ 0ns },
+    _lastWalltimeSampleTimestamp{ 0ns },
+    _lastWaitSampleTimestamp{ 0ns },  // the first time a thread is seen as waiting, the sampling period is accounted as wait time
     _cpuConsumption{ 0ms },
     _timestamp{ 0ns }
 {
