@@ -11,10 +11,14 @@ class WallTimeProvider : public CollectorBase
 public:
     WallTimeProvider(SampleValueTypeProvider& valueTypeProvider);
 
-    inline void Add(Sample&& sample, std::chrono::nanoseconds walltimeDuration)
+    inline void Add(Sample&& sample, std::chrono::nanoseconds walltimeDuration, std::chrono::nanoseconds waitDuration, ULONG waitingReason)
     {
         auto offsets = GetValueOffsets();
         sample.AddValue(walltimeDuration.count(), offsets[0]);
+        sample.AddValue(waitDuration.count(), offsets[1]);
+
+        // TODO: copy waiting reason into a label
+
         CollectorBase::Add(std::move(sample));
     }
 
