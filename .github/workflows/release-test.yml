@@ -1,0 +1,120 @@
+name: Test Latest Release
+
+on:
+  schedule:
+    - cron: '0 8 * * 1'
+  workflow_dispatch:
+  push:
+    branches: [ main, master, develop ]
+    paths:
+      - '.github/workflows/release-test.yml'
+      - 'scripts/test-release.ps1'
+  pull_request:
+    branches: [ main, master, develop ]
+    paths:
+      - '.github/workflows/release-test.yml'
+      - 'scripts/test-release.ps1'
+
+jobs:
+  test-release:
+    runs-on: windows-2022
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Get latest release
+      id: latest_release
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const release = await github.rest.repos.getLatestRelease({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+          });
+          core.setOutput('tag_name', release.data.tag_name);
+          core.setOutput('html_url', release.data.html_url);
+          console.log('Latest release:', release.data.tag_name);
+          
+    - name: Download and extract release
+      run: |
+        $tag = "${{ steps.latest_release.outputs.tag_name }}"
+        Write-Host "Downloading release $tag..."
+        
+        New-Item -ItemType Directory -Force -Path release-artifacts | Out-Null
+        gh release download $tag --dir release-artifacts
+        
+        Write-Host "`nExtracting archives..."
+        Get-ChildItem release-artifacts -Filter "*.zip" -ErrorAction SilentlyContinue | ForEach-Object {
+          Write-Host "Extracting: $($_.Name)"
+          Expand-Archive -Path $_.FullName -DestinationPath "release-artifacts" -Force
+        }
+        
+        Write-Host "`nRelease contents:"
+        Get-ChildItem -Recurse release-artifacts -Include "*.dll","*.lib","*.pdb" | Select-Object Name
+      env:
+        GH_TOKEN: ${{ github.token }}
+      shell: pwsh
+      
+    - name: Setup release artifacts for Runner build
+      run: |
+        Write-Host "Setting up reference directory for Runner..."
+        
+        $profilerLib = Get-ChildItem -Recurse release-artifacts -Filter "dd-win-prof.lib" -ErrorAction SilentlyContinue | Select-Object -First 1
+        $profilerHeader = Get-ChildItem -Recurse release-artifacts -Filter "dd-win-prof.h" -ErrorAction SilentlyContinue | Select-Object -First 1
+        
+        if (-not $profilerLib) {
+          Write-Host "ERROR: dd-win-prof.lib not found in release"
+          exit 1
+        }
+        
+        if (-not $profilerHeader) {
+          Write-Host "ERROR: dd-win-prof.h not found in release"
+          exit 1
+        }
+        
+        New-Item -ItemType Directory -Force -Path "src/reference" | Out-Null
+        
+        Copy-Item $profilerLib.FullName -Destination "src/reference/" -Force
+        Write-Host "Copied: dd-win-prof.lib"
+        
+        Copy-Item $profilerHeader.FullName -Destination "src/reference/" -Force
+        Write-Host "Copied: dd-win-prof.h"
+      shell: pwsh
+      
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
+      
+    - name: Build Runner
+      run: |
+        Write-Host "Building Runner.exe..."
+        msbuild src/Runner/Runner.vcxproj `
+          /p:Configuration=Release `
+          /p:Platform=x64 `
+          /p:PostBuildEventUseInBuild=false
+        
+        Write-Host "`nRunner built successfully:"
+        Get-Item src/Runner/x64/Release/Runner.exe
+      shell: pwsh
+      
+    - name: Run release tests
+      run: |
+        .\scripts\test-release.ps1 `
+          -ReleaseDllPath "release-artifacts" `
+          -RunnerPath "src/Runner/x64/Release" `
+          -ReleaseVersion "${{ steps.latest_release.outputs.tag_name }}"
+      shell: pwsh
+      
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: release-test-results-${{ steps.latest_release.outputs.tag_name }}
+        path: |
+          test-workspace/**/*.pprof
+          test-workspace/**/*.log
+          test-workspace/**/*.txt
+          test-workspace/*.dll
+          test-workspace/*.exe
+        retention-days: 7
+
