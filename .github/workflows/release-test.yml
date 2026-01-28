@@ -85,23 +85,40 @@ jobs:
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v2
       
-    - name: Build Runner
+    - name: Build Runner with ReleaseStatic configuration
       run: |
-        Write-Host "Building Runner.exe..."
+        Write-Host "Building Runner.exe with ReleaseStatic..."
+        
         msbuild src/Runner/Runner.vcxproj `
-          /p:Configuration=Release `
-          /p:Platform=x64 `
-          /p:PostBuildEventUseInBuild=false
+          /p:Configuration=ReleaseStatic `
+          /p:Platform=x64
         
         Write-Host "`nRunner built successfully:"
-        Get-Item src/Runner/x64/Release/Runner.exe
+        Get-Item src/Runner/x64/ReleaseStatic/Runner.exe
+        
+        Write-Host "`nChecking dependencies:"
+        $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+        $dumpbin = Join-Path $vsPath "VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Get-Item | Select-Object -First 1
+        
+        $deps = & $dumpbin.FullName /dependents src/Runner/x64/ReleaseStatic/Runner.exe 2>&1 | Out-String
+        Write-Host "Dependencies:"
+        $deps -split "`n" | Where-Object { $_ -match "\.dll" -and $_ -notmatch "Image has" } | ForEach-Object { 
+          $dll = $_.Trim()
+          if ($dll -match "dd-win-prof\.dll") {
+            Write-Host "  $dll (release DLL)" -ForegroundColor Yellow
+          } elseif ($dll -match "^api-ms-|^KERNEL32|^ntdll") {
+            Write-Host "  $dll (system)" -ForegroundColor Gray
+          } else {
+            Write-Host "  $dll" 
+          }
+        }
       shell: pwsh
       
     - name: Run release tests
       run: |
         .\scripts\test-release.ps1 `
           -ReleaseDllPath "release-artifacts" `
-          -RunnerPath "src/Runner/x64/Release" `
+          -RunnerPath "src/Runner/x64/ReleaseStatic" `
           -ReleaseVersion "${{ steps.latest_release.outputs.tag_name }}"
       shell: pwsh
       

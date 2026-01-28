@@ -3,10 +3,14 @@
 
 #pragma once
 
-#ifdef DD_WIN_PROF_EXPORTS
-#define DD_WIN_PROF_API __declspec(dllexport)
+#ifdef DD_WIN_PROF_STATIC
+#define DD_WIN_PROF_API
 #else
-#define DD_WIN_PROF_API __declspec(dllimport)
+  #ifdef DD_WIN_PROF_EXPORTS
+  #define DD_WIN_PROF_API __declspec(dllexport)
+  #else
+  #define DD_WIN_PROF_API __declspec(dllimport)
+  #endif
 #endif
 
 

@@ -55,7 +55,10 @@ Write-Host "Copied Runner: Runner.exe (built from source)"
 
 Push-Location $WorkspacePath
 $env:DD_PROFILING_ENABLED = "1"
+$env:DD_PROFILING_EXPORT_ENABLED = "0"
 $env:DD_INTERNAL_PROFILING_OUTPUT_DIR = (Get-Location).Path
+$env:DD_PROFILING_LOG_LEVEL = "debug"
+$env:DD_PROFILING_LOG_TO_CONSOLE = "1"
 $env:DD_TRACE_DEBUG = "1"
 $env:DD_INTERNAL_USE_DEVELOPMENT_CONFIGURATION = "1"
 
