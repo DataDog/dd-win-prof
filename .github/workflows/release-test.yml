@@ -102,6 +102,7 @@ jobs:
           exit 1
         }
         
+        # Copy to src/reference/ (used by linker and PostBuildEvent)
         New-Item -ItemType Directory -Force -Path "src/reference" | Out-Null
         
         Copy-Item $profilerLib.FullName -Destination "src/reference/" -Force
@@ -123,24 +124,12 @@ jobs:
           /p:Platform=x64
         
         Write-Host "`nRunner built successfully:"
-        Get-Item src/Runner/x64/ReleaseStatic/Runner.exe
+        Get-Item src/Runner/x64/Release/Runner.exe
         
-        Write-Host "`nChecking dependencies:"
+        Write-Host "`nDLL dependencies:"
         $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
         $dumpbin = Join-Path $vsPath "VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Get-Item | Select-Object -First 1
-        
-        $deps = & $dumpbin.FullName /dependents src/Runner/x64/ReleaseStatic/Runner.exe 2>&1 | Out-String
-        Write-Host "Dependencies:"
-        $deps -split "`n" | Where-Object { $_ -match "\.dll" -and $_ -notmatch "Image has" } | ForEach-Object { 
-          $dll = $_.Trim()
-          if ($dll -match "dd-win-prof\.dll") {
-            Write-Host "  $dll (release DLL)" -ForegroundColor Yellow
-          } elseif ($dll -match "^api-ms-|^KERNEL32|^ntdll") {
-            Write-Host "  $dll (system)" -ForegroundColor Gray
-          } else {
-            Write-Host "  $dll" 
-          }
-        }
+        & $dumpbin.FullName /dependents src/Runner/x64/Release/Runner.exe | Select-String "\.dll"
       shell: pwsh
       
     - name: Set version for tests
