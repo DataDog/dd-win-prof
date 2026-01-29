@@ -1,19 +1,16 @@
 name: Test Latest Release
 
 on:
+  workflow_call:
   schedule:
-    - cron: '0 8 * * 1'
+    - cron: '0 8 * * 1'  # Weekly on Monday
   workflow_dispatch:
-  push:
-    branches: [ main, master, develop ]
-    paths:
-      - '.github/workflows/release-test.yml'
-      - 'scripts/test-release.ps1'
-  pull_request:
-    branches: [ main, master, develop ]
-    paths:
-      - '.github/workflows/release-test.yml'
-      - 'scripts/test-release.ps1'
+    inputs:
+      use_release:
+        description: 'Use latest release instead of artifacts'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   test-release:
@@ -23,7 +20,32 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
       
-    - name: Get latest release
+    - name: Determine artifact source
+      id: artifact_source
+      run: |
+        # Use release on schedule or manual trigger with use_release=true
+        # Otherwise use build artifacts from test workflow
+        if ("${{ github.event_name }}" -eq "schedule") {
+          Write-Host "Using release artifacts (scheduled run)"
+          echo "use_release=true" >> $env:GITHUB_OUTPUT
+        } elseif ("${{ github.event_name }}" -eq "workflow_dispatch" -and "${{ inputs.use_release }}" -eq "true") {
+          Write-Host "Using release artifacts (manual trigger)"
+          echo "use_release=true" >> $env:GITHUB_OUTPUT
+        } else {
+          Write-Host "Using build artifacts from test workflow"
+          echo "use_release=false" >> $env:GITHUB_OUTPUT
+        }
+      shell: pwsh
+      
+    - name: Download build artifacts
+      if: steps.artifact_source.outputs.use_release == 'false'
+      uses: actions/download-artifact@v4
+      with:
+        name: profiler-artifacts-x64
+        path: release-artifacts/
+    
+    - name: Get latest release tag
+      if: steps.artifact_source.outputs.use_release == 'true'
       id: latest_release
       uses: actions/github-script@v7
       with:
@@ -37,6 +59,7 @@ jobs:
           console.log('Latest release:', release.data.tag_name);
           
     - name: Download and extract release
+      if: steps.artifact_source.outputs.use_release == 'true'
       run: |
         $tag = "${{ steps.latest_release.outputs.tag_name }}"
         Write-Host "Downloading release $tag..."
@@ -51,9 +74,15 @@ jobs:
         }
         
         Write-Host "`nRelease contents:"
-        Get-ChildItem -Recurse release-artifacts -Include "*.dll","*.lib","*.pdb" | Select-Object Name
+        Get-ChildItem -Recurse release-artifacts -Include "*.dll","*.lib","*.pdb","*.h" | Select-Object Name
       env:
         GH_TOKEN: ${{ github.token }}
+      shell: pwsh
+      
+    - name: List downloaded artifacts
+      run: |
+        Write-Host "Artifact contents:"
+        Get-ChildItem -Recurse release-artifacts | Select-Object FullName
       shell: pwsh
       
     - name: Setup release artifacts for Runner build
@@ -85,12 +114,12 @@ jobs:
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v2
       
-    - name: Build Runner with ReleaseStatic configuration
+    - name: Build Runner with Release configuration
       run: |
-        Write-Host "Building Runner.exe with ReleaseStatic..."
+        Write-Host "Building Runner.exe with Release configuration..."
         
         msbuild src/Runner/Runner.vcxproj `
-          /p:Configuration=ReleaseStatic `
+          /p:Configuration=Release `
           /p:Platform=x64
         
         Write-Host "`nRunner built successfully:"
@@ -114,19 +143,32 @@ jobs:
         }
       shell: pwsh
       
+    - name: Set version for tests
+      id: version
+      run: |
+        if ("${{ steps.artifact_source.outputs.use_release }}" -eq "true") {
+          $version = "${{ steps.latest_release.outputs.tag_name }}"
+          Write-Host "Using release version: $version"
+        } else {
+          $version = "${{ github.sha }}"
+          Write-Host "Using build version: $version"
+        }
+        echo "version=$version" >> $env:GITHUB_OUTPUT
+      shell: pwsh
+      
     - name: Run release tests
       run: |
         .\scripts\test-release.ps1 `
           -ReleaseDllPath "release-artifacts" `
-          -RunnerPath "src/Runner/x64/ReleaseStatic" `
-          -ReleaseVersion "${{ steps.latest_release.outputs.tag_name }}"
+          -RunnerPath "src/Runner/x64/Release" `
+          -ReleaseVersion "${{ steps.version.outputs.version }}"
       shell: pwsh
       
     - name: Upload test results
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: release-test-results-${{ steps.latest_release.outputs.tag_name }}
+        name: release-test-results-${{ github.run_id }}
         path: |
           test-workspace/**/*.pprof
           test-workspace/**/*.log
@@ -134,4 +176,3 @@ jobs:
           test-workspace/*.dll
           test-workspace/*.exe
         retention-days: 7
-
