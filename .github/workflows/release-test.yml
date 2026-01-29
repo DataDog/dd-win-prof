@@ -1,0 +1,167 @@
+name: Test Latest Release
+
+on:
+  workflow_call:
+  schedule:
+    - cron: '0 8 * * 1'  # Weekly on Monday
+  workflow_dispatch:
+    inputs:
+      use_release:
+        description: 'Use latest release instead of artifacts'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  test-release:
+    runs-on: windows-2022
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Determine artifact source
+      id: artifact_source
+      run: |
+        # Use release on schedule or manual trigger with use_release=true
+        # Otherwise use build artifacts from test workflow
+        if ("${{ github.event_name }}" -eq "schedule") {
+          Write-Host "Using release artifacts (scheduled run)"
+          echo "use_release=true" >> $env:GITHUB_OUTPUT
+        } elseif ("${{ github.event_name }}" -eq "workflow_dispatch" -and "${{ inputs.use_release }}" -eq "true") {
+          Write-Host "Using release artifacts (manual trigger)"
+          echo "use_release=true" >> $env:GITHUB_OUTPUT
+        } else {
+          Write-Host "Using build artifacts from test workflow"
+          echo "use_release=false" >> $env:GITHUB_OUTPUT
+        }
+      shell: pwsh
+      
+    - name: Download build artifacts
+      if: steps.artifact_source.outputs.use_release == 'false'
+      uses: actions/download-artifact@v4
+      with:
+        name: profiler-artifacts-x64
+        path: release-artifacts/
+    
+    - name: Get latest release tag
+      if: steps.artifact_source.outputs.use_release == 'true'
+      id: latest_release
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const release = await github.rest.repos.getLatestRelease({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+          });
+          core.setOutput('tag_name', release.data.tag_name);
+          core.setOutput('html_url', release.data.html_url);
+          console.log('Latest release:', release.data.tag_name);
+          
+    - name: Download and extract release
+      if: steps.artifact_source.outputs.use_release == 'true'
+      run: |
+        $tag = "${{ steps.latest_release.outputs.tag_name }}"
+        Write-Host "Downloading release $tag..."
+        
+        New-Item -ItemType Directory -Force -Path release-artifacts | Out-Null
+        gh release download $tag --dir release-artifacts
+        
+        Write-Host "`nExtracting archives..."
+        Get-ChildItem release-artifacts -Filter "*.zip" -ErrorAction SilentlyContinue | ForEach-Object {
+          Write-Host "Extracting: $($_.Name)"
+          Expand-Archive -Path $_.FullName -DestinationPath "release-artifacts" -Force
+        }
+        
+        Write-Host "`nRelease contents:"
+        Get-ChildItem -Recurse release-artifacts -Include "*.dll","*.lib","*.pdb","*.h" | Select-Object Name
+      env:
+        GH_TOKEN: ${{ github.token }}
+      shell: pwsh
+      
+    - name: List downloaded artifacts
+      run: |
+        Write-Host "Artifact contents:"
+        Get-ChildItem -Recurse release-artifacts | Select-Object FullName
+      shell: pwsh
+      
+    - name: Setup release artifacts for Runner build
+      run: |
+        Write-Host "Setting up reference directory for Runner..."
+        
+        $profilerLib = Get-ChildItem -Recurse release-artifacts -Filter "dd-win-prof.lib" -ErrorAction SilentlyContinue | Select-Object -First 1
+        $profilerHeader = Get-ChildItem -Recurse release-artifacts -Filter "dd-win-prof.h" -ErrorAction SilentlyContinue | Select-Object -First 1
+        
+        if (-not $profilerLib) {
+          Write-Host "ERROR: dd-win-prof.lib not found in release"
+          exit 1
+        }
+        
+        if (-not $profilerHeader) {
+          Write-Host "ERROR: dd-win-prof.h not found in release"
+          exit 1
+        }
+        
+        # Copy to src/reference/ (used by linker and PostBuildEvent)
+        New-Item -ItemType Directory -Force -Path "src/reference" | Out-Null
+        
+        Copy-Item $profilerLib.FullName -Destination "src/reference/" -Force
+        Write-Host "Copied: dd-win-prof.lib"
+        
+        Copy-Item $profilerHeader.FullName -Destination "src/reference/" -Force
+        Write-Host "Copied: dd-win-prof.h"
+      shell: pwsh
+      
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
+      
+    - name: Build Runner with Release configuration
+      run: |
+        Write-Host "Building Runner.exe with Release configuration..."
+        
+        msbuild src/Runner/Runner.vcxproj `
+          /p:Configuration=Release `
+          /p:Platform=x64
+        
+        Write-Host "`nRunner built successfully:"
+        Get-Item src/Runner/x64/Release/Runner.exe
+        
+        Write-Host "`nDLL dependencies:"
+        $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+        $dumpbin = Join-Path $vsPath "VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Get-Item | Select-Object -First 1
+        & $dumpbin.FullName /dependents src/Runner/x64/Release/Runner.exe | Select-String "\.dll"
+      shell: pwsh
+      
+    - name: Set version for tests
+      id: version
+      run: |
+        if ("${{ steps.artifact_source.outputs.use_release }}" -eq "true") {
+          $version = "${{ steps.latest_release.outputs.tag_name }}"
+          Write-Host "Using release version: $version"
+        } else {
+          $version = "${{ github.sha }}"
+          Write-Host "Using build version: $version"
+        }
+        echo "version=$version" >> $env:GITHUB_OUTPUT
+      shell: pwsh
+      
+    - name: Run release tests
+      run: |
+        .\scripts\test-release.ps1 `
+          -ReleaseDllPath "release-artifacts" `
+          -RunnerPath "src/Runner/x64/Release" `
+          -ReleaseVersion "${{ steps.version.outputs.version }}"
+      shell: pwsh
+      
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: release-test-results-${{ github.run_id }}
+        path: |
+          test-workspace/**/*.pprof
+          test-workspace/**/*.log
+          test-workspace/**/*.txt
+          test-workspace/*.dll
+          test-workspace/*.exe
+        retention-days: 7
