@@ -615,38 +615,38 @@ bool ProfileExporter::PrepareStableTags(ddog_Vec_Tag& tags)
     while (GetGpuFromRegistry(device, driverDesc, driverVersion, driverDate, gpuName, gpuChip, gpuRam))
     {
         // no need to send GPU details if GPU cannot be identified
-        if (driverDesc.empty() && gpuNameTag.empty())
+        if (driverDesc.empty() && gpuName.empty())
         {
             continue;
         }
 
         driverDescTag = TAG_GPU_DRIVER_DESC_PREFIX + std::to_string(device);
-        if (!AddSingleTag(tags, driverDescTag, driverDesc)) {
+        if (!driverDesc.empty() && !AddSingleTag(tags, driverDescTag, driverDesc)) {
             return false;
         }
 
         driverVersionTag = TAG_GPU_DRIVER_VERSION_PREFIX + std::to_string(device);
-        if (!AddSingleTag(tags, driverVersionTag, driverVersion)) {
+        if (!driverVersion.empty() && !AddSingleTag(tags, driverVersionTag, driverVersion)) {
             return false;
         }
 
         driverDateTag = TAG_GPU_DRIVER_DATE_PREFIX + std::to_string(device);
-        if (!AddSingleTag(tags, driverDateTag, driverDate)) {
+        if (!driverDate.empty() && !AddSingleTag(tags, driverDateTag, driverDate)) {
             return false;
         }
 
         gpuNameTag = TAG_GPU_NAME_PREFIX + std::to_string(device);
-        if (!AddSingleTag(tags, gpuNameTag, gpuName)) {
+        if (!gpuName.empty() && !AddSingleTag(tags, gpuNameTag, gpuName)) {
             return false;
         }
 
         gpuChipTag = TAG_GPU_CHIP_PREFIX + std::to_string(device);
-        if (!AddSingleTag(tags, gpuChipTag, gpuChip)) {
+        if (!gpuChip.empty() && !AddSingleTag(tags, gpuChipTag, gpuChip)) {
             return false;
         }
 
         gpuRamTag = TAG_GPU_RAM_PREFIX + std::to_string(device);
-        if (!AddSingleTag(tags, gpuRamTag, std::to_string(gpuRam))) {
+        if (gpuRam > 0 && !AddSingleTag(tags, gpuRamTag, std::to_string(gpuRam))) {
             return false;
         }
 
