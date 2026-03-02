@@ -12,9 +12,8 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(libdatadog)
 
-# Expose libdatadog source directory to parent scope so helper function can
-# access DLL paths
-set(DD_WIN_PROF_LIBDATADOG_DIR "${libdatadog_SOURCE_DIR}" PARENT_SCOPE)
+# Expose libdatadog source directory so other targets can access DLL paths etc.
+set(DD_WIN_PROF_LIBDATADOG_DIR "${libdatadog_SOURCE_DIR}" CACHE INTERNAL "")
 
 set(_LD_ROOT "${libdatadog_SOURCE_DIR}")
 
