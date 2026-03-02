@@ -8,16 +8,19 @@ add_compile_definitions(UNICODE _UNICODE)
 
 if(MSVC)
     # /Zi: produce PDB in all configs (matches vcxproj GenerateDebugInformation=true
-    # for both Debug and Release)
+    # for Debug, DebugFull for Release)
     add_compile_options(/W3 /sdl /permissive- /Zi)
     add_compile_options(
         $<$<CONFIG:Release>:/Gy>
         $<$<CONFIG:Release>:/Oi>
     )
-    # /DEBUG: required so the linker emits the PDB reference; /OPT:REF and /OPT:ICF
-    # trim unreferenced code and duplicate COMDATs in Release builds.
+    # /DEBUG:FULL for Release configs (matches DebugFull in vcxproj); /DEBUG for Debug.
+    # /OPT:REF and /OPT:ICF trim unreferenced code and duplicate COMDATs in Release.
     add_link_options(
-        /DEBUG
+        $<$<CONFIG:Debug>:/DEBUG>
+        $<$<CONFIG:Release>:/DEBUG:FULL>
+        $<$<CONFIG:MinSizeRel>:/DEBUG:FULL>
+        $<$<CONFIG:RelWithDebInfo>:/DEBUG:FULL>
         $<$<CONFIG:Release>:/OPT:REF>
         $<$<CONFIG:Release>:/OPT:ICF>
     )
