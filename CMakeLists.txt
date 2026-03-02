@@ -8,6 +8,18 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # paths when this project is included via add_subdirectory() or FetchContent.
 set(WINDOWSPROFILER_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 
+# Determine if this is the top-level project or included as a dependency
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    set(DD_WIN_PROF_IS_TOPLEVEL ON)
+else()
+    set(DD_WIN_PROF_IS_TOPLEVEL OFF)
+endif()
+
+# Option to build obfuscation tools (ObfSymbols). These tools require the DIA SDK
+# and are only needed for development/symbol processing, not for runtime profiling.
+# Disabled by default when used as a dependency.
+option(DD_WIN_PROF_BUILD_OBFUSCATION "Build obfuscation tools (requires DIA SDK)" ${DD_WIN_PROF_IS_TOPLEVEL})
+
 add_compile_definitions(UNICODE _UNICODE)
 
 if(MSVC)
@@ -31,7 +43,10 @@ if(MSVC)
 endif()
 
 add_subdirectory(src)
-add_subdirectory(obfuscation)
+
+if(DD_WIN_PROF_BUILD_OBFUSCATION)
+    add_subdirectory(obfuscation)
+endif()
 
 # Helper function for consuming projects to copy dd-win-prof runtime
 # dependencies (DLLs and optionally PDBs) to their output directory.
