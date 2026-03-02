@@ -15,7 +15,7 @@ set_property(TARGET Runner PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
 # dd-win-prof's post-build step populates src/reference in all configurations.
 add_custom_command(TARGET Runner POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_SOURCE_DIR}/src/reference"
+        "${WINDOWSPROFILER_ROOT_DIR}/src/reference"
         "$<TARGET_FILE_DIR:Runner>"
     VERBATIM
     COMMENT "Copying reference binaries to Runner output directory"

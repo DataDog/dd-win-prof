@@ -4,6 +4,10 @@ project(WindowsProfiler LANGUAGES CXX RC)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Store the project root directory for use in subdirectories. This ensures correct
+# paths when this project is included via add_subdirectory() or FetchContent.
+set(WINDOWSPROFILER_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+
 add_compile_definitions(UNICODE _UNICODE)
 
 if(MSVC)

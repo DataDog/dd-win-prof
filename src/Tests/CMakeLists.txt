@@ -28,11 +28,10 @@ target_precompile_headers(Tests PRIVATE pch.h)
 
 # The dd-win-prof shared sources include headers by short name relative to their
 # own directory; adding that directory ensures they resolve correctly when
-# compiled as part of this target. The third-party root mirrors the include path
-# in Tests.vcxproj.
+# compiled as part of this target. libdatadog and spdlog headers are propagated
+# via libdatadog_dynamic and spdlog_includes INTERFACE_INCLUDE_DIRECTORIES.
 target_include_directories(Tests PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/../dd-win-prof"
-    "${CMAKE_SOURCE_DIR}/third-party"
 )
 
 # Tests links the dynamic FFI library so that profiling API calls go through
@@ -57,7 +56,7 @@ target_link_libraries(Tests PRIVATE
 # Link-time code generation (whole-program optimisation) in Release builds only.
 set_property(TARGET Tests PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
 
-set(_ld_dyn "${CMAKE_SOURCE_DIR}/third-party/libdatadog-x64-windows/$<LOWER_CASE:$<CONFIG>>/dynamic")
+set(_ld_dyn "${libdatadog_SOURCE_DIR}/$<LOWER_CASE:$<CONFIG>>/dynamic")
 
 # Tests.exe must find the libdatadog DLL at launch; copy it alongside the
 # executable (mirrors the CopyLibDatadogDlls MSBuild target in Tests.vcxproj).

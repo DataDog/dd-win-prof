@@ -33,12 +33,8 @@ target_compile_definitions(dd-win-prof PRIVATE
     _SILENCE_STDEXT_ARR_ITERS_DEPRECATION_WARNING
 )
 
-# The vcxproj includes the third-party root so headers can be included as e.g.
-# <libdatadog-x64-windows/include/...>. The libdatadog include sub-directory is
-# propagated automatically via libdatadog_static's INTERFACE_INCLUDE_DIRECTORIES.
-target_include_directories(dd-win-prof PRIVATE
-    "${CMAKE_SOURCE_DIR}/third-party"
-)
+# The libdatadog include directory is propagated automatically via
+# libdatadog_static's INTERFACE_INCLUDE_DIRECTORIES, and spdlog via spdlog_includes.
 
 target_link_libraries(dd-win-prof PRIVATE
     libdatadog_static
@@ -63,8 +59,8 @@ target_link_options(dd-win-prof PRIVATE /MANIFESTUAC:NO)
 # Link-time code generation (whole-program optimisation) in Release builds only.
 set_property(TARGET dd-win-prof PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
 
-set(_ref_dir "${CMAKE_SOURCE_DIR}/src/reference")
-set(_ld_dyn  "${CMAKE_SOURCE_DIR}/third-party/libdatadog-x64-windows/$<LOWER_CASE:$<CONFIG>>/dynamic")
+set(_ref_dir "${WINDOWSPROFILER_ROOT_DIR}/src/reference")
+set(_ld_dyn  "${libdatadog_SOURCE_DIR}/$<LOWER_CASE:$<CONFIG>>/dynamic")
 
 # Copy the public header before compilation so that Runner (and any other
 # consumer) always has a current copy of the API surface.

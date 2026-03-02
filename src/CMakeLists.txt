@@ -3,7 +3,16 @@ include(FetchContent)
 # Use NEW behavior for DOWNLOAD_EXTRACT_TIMESTAMP to avoid warnings
 cmake_policy(SET CMP0135 NEW)
 
-set(_LD_ROOT "${CMAKE_SOURCE_DIR}/third-party/libdatadog-x64-windows")
+# libdatadog v19.0.0 pre-built binaries for Windows x64. These binaries are
+# downloaded automatically at configure time and extracted to the build directory.
+FetchContent_Declare(
+    libdatadog
+    URL https://github.com/DataDog/libdatadog/releases/download/v19.0.0/libdatadog-x64-windows.zip
+    URL_HASH SHA512=548bfe9761625aaa1ce54f42979e75f3a435ca0c1a4280a91b325fff402c4264fb593d203e0f758b68313ff098fa609ed8cef800bbf6a18be7bfed9c489626bd
+)
+FetchContent_MakeAvailable(libdatadog)
+
+set(_LD_ROOT "${libdatadog_SOURCE_DIR}")
 
 # libdatadog static import library — used by dd-win-prof.dll at link time. Paths
 # use lowercase debug/release to match the directory layout produced by the
@@ -33,12 +42,23 @@ set_target_properties(libdatadog_dynamic PROPERTIES
     INTERFACE_INCLUDE_DIRECTORIES "${_LD_ROOT}/include"
 )
 
-# spdlog is header-only; expose its include directory via an INTERFACE target so
-# consumers can simply link against spdlog_includes.
-add_library(spdlog_includes INTERFACE)
-target_include_directories(spdlog_includes INTERFACE
-    "${CMAKE_SOURCE_DIR}/third-party/spdlog/include"
+# spdlog v1.14.1 downloaded and built from source at configure time. We use it as
+# header-only to match the previous configuration.
+FetchContent_Declare(
+    spdlog
+    GIT_REPOSITORY https://github.com/gabime/spdlog.git
+    GIT_TAG v1.14.1
+    GIT_SHALLOW TRUE
 )
+# Disable building examples, tests, and benchmarks
+set(SPDLOG_BUILD_EXAMPLE OFF CACHE BOOL "" FORCE)
+set(SPDLOG_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(SPDLOG_BUILD_BENCH OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(spdlog)
+
+# Create an alias target for backwards compatibility with the previous setup
+add_library(spdlog_includes INTERFACE)
+target_link_libraries(spdlog_includes INTERFACE spdlog::spdlog_header_only)
 
 # Google Test v1.14.0 fetched at configure time. gtest_force_shared_crt ensures
 # GTest links the same CRT variant as the rest of the project (/MD vs /MDd).
