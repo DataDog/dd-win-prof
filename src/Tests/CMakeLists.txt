@@ -54,6 +54,9 @@ target_link_libraries(Tests PRIVATE
     windowsapp.lib
 )
 
+# Link-time code generation (whole-program optimisation) in Release builds only.
+set_property(TARGET Tests PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
+
 set(_ld_dyn "${CMAKE_SOURCE_DIR}/third-party/libdatadog-x64-windows/$<LOWER_CASE:$<CONFIG>>/dynamic")
 
 # Tests.exe must find the libdatadog DLL at launch; copy it alongside the

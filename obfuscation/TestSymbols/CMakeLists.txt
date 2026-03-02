@@ -4,6 +4,9 @@ add_executable(TestSymbols
 
 target_link_libraries(TestSymbols PRIVATE TestSymbolsDll)
 
+# Link-time code generation (whole-program optimisation) in Release builds only.
+set_property(TARGET TestSymbols PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
+
 # On Windows, DLLs must reside in the same directory as the executable (or on
 # PATH) to be found at launch. Copy TestSymbolsDll.dll next to TestSymbols.exe
 # after each build.
