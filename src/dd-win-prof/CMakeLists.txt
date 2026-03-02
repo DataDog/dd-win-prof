@@ -26,6 +26,14 @@ add_library(dd-win-prof SHARED
 # generates its own PCH mechanism, so we drive it only through pch.h here.
 target_precompile_headers(dd-win-prof PRIVATE pch.h)
 
+# Expose the public header interface for consuming projects. BUILD_INTERFACE
+# points to the source location during build; INSTALL_INTERFACE would be used
+# if we supported installation (not currently implemented).
+target_include_directories(dd-win-prof PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+    $<INSTALL_INTERFACE:include>
+)
+
 target_compile_definitions(dd-win-prof PRIVATE
     DD_WIN_PROF_EXPORTS
     _WINDOWS

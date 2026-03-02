@@ -32,3 +32,59 @@ endif()
 
 add_subdirectory(src)
 add_subdirectory(obfuscation)
+
+# Helper function for consuming projects to copy dd-win-prof runtime
+# dependencies (DLLs and optionally PDBs) to their output directory.
+#
+# Usage:
+#   dd_win_prof_copy_runtime_deps(target_name [INCLUDE_PDBS])
+#
+# Arguments:
+#   target_name  - Name of the consuming target (e.g., dd-sdk-cpp)
+#   INCLUDE_PDBS - Optional flag to also copy .pdb debug files
+#
+# This function adds a POST_BUILD command that copies:
+#   - dd-win-prof.dll (always)
+#   - datadog_profiling_ffi.dll (always)
+#   - dd-win-prof.pdb (if INCLUDE_PDBS specified)
+#   - datadog_profiling_ffi.pdb (if INCLUDE_PDBS specified)
+#
+function(dd_win_prof_copy_runtime_deps TARGET_NAME)
+    if(NOT TARGET dd-win-prof)
+        message(FATAL_ERROR "dd_win_prof_copy_runtime_deps: dd-win-prof target not found. "
+                            "Did you include dd-win-prof with FetchContent or add_subdirectory?")
+    endif()
+
+    # Parse optional INCLUDE_PDBS argument
+    set(options INCLUDE_PDBS)
+    cmake_parse_arguments(ARG "${options}" "" "" ${ARGN})
+
+    # Determine libdatadog DLL directory based on build configuration
+    set(_ld_dyn "${DD_WIN_PROF_LIBDATADOG_DIR}/$<LOWER_CASE:$<CONFIG>>/dynamic")
+
+    # Copy DLLs (always)
+    add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:dd-win-prof>
+            $<TARGET_FILE_DIR:${TARGET_NAME}>
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${_ld_dyn}/datadog_profiling_ffi.dll"
+            $<TARGET_FILE_DIR:${TARGET_NAME}>
+        VERBATIM
+        COMMENT "Copying dd-win-prof runtime DLLs to ${TARGET_NAME} output directory"
+    )
+
+    # Copy PDBs (optional)
+    if(ARG_INCLUDE_PDBS)
+        add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_PDB_FILE:dd-win-prof>
+                $<TARGET_FILE_DIR:${TARGET_NAME}>
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${_ld_dyn}/datadog_profiling_ffi.pdb"
+                $<TARGET_FILE_DIR:${TARGET_NAME}>
+            VERBATIM
+            COMMENT "Copying dd-win-prof debug symbols (PDBs) to ${TARGET_NAME} output directory"
+        )
+    endif()
+endfunction()

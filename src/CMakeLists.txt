@@ -12,6 +12,10 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(libdatadog)
 
+# Expose libdatadog source directory to parent scope so helper function can
+# access DLL paths
+set(DD_WIN_PROF_LIBDATADOG_DIR "${libdatadog_SOURCE_DIR}" PARENT_SCOPE)
+
 set(_LD_ROOT "${libdatadog_SOURCE_DIR}")
 
 # libdatadog static import library — used by dd-win-prof.dll at link time. Paths
