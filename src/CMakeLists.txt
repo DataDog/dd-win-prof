@@ -1,5 +1,8 @@
 include(FetchContent)
 
+# Use NEW behavior for DOWNLOAD_EXTRACT_TIMESTAMP to avoid warnings
+cmake_policy(SET CMP0135 NEW)
+
 set(_LD_ROOT "${CMAKE_SOURCE_DIR}/third-party/libdatadog-x64-windows")
 
 # libdatadog static import library — used by dd-win-prof.dll at link time. Paths
