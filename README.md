@@ -22,6 +22,46 @@ The following files are required in the folder from where the application runs:
 - **datadog_profiling_ffi.dll**: responsible for serializing and sending the profiles to Datadog via HTTP
 *Note: the corresponding .pdb files are available for debugging purposes*
 
+## CMake Setup
+
+If your project is built with CMake, you can include **dd-win-prof** as a dependency using `FetchContent`:
+
+```cmake
+include(FetchContent)
+FetchContent_Declare(
+   dd-win-prof
+   GIT_REPOSITORY https://github.com/DataDog/dd-win-prof.git
+   GIT_TAG        main
+)
+FetchContent_MakeAvailable(dd-win-prof)
+```
+
+Then you can use `target_link_libraries` to configure your project's include paths and linker inputs appropriately:
+
+```cmake
+target_link_libraries(your_application PRIVATE dd-win-prof)
+```
+
+To ensure that your development builds will have the requisite DLLs present alongside the application binary, you can call `dd_win_prof_copy_runtime_deps`, which adds a `POST_BUILD` command to copy `dd-win-prof.dll` and `datadog_profiling_ffi.dll` alongside your application's binaries:
+
+```
+dd_win_prof_copy_runtime_deps(your_application)
+```
+
+(You can optionally supply `INCLUDE_PDBS` to copy `.pdb` files for these libraries as well.)
+
+Finally, if you're generating installed builds of your CMake project, you'll also want to ensure that `dd-win-prof` is added to the export set (to make `dd-win-prof.dll` available alongside your binaries, and to make the `dd-win-prof` CMake target accessible), and that `datadog_profiling_ffi.dll` is also copied to the same directory:
+
+```cmake
+install(TARGETS dd-win-prof
+   EXPORT YourApplicationTargets
+   RUNTIME DESTINATION bin
+)
+install(FILES "$<TARGET_FILE:libdatadog_dynamic>" DESTINATION bin)
+```
+
+If you're _not_ using CMake, you may continue building from `src/WindowsProfiler.sln` (with accompanying PowerShell scripts) and configuring your project's dependencies manually. See [**How to build dd-win-prof**](#how-to-build-dd-win-prof) below for manual build instructions.
+
 ## Configuration
 
 The profiler can be configured in three ways:
