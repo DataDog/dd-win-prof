@@ -839,28 +839,36 @@ ddog_prof_LabelSetId ProfileExporter::CreateLabelSet(const SampleLabels& labels,
         // Check if context has changed since last sample
         if (rumInternCache.cachedGeneration != rumContext->generation) {
             // Context changed, re-intern all non-empty UUIDs
-            auto internUuid = [&](const char* uuid) -> ddog_prof_StringId {
+            // Returns pair of (StringId, success_flag) where success is true only
+            // if the UUID was non-empty AND interning succeeded
+            auto internUuid = [&](const char* uuid) -> std::pair<ddog_prof_StringId, bool> {
                 if (uuid[0] == '\0') {
-                    return ddog_prof_StringId{};  // Empty UUID
+                    return {ddog_prof_StringId{}, false};
                 }
                 auto result = ddog_prof_Profile_intern_string(profile, to_CharSlice(uuid));
                 if (result.tag != DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
                     LogOnce(Error, "Failed to intern RUM UUID '", uuid, "' (tag: ", result.tag, ")");
-                    return ddog_prof_StringId{};
+                    return {ddog_prof_StringId{}, false};
                 }
-                return result.ok;
+                return {result.ok, true};
             };
 
-            // Intern and cache all UUIDs
-            rumInternCache.appIdInterned = internUuid(rumContext->application_id);
-            rumInternCache.sessionIdInterned = internUuid(rumContext->session_id);
-            rumInternCache.viewIdInterned = internUuid(rumContext->view_id);
-            rumInternCache.actionIdInterned = internUuid(rumContext->action_id);
+            // Intern and cache all UUIDs, tracking success for each
+            auto [appId, hasAppId] = internUuid(rumContext->application_id);
+            rumInternCache.appIdInterned = appId;
+            rumInternCache.hasAppId = hasAppId;
 
-            rumInternCache.hasAppId = (rumContext->application_id[0] != '\0');
-            rumInternCache.hasSessionId = (rumContext->session_id[0] != '\0');
-            rumInternCache.hasViewId = (rumContext->view_id[0] != '\0');
-            rumInternCache.hasActionId = (rumContext->action_id[0] != '\0');
+            auto [sessionId, hasSessionId] = internUuid(rumContext->session_id);
+            rumInternCache.sessionIdInterned = sessionId;
+            rumInternCache.hasSessionId = hasSessionId;
+
+            auto [viewId, hasViewId] = internUuid(rumContext->view_id);
+            rumInternCache.viewIdInterned = viewId;
+            rumInternCache.hasViewId = hasViewId;
+
+            auto [actionId, hasActionId] = internUuid(rumContext->action_id);
+            rumInternCache.actionIdInterned = actionId;
+            rumInternCache.hasActionId = hasActionId;
 
             rumInternCache.cachedGeneration = rumContext->generation;
         }
@@ -868,10 +876,7 @@ ddog_prof_LabelSetId ProfileExporter::CreateLabelSet(const SampleLabels& labels,
         // Use cached interned StringIds to create labels
         auto addCachedRumLabel = [&](ddog_prof_StringId valueId, ddog_prof_StringId keyId, bool hasValue) {
             if (!hasValue) {
-                return;  // UUID was empty
-            }
-            if (valueId.internal == 0) {
-                return;  // Interning failed previously
+                return;  // UUID was empty or interning failed
             }
 
             auto labelResult = ddog_prof_Profile_intern_label_str(profile, keyId, valueId);
