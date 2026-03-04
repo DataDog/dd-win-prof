@@ -23,6 +23,12 @@ DD_WIN_PROF_API bool SetupProfiler(ProfilerConfig* pSettings)
     }
 
     auto profiler = Profiler::GetInstance();
+    if (profiler == nullptr)
+    {
+        Log::Warn("Profiler instance is not created: missing Process Attach event in DllMain.");
+        return false;
+    }
+
     if (profiler->IsStarted())
     {
         Log::Warn("SetupProfiler() must be called before StartProfiler().");
@@ -78,6 +84,12 @@ DD_WIN_PROF_API bool SetupProfiler(ProfilerConfig* pSettings)
 DD_WIN_PROF_API bool StartProfiler()
 {
     auto profiler = Profiler::GetInstance();
+    if (profiler == nullptr)
+    {
+        Log::Warn("Profiler instance is not created: missing Process Attach event in DllMain.");
+        return false;
+    }
+
     if (profiler->IsStarted())
     {
         Log::Warn("Profiler is already running.");
@@ -90,6 +102,12 @@ DD_WIN_PROF_API bool StartProfiler()
 DD_WIN_PROF_API void StopProfiler()
 {
     auto profiler = Profiler::GetInstance();
+    if (profiler == nullptr)
+    {
+        Log::Warn("Profiler instance is not created: missing Process Attach event in DllMain.");
+        return;
+    }
+
     if (!profiler->IsStarted())
     {
         Log::Warn("Profiler is not running.");
