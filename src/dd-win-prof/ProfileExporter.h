@@ -9,6 +9,7 @@
 #include "PprofAggregator.h"
 #include "Symbolication.h"
 #include <unordered_map>
+#include <atomic>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -46,6 +47,12 @@ public:
     void SetDebugPprofPrefix(const std::string& prefix) { _debugPprofPrefix = prefix; }
     const std::string& GetDebugPprofPrefix() const { return _debugPprofPrefix; }
 
+    // RUM context management
+    void UpdateRumContext(const char* app_id,
+                          const char* session_id,
+                          const char* view_id,
+                          const char* action_id);
+
     // Export tags (stable metadata set at export time)
     bool PrepareStableTags(ddog_Vec_Tag& tags);
     bool AddSingleTag(ddog_Vec_Tag& tags, std::string_view key, std::string_view value);
@@ -65,13 +72,58 @@ private:
     std::optional<ddog_prof_FunctionId> InternFunction(const CachedSymbolInfo& symbolInfo, ddog_prof_Profile* profile);
     std::optional<ddog_prof_MappingId> InternMapping(const CachedSymbolInfo& symbolInfo, ddog_prof_Profile* profile);
 
+    /**
+     * Internal representation of RUM context with fixed-size buffers.
+     *
+     * Uses char arrays instead of std::string to avoid heap allocations during
+     * updates. The generation counter enables thread-local cache invalidation
+     * without expensive string comparisons.
+     */
+    struct RumContext {
+        char application_id[37];  // UUID string (36 chars) + null terminator
+        char session_id[37];
+        char view_id[37];
+        char action_id[37];
+        uint64_t generation;      // Incremented on each update for cache invalidation
+
+        RumContext() : generation(0) {
+            application_id[0] = '\0';
+            session_id[0] = '\0';
+            view_id[0] = '\0';
+            action_id[0] = '\0';
+        }
+
+        bool HasAnyNonEmptyId() const {
+            return application_id[0] != '\0' || session_id[0] != '\0' ||
+                   view_id[0] != '\0' || action_id[0] != '\0';
+        }
+    };
+
+    // Global RUM context using lock-free atomic operations with explicit memory
+    // ordering. Updates use release semantics, reads use acquire semantics to
+    // ensure visibility of context changes across threads.
+    std::atomic<std::shared_ptr<RumContext>> _currentRumContext;
+
+    std::shared_ptr<RumContext> LoadRumContext() const {
+        return _currentRumContext.load(std::memory_order_acquire);
+    }
+
+    void StoreRumContext(std::shared_ptr<RumContext> ctx) {
+        _currentRumContext.store(ctx, std::memory_order_release);
+    }
+
     // Sample labels (per-sample metadata that gets interned)
     struct SampleLabels {
         ddog_prof_LabelId processIdLabelId;
         ddog_prof_StringId processIdValueId;
         ddog_prof_StringId threadIdKeyId;  // String ID for thread_id key (used to create numeric labels per thread)
         ddog_prof_StringId threadNameKeyId;  // String ID for thread_name key
-        // Add more label IDs as needed
+
+        // RUM label keys (interned once per profile)
+        ddog_prof_StringId rumApplicationIdKeyId;
+        ddog_prof_StringId rumSessionIdKeyId;
+        ddog_prof_StringId rumViewIdKeyId;
+        ddog_prof_StringId rumActionIdKeyId;
     };
 
     bool InternSampleLabels(SampleLabels& labels);

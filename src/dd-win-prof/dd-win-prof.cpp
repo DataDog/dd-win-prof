@@ -117,4 +117,27 @@ DD_WIN_PROF_API void StopProfiler()
     profiler->StopProfiling();
 }
 
+DD_WIN_PROF_API void UpdateRumContext(const RumContextValues* context)
+{
+    auto profiler = Profiler::GetStartedInstance();
+    if (!profiler) {
+        Log::Warn("UpdateRumContext called before profiler started - ignoring");
+        return;
+    }
+
+    auto exporter = profiler->GetProfileExporter();
+    if (!exporter) {
+        Log::Warn("UpdateRumContext called but ProfileExporter not available - ignoring");
+        return;
+    }
+
+    // Pass C strings directly - no allocation needed
+    exporter->UpdateRumContext(
+        context->application_id,
+        context->session_id,
+        context->view_id,
+        context->action_id
+    );
+}
+
 }

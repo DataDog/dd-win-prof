@@ -39,6 +39,9 @@ ProfileExporter::ProfileExporter(Configuration* pConfiguration, std::span<const 
 {
     _runtimeId = ComputeRuntimeId();
 
+    // Initialize with empty RUM context
+    StoreRumContext(std::make_shared<RumContext>());
+
     _kProfilerVersion = PROFILER_VERSION_STRING;
     _kProfilerUserAgent = DLL_NAME;
 
@@ -734,6 +737,39 @@ bool ProfileExporter::InternSampleLabels(SampleLabels& labels)
     // Store the thread name label key ID (we'll use this to create per-thread labels)
     labels.threadNameKeyId = threadNameKeyResult.ok;
 
+    // Intern RUM label keys (once per profile)
+    auto rumAppIdKeyResult = ddog_prof_Profile_intern_string(
+        profile, to_CharSlice("rum.application_id"));
+    if (rumAppIdKeyResult.tag != DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
+        LogOnce(Error, "Failed to intern rum.application_id key (tag: ", rumAppIdKeyResult.tag, ")");
+        return false;
+    }
+    labels.rumApplicationIdKeyId = rumAppIdKeyResult.ok;
+
+    auto rumSessionIdKeyResult = ddog_prof_Profile_intern_string(
+        profile, to_CharSlice("rum.session_id"));
+    if (rumSessionIdKeyResult.tag != DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
+        LogOnce(Error, "Failed to intern rum.session_id key (tag: ", rumSessionIdKeyResult.tag, ")");
+        return false;
+    }
+    labels.rumSessionIdKeyId = rumSessionIdKeyResult.ok;
+
+    auto rumViewIdKeyResult = ddog_prof_Profile_intern_string(
+        profile, to_CharSlice("rum.view_id"));
+    if (rumViewIdKeyResult.tag != DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
+        LogOnce(Error, "Failed to intern rum.view_id key (tag: ", rumViewIdKeyResult.tag, ")");
+        return false;
+    }
+    labels.rumViewIdKeyId = rumViewIdKeyResult.ok;
+
+    auto rumActionIdKeyResult = ddog_prof_Profile_intern_string(
+        profile, to_CharSlice("rum.action_id"));
+    if (rumActionIdKeyResult.tag != DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
+        LogOnce(Error, "Failed to intern rum.action_id key (tag: ", rumActionIdKeyResult.tag, ")");
+        return false;
+    }
+    labels.rumActionIdKeyId = rumActionIdKeyResult.ok;
+
     return true;
 }
 
@@ -783,6 +819,76 @@ ddog_prof_LabelSetId ProfileExporter::CreateLabelSet(const SampleLabels& labels,
         }
     }
 
+    // Add RUM context labels (snapshot current global state)
+    auto rumContext = LoadRumContext();  // Atomic load with acquire semantics
+    if (rumContext && rumContext->HasAnyNonEmptyId()) {
+        // Thread-local cache to avoid re-interning unchanged UUIDs.
+        // Each thread caches the interned StringIds and checks generation.
+        thread_local struct {
+            uint64_t cachedGeneration = 0;
+            ddog_prof_StringId appIdInterned;
+            ddog_prof_StringId sessionIdInterned;
+            ddog_prof_StringId viewIdInterned;
+            ddog_prof_StringId actionIdInterned;
+            bool hasAppId = false;
+            bool hasSessionId = false;
+            bool hasViewId = false;
+            bool hasActionId = false;
+        } rumInternCache;
+
+        // Check if context has changed since last sample
+        if (rumInternCache.cachedGeneration != rumContext->generation) {
+            // Context changed, re-intern all non-empty UUIDs
+            auto internUuid = [&](const char* uuid) -> ddog_prof_StringId {
+                if (uuid[0] == '\0') {
+                    return ddog_prof_StringId{};  // Empty UUID
+                }
+                auto result = ddog_prof_Profile_intern_string(profile, to_CharSlice(uuid));
+                if (result.tag != DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
+                    LogOnce(Error, "Failed to intern RUM UUID '", uuid, "' (tag: ", result.tag, ")");
+                    return ddog_prof_StringId{};
+                }
+                return result.ok;
+            };
+
+            // Intern and cache all UUIDs
+            rumInternCache.appIdInterned = internUuid(rumContext->application_id);
+            rumInternCache.sessionIdInterned = internUuid(rumContext->session_id);
+            rumInternCache.viewIdInterned = internUuid(rumContext->view_id);
+            rumInternCache.actionIdInterned = internUuid(rumContext->action_id);
+
+            rumInternCache.hasAppId = (rumContext->application_id[0] != '\0');
+            rumInternCache.hasSessionId = (rumContext->session_id[0] != '\0');
+            rumInternCache.hasViewId = (rumContext->view_id[0] != '\0');
+            rumInternCache.hasActionId = (rumContext->action_id[0] != '\0');
+
+            rumInternCache.cachedGeneration = rumContext->generation;
+        }
+
+        // Use cached interned StringIds to create labels
+        auto addCachedRumLabel = [&](ddog_prof_StringId valueId, ddog_prof_StringId keyId, bool hasValue) {
+            if (!hasValue) {
+                return;  // UUID was empty
+            }
+            if (valueId.internal == 0) {
+                return;  // Interning failed previously
+            }
+
+            auto labelResult = ddog_prof_Profile_intern_label_str(profile, keyId, valueId);
+            if (labelResult.tag == DDOG_PROF_LABEL_ID_RESULT_OK_GENERATIONAL_ID_LABEL_ID) {
+                labelIdArray.push_back(labelResult.ok);
+            } else {
+                LogOnce(Error, "Failed to create RUM label (tag: ", labelResult.tag, ")");
+            }
+        };
+
+        // Add labels using cached interned StringIds (no re-interning!)
+        addCachedRumLabel(rumInternCache.appIdInterned, labels.rumApplicationIdKeyId, rumInternCache.hasAppId);
+        addCachedRumLabel(rumInternCache.sessionIdInterned, labels.rumSessionIdKeyId, rumInternCache.hasSessionId);
+        addCachedRumLabel(rumInternCache.viewIdInterned, labels.rumViewIdKeyId, rumInternCache.hasViewId);
+        addCachedRumLabel(rumInternCache.actionIdInterned, labels.rumActionIdKeyId, rumInternCache.hasActionId);
+    }
+
     ddog_prof_Slice_LabelId labelSlice = {
         .ptr = labelIdArray.data(),
         .len = labelIdArray.size()
@@ -800,6 +906,71 @@ ddog_prof_LabelSetId ProfileExporter::CreateLabelSet(const SampleLabels& labels,
 uint32_t ProfileExporter::GetCurrentProcessId()
 {
     return ::GetCurrentProcessId();
+}
+
+void ProfileExporter::UpdateRumContext(const char* app_id,
+                                       const char* session_id,
+                                       const char* view_id,
+                                       const char* action_id)
+{
+    // Load current context to get generation counter
+    auto oldContext = LoadRumContext();
+    uint64_t newGeneration = oldContext ? oldContext->generation + 1 : 1;
+
+    // Create new context (only shared_ptr allocation, no string allocations)
+    // Concurrent calls may cause generation to skip values, which is harmless
+    // since we only use generation for cache invalidation detection.
+    std::shared_ptr<RumContext> newContext;
+    try {
+        newContext = std::make_shared<RumContext>();
+    } catch (const std::bad_alloc&) {
+        // Memory allocation failed - clear RUM context by storing empty context.
+        // This ensures samples won't have stale RUM labels until next successful
+        // update.
+        Log::Error("Failed to allocate RUM context (out of memory) - clearing RUM context");
+        try {
+            auto emptyContext = std::make_shared<RumContext>();
+            emptyContext->generation = newGeneration;
+            StoreRumContext(emptyContext);
+        } catch (const std::bad_alloc&) {
+            Log::Error("Failed to allocate empty RUM context - RUM labels will be unavailable");
+        }
+        return;
+    }
+
+    newContext->generation = newGeneration;
+
+    // Copy UUID strings into fixed-size buffers (no heap allocation).
+    // strncpy_s automatically handles buffer overflow by truncating.
+    auto safeCopy = [](char* dest, const char* src, size_t destSize) {
+        if (!src || src[0] == '\0') {
+            dest[0] = '\0';
+        } else {
+            #ifdef _WIN32
+            strncpy_s(dest, destSize, src, _TRUNCATE);
+            #else
+            strncpy(dest, src, destSize - 1);
+            dest[destSize - 1] = '\0';
+            #endif
+        }
+    };
+
+    safeCopy(newContext->application_id, app_id, sizeof(newContext->application_id));
+    safeCopy(newContext->session_id, session_id, sizeof(newContext->session_id));
+    safeCopy(newContext->view_id, view_id, sizeof(newContext->view_id));
+    safeCopy(newContext->action_id, action_id, sizeof(newContext->action_id));
+
+    // Atomic store with release semantics (makes changes visible to other threads)
+    StoreRumContext(newContext);
+
+    // Helper for debug logging - safely handle NULL pointers
+    auto safeStr = [](const char* str) { return (str && str[0] != '\0') ? str : "(empty)"; };
+
+    Log::Debug("RUM context updated (gen=", newGeneration, "): app=",
+               safeStr(app_id),
+               ", session=", safeStr(session_id),
+               ", view=", safeStr(view_id),
+               ", action=", safeStr(action_id));
 }
 
 bool ProfileExporter::WritePprofFile(const ddog_prof_EncodedProfile* encodedProfile)

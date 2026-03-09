@@ -158,3 +158,217 @@ TEST_F(ProfileExporterExportTests, ConfigurationIntegration) {
 // Note: These tests will attempt to connect to localhost:8126 (Datadog Agent)
 // If no agent is running, the export will fail but the test should still pass
 // since we're testing the export logic, not the actual network connectivity
+
+// RUM Context Tests
+class ProfileExporterRumTests : public ::testing::Test {
+protected:
+    void SetUp() override {
+        config = std::make_unique<Configuration>();
+        config->SetExportEnabled(false);
+
+        sampleTypes = {
+            {"cpu-time", "nanoseconds"},
+            {"cpu-samples", "count"}
+        };
+
+        Sample::SetValuesCount(sampleTypes.size());
+        exporter = std::make_unique<ProfileExporter>(config.get(), sampleTypes);
+        ASSERT_TRUE(exporter->Initialize());
+    }
+
+    void TearDown() override {
+        exporter.reset();
+        config.reset();
+    }
+
+    // Helper to add a sample and export
+    void AddSampleAndExport() {
+        std::chrono::nanoseconds timestamp = std::chrono::nanoseconds(
+            std::chrono::system_clock::now().time_since_epoch());
+
+        HANDLE hThread;
+        ::DuplicateHandle(::GetCurrentProcess(), ::GetCurrentThread(),
+                         ::GetCurrentProcess(), &hThread, 0, FALSE,
+                         DUPLICATE_SAME_ACCESS);
+        auto threadInfo = std::make_shared<ThreadInfo>(::GetCurrentThreadId(), hThread);
+
+        uint64_t frames[] = {0x1000, 0x2000};
+        auto sample = std::make_shared<Sample>(timestamp, threadInfo, frames, 2);
+        sample->AddValue(1000000, 0);
+        sample->AddValue(1, 1);
+
+        EXPECT_TRUE(exporter->Add(sample));
+        EXPECT_TRUE(exporter->Export());
+    }
+
+    std::unique_ptr<Configuration> config;
+    std::vector<SampleValueType> sampleTypes;
+    std::unique_ptr<ProfileExporter> exporter;
+};
+
+TEST_F(ProfileExporterRumTests, RumContextEmptyUUIDs) {
+    // Update with all empty strings
+    exporter->UpdateRumContext("", "", "", "");
+
+    // Should succeed - no RUM labels will be added but operation is valid
+    AddSampleAndExport();
+}
+
+TEST_F(ProfileExporterRumTests, RumContextPartialUUIDs) {
+    // Update with only session_id set, others empty
+    exporter->UpdateRumContext(
+        "",
+        "550e8400-e29b-41d4-a716-446655440001",  // session_id
+        "",
+        ""
+    );
+
+    // Should succeed - only rum.session_id label should be added
+    AddSampleAndExport();
+}
+
+TEST_F(ProfileExporterRumTests, RumContextAllUUIDs) {
+    // Update with all four UUIDs set to valid values
+    exporter->UpdateRumContext(
+        "550e8400-e29b-41d4-a716-446655440000",  // application_id
+        "550e8400-e29b-41d4-a716-446655440001",  // session_id
+        "550e8400-e29b-41d4-a716-446655440002",  // view_id
+        "550e8400-e29b-41d4-a716-446655440003"   // action_id
+    );
+
+    // Should succeed - all four rum.* labels should be present
+    AddSampleAndExport();
+}
+
+TEST_F(ProfileExporterRumTests, RumContextTruncation) {
+    // Pass strings longer than 36 chars (UUID is 36 chars with hyphens)
+    std::string longString(100, 'x');  // 100 x's
+
+    exporter->UpdateRumContext(
+        longString.c_str(),
+        longString.c_str(),
+        longString.c_str(),
+        longString.c_str()
+    );
+
+    // Should succeed - truncation should happen safely
+    AddSampleAndExport();
+}
+
+TEST_F(ProfileExporterRumTests, RumContextGenerationIncrement) {
+    // Perform multiple updates
+    for (int i = 0; i < 5; ++i) {
+        std::string uuid = "550e8400-e29b-41d4-a716-44665544000" + std::to_string(i);
+        exporter->UpdateRumContext(uuid.c_str(), uuid.c_str(), uuid.c_str(), uuid.c_str());
+
+        // Each update should succeed
+        AddSampleAndExport();
+    }
+}
+
+TEST_F(ProfileExporterRumTests, RumContextConcurrentUpdates) {
+    // Test thread-safety of updates
+    const int kNumThreads = 10;
+    const auto kDuration = std::chrono::milliseconds(100);
+    std::atomic<bool> stopFlag{false};
+    std::vector<std::thread> threads;
+
+    // Spawn threads that continuously update RUM context
+    for (int i = 0; i < kNumThreads; ++i) {
+        threads.emplace_back([this, i, &stopFlag]() {
+            while (!stopFlag.load()) {
+                std::string uuid = "550e8400-e29b-41d4-a716-44665544" +
+                                  std::to_string(1000 + i);
+                exporter->UpdateRumContext(uuid.c_str(), uuid.c_str(), uuid.c_str(), uuid.c_str());
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+        });
+    }
+
+    // Let them run for a short time
+    std::this_thread::sleep_for(kDuration);
+    stopFlag.store(true);
+
+    // Join all threads
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    // Verify no crashes occurred and we can still export
+    EXPECT_NO_THROW(AddSampleAndExport());
+}
+
+TEST_F(ProfileExporterRumTests, RumContextSamplingDuringUpdate) {
+    // Test that samples observe consistent state during updates
+    const auto kDuration = std::chrono::milliseconds(100);
+    std::atomic<bool> stopFlag{false};
+
+    // Thread 1: Continuously update RUM context
+    std::thread updater([this, &stopFlag]() {
+        int counter = 0;
+        while (!stopFlag.load()) {
+            std::string uuid = "550e8400-e29b-41d4-a716-44665544" +
+                              std::to_string(2000 + (counter++ % 10));
+            exporter->UpdateRumContext(uuid.c_str(), uuid.c_str(), uuid.c_str(), uuid.c_str());
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    });
+
+    // Main thread: Continuously create samples
+    for (int i = 0; i < 10; ++i) {
+        AddSampleAndExport();
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    stopFlag.store(true);
+    updater.join();
+
+    // Should complete without crashes or corruption
+    EXPECT_NO_THROW(AddSampleAndExport());
+}
+
+TEST_F(ProfileExporterRumTests, RumContextMultipleUpdates) {
+    // Test updating context multiple times with different values
+    const std::vector<std::string> testUuids = {
+        "550e8400-e29b-41d4-a716-446655440001",
+        "550e8400-e29b-41d4-a716-446655440002",
+        "550e8400-e29b-41d4-a716-446655440003",
+        "550e8400-e29b-41d4-a716-446655440004",
+        "550e8400-e29b-41d4-a716-446655440005"
+    };
+
+    for (const auto& uuid : testUuids) {
+        exporter->UpdateRumContext(uuid.c_str(), uuid.c_str(), uuid.c_str(), uuid.c_str());
+        AddSampleAndExport();
+    }
+
+    // All updates should succeed
+    EXPECT_TRUE(exporter->IsInitialized());
+}
+
+TEST_F(ProfileExporterRumTests, RumContextClearAndSet) {
+    // Set RUM context
+    exporter->UpdateRumContext(
+        "550e8400-e29b-41d4-a716-446655440001",
+        "550e8400-e29b-41d4-a716-446655440002",
+        "550e8400-e29b-41d4-a716-446655440003",
+        "550e8400-e29b-41d4-a716-446655440004"
+    );
+    AddSampleAndExport();
+
+    // Clear it (set to empty)
+    exporter->UpdateRumContext("", "", "", "");
+    AddSampleAndExport();
+
+    // Set it again
+    exporter->UpdateRumContext(
+        "550e8400-e29b-41d4-a716-446655440005",
+        "550e8400-e29b-41d4-a716-446655440006",
+        "550e8400-e29b-41d4-a716-446655440007",
+        "550e8400-e29b-41d4-a716-446655440008"
+    );
+    AddSampleAndExport();
+
+    // Should handle clear/set cycle correctly
+    EXPECT_TRUE(exporter->IsInitialized());
+}
