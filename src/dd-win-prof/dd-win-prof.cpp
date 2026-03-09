@@ -136,8 +136,7 @@ DD_WIN_PROF_API void UpdateRumContext(const RumContextValues* context)
         context->application_id,
         context->session_id,
         context->view_id,
-        context->view_name,
-        context->action_id
+        context->view_name
     );
 }
 

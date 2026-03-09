@@ -770,14 +770,6 @@ bool ProfileExporter::InternSampleLabels(SampleLabels& labels)
     }
     labels.rumViewNameKeyId = rumViewNameKeyResult.ok;
 
-    auto rumActionIdKeyResult = ddog_prof_Profile_intern_string(
-        profile, to_CharSlice("rum.action_id"));
-    if (rumActionIdKeyResult.tag != DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
-        LogOnce(Error, "Failed to intern rum.action_id key (tag: ", rumActionIdKeyResult.tag, ")");
-        return false;
-    }
-    labels.rumActionIdKeyId = rumActionIdKeyResult.ok;
-
     return true;
 }
 
@@ -838,12 +830,10 @@ ddog_prof_LabelSetId ProfileExporter::CreateLabelSet(const SampleLabels& labels,
             ddog_prof_StringId sessionIdInterned;
             ddog_prof_StringId viewIdInterned;
             ddog_prof_StringId viewNameInterned;
-            ddog_prof_StringId actionIdInterned;
             bool hasAppId = false;
             bool hasSessionId = false;
             bool hasViewId = false;
             bool hasViewName = false;
-            bool hasActionId = false;
         } rumInternCache;
 
         // Check if context has changed since last sample
@@ -880,10 +870,6 @@ ddog_prof_LabelSetId ProfileExporter::CreateLabelSet(const SampleLabels& labels,
             rumInternCache.viewNameInterned = viewName;
             rumInternCache.hasViewName = hasViewName;
 
-            auto [actionId, hasActionId] = internUuid(rumContext->action_id);
-            rumInternCache.actionIdInterned = actionId;
-            rumInternCache.hasActionId = hasActionId;
-
             rumInternCache.cachedGeneration = rumContext->generation;
         }
 
@@ -906,7 +892,6 @@ ddog_prof_LabelSetId ProfileExporter::CreateLabelSet(const SampleLabels& labels,
         addCachedRumLabel(rumInternCache.sessionIdInterned, labels.rumSessionIdKeyId, rumInternCache.hasSessionId);
         addCachedRumLabel(rumInternCache.viewIdInterned, labels.rumViewIdKeyId, rumInternCache.hasViewId);
         addCachedRumLabel(rumInternCache.viewNameInterned, labels.rumViewNameKeyId, rumInternCache.hasViewName);
-        addCachedRumLabel(rumInternCache.actionIdInterned, labels.rumActionIdKeyId, rumInternCache.hasActionId);
     }
 
     ddog_prof_Slice_LabelId labelSlice = {
@@ -931,8 +916,7 @@ uint32_t ProfileExporter::GetCurrentProcessId()
 void ProfileExporter::UpdateRumContext(const char* app_id,
                                        const char* session_id,
                                        const char* view_id,
-                                       const char* view_name,
-                                       const char* action_id)
+                                       const char* view_name)
 {
     // Load current context to get generation counter
     auto oldContext = LoadRumContext();
@@ -980,7 +964,6 @@ void ProfileExporter::UpdateRumContext(const char* app_id,
     safeCopy(newContext->session_id, session_id, sizeof(newContext->session_id));
     safeCopy(newContext->view_id, view_id, sizeof(newContext->view_id));
     safeCopy(newContext->view_name, view_name, sizeof(newContext->view_name));
-    safeCopy(newContext->action_id, action_id, sizeof(newContext->action_id));
 
     // Atomic store with release semantics (makes changes visible to other threads)
     StoreRumContext(newContext);
@@ -992,8 +975,7 @@ void ProfileExporter::UpdateRumContext(const char* app_id,
                safeStr(app_id),
                ", session=", safeStr(session_id),
                ", view=", safeStr(view_id),
-               ", view_name=", safeStr(view_name),
-               ", action=", safeStr(action_id));
+               ", view_name=", safeStr(view_name));
 }
 
 bool ProfileExporter::WritePprofFile(const ddog_prof_EncodedProfile* encodedProfile)

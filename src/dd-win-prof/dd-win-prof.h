@@ -50,7 +50,6 @@ typedef struct _RumContextValues
     const char* session_id;       // UUID string or NULL
     const char* view_id;          // UUID string or NULL
     const char* view_name;        // View name string or NULL
-    const char* action_id;        // UUID string or NULL
 } RumContextValues;
 
 

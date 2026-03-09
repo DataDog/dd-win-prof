@@ -208,7 +208,7 @@ protected:
 
 TEST_F(ProfileExporterRumTests, RumContextEmptyUUIDs) {
     // Update with all empty strings
-    exporter->UpdateRumContext("", "", "", "", "");
+    exporter->UpdateRumContext("", "", "", "");
 
     // Should succeed - no RUM labels will be added but operation is valid
     AddSampleAndExport();
@@ -219,7 +219,6 @@ TEST_F(ProfileExporterRumTests, RumContextPartialUUIDs) {
     exporter->UpdateRumContext(
         "",
         "5e551017-4114-4114-4114-beeeefbeeeef",  // session_id
-        "",
         "",
         ""
     );
@@ -234,11 +233,10 @@ TEST_F(ProfileExporterRumTests, RumContextAllUUIDs) {
         "a991ca10-4004-4004-4004-beefbeefbeef",  // application_id
         "5e551017-4114-4114-4114-beeeefbeeeef",  // session_id
         "141ee144-4224-4224-4224-beeeeeeeeeef",  // view_id
-        "home-page",                              // view_name
-        "4c10171e-4334-4334-4334-b0000eeeefff"   // action_id
+        "home-page"                               // view_name
     );
 
-    // Should succeed - all five rum.* labels should be present
+    // Should succeed - all four rum.* labels should be present
     AddSampleAndExport();
 }
 
@@ -251,8 +249,7 @@ TEST_F(ProfileExporterRumTests, RumContextTruncation) {
         longUuidString.c_str(),
         longUuidString.c_str(),
         longUuidString.c_str(),
-        longViewName.c_str(),
-        longUuidString.c_str()
+        longViewName.c_str()
     );
 
     // Should succeed - truncation should happen safely (UUIDs to 36, view_name to 127)
@@ -267,8 +264,7 @@ TEST_F(ProfileExporterRumTests, RumContextGenerationIncrement) {
             "a991ca10-4004-4004-4004-beefbeefbeef",  // application_id
             "5e551017-4114-4114-4114-beeeefbeeeef",  // session_id
             "141ee144-4224-4224-4224-beeeeeeeeeef",  // view_id
-            viewName.c_str(),                         // view_name
-            "4c10171e-4334-4334-4334-b0000eeeefff"   // action_id
+            viewName.c_str()                          // view_name
         );
 
         // Each update should succeed
@@ -292,8 +288,7 @@ TEST_F(ProfileExporterRumTests, RumContextConcurrentUpdates) {
                     "a991ca10-4004-4004-4004-beefbeefbeef",  // application_id
                     "5e551017-4114-4114-4114-beeeefbeeeef",  // session_id
                     "141ee144-4224-4224-4224-beeeeeeeeeef",  // view_id
-                    viewName.c_str(),                         // view_name
-                    "4c10171e-4334-4334-4334-b0000eeeefff"   // action_id
+                    viewName.c_str()                          // view_name
                 );
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
@@ -327,8 +322,7 @@ TEST_F(ProfileExporterRumTests, RumContextSamplingDuringUpdate) {
                 "a991ca10-4004-4004-4004-beefbeefbeef",  // application_id
                 "5e551017-4114-4114-4114-beeeefbeeeef",  // session_id
                 "141ee144-4224-4224-4224-beeeeeeeeeef",  // view_id
-                viewName.c_str(),                         // view_name
-                "4c10171e-4334-4334-4334-b0000eeeefff"   // action_id
+                viewName.c_str()                          // view_name
             );
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
@@ -362,8 +356,7 @@ TEST_F(ProfileExporterRumTests, RumContextMultipleUpdates) {
             "a991ca10-4004-4004-4004-beefbeefbeef",  // application_id
             "5e551017-4114-4114-4114-beeeefbeeeef",  // session_id
             "141ee144-4224-4224-4224-beeeeeeeeeef",  // view_id
-            viewName.c_str(),                         // view_name
-            "4c10171e-4334-4334-4334-b0000eeeefff"   // action_id
+            viewName.c_str()                          // view_name
         );
         AddSampleAndExport();
     }
@@ -378,13 +371,12 @@ TEST_F(ProfileExporterRumTests, RumContextClearAndSet) {
         "a991ca10-4004-4004-4004-beefbeefbeef",  // application_id
         "5e551017-4114-4114-4114-beeeefbeeeef",  // session_id
         "141ee144-4224-4224-4224-beeeeeeeeeef",  // view_id
-        "initial-view",                           // view_name
-        "4c10171e-4334-4334-4334-b0000eeeefff"   // action_id
+        "initial-view"                            // view_name
     );
     AddSampleAndExport();
 
     // Clear it (set to empty)
-    exporter->UpdateRumContext("", "", "", "", "");
+    exporter->UpdateRumContext("", "", "", "");
     AddSampleAndExport();
 
     // Set it again
@@ -392,8 +384,7 @@ TEST_F(ProfileExporterRumTests, RumContextClearAndSet) {
         "a991ca10-4004-4004-4004-beefbeefbeef",  // application_id
         "5e551017-4114-4114-4114-beeeefbeeeef",  // session_id
         "141ee144-4224-4224-4224-beeeeeeeeeef",  // view_id
-        "final-view",                             // view_name
-        "4c10171e-4334-4334-4334-b0000eeeefff"   // action_id
+        "final-view"                              // view_name
     );
     AddSampleAndExport();
 
@@ -407,8 +398,7 @@ TEST_F(ProfileExporterRumTests, RumContextViewNameOnly) {
         "",
         "",
         "",
-        "my-view-name",  // view_name
-        ""
+        "my-view-name"   // view_name
     );
 
     // Should succeed - only rum.view_name label should be added
@@ -421,11 +411,10 @@ TEST_F(ProfileExporterRumTests, RumContextViewNameWithUUIDs) {
         "a991ca10-4004-4004-4004-beefbeefbeef",  // application_id
         "5e551017-4114-4114-4114-beeeefbeeeef",  // session_id
         "141ee144-4224-4224-4224-beeeeeeeeeef",  // view_id
-        "checkout-page",                          // view_name
-        "4c10171e-4334-4334-4334-b0000eeeefff"   // action_id
+        "checkout-page"                           // view_name
     );
 
-    // Should succeed - all five rum.* labels should be present
+    // Should succeed - all four rum.* labels should be present
     AddSampleAndExport();
 }
 
@@ -437,8 +426,7 @@ TEST_F(ProfileExporterRumTests, RumContextViewNameTruncation) {
         "",
         "",
         "",
-        longViewName.c_str(),
-        ""
+        longViewName.c_str()
     );
 
     // Should succeed - truncation should happen safely (max 127 chars + null)
