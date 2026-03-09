@@ -51,6 +51,7 @@ public:
     void UpdateRumContext(const char* app_id,
                           const char* session_id,
                           const char* view_id,
+                          const char* view_name,
                           const char* action_id);
 
     // Export tags (stable metadata set at export time)
@@ -83,6 +84,7 @@ private:
         char application_id[37];  // UUID string (36 chars) + null terminator
         char session_id[37];
         char view_id[37];
+        char view_name[128];      // View name string (127 chars max) + null terminator
         char action_id[37];
         uint64_t generation;      // Incremented on each update for cache invalidation
 
@@ -90,12 +92,13 @@ private:
             application_id[0] = '\0';
             session_id[0] = '\0';
             view_id[0] = '\0';
+            view_name[0] = '\0';
             action_id[0] = '\0';
         }
 
         bool HasAnyNonEmptyId() const {
             return application_id[0] != '\0' || session_id[0] != '\0' ||
-                   view_id[0] != '\0' || action_id[0] != '\0';
+                   view_id[0] != '\0' || view_name[0] != '\0' || action_id[0] != '\0';
         }
     };
 
@@ -123,6 +126,7 @@ private:
         ddog_prof_StringId rumApplicationIdKeyId;
         ddog_prof_StringId rumSessionIdKeyId;
         ddog_prof_StringId rumViewIdKeyId;
+        ddog_prof_StringId rumViewNameKeyId;
         ddog_prof_StringId rumActionIdKeyId;
     };
 

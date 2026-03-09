@@ -208,7 +208,7 @@ protected:
 
 TEST_F(ProfileExporterRumTests, RumContextEmptyUUIDs) {
     // Update with all empty strings
-    exporter->UpdateRumContext("", "", "", "");
+    exporter->UpdateRumContext("", "", "", "", "");
 
     // Should succeed - no RUM labels will be added but operation is valid
     AddSampleAndExport();
@@ -218,7 +218,8 @@ TEST_F(ProfileExporterRumTests, RumContextPartialUUIDs) {
     // Update with only session_id set, others empty
     exporter->UpdateRumContext(
         "",
-        "550e8400-e29b-41d4-a716-446655440001",  // session_id
+        "5e551017-4114-4114-4114-beeeefbeeeef",  // session_id
+        "",
         "",
         ""
     );
@@ -228,38 +229,47 @@ TEST_F(ProfileExporterRumTests, RumContextPartialUUIDs) {
 }
 
 TEST_F(ProfileExporterRumTests, RumContextAllUUIDs) {
-    // Update with all four UUIDs set to valid values
+    // Update with all UUIDs and view_name set to valid values
     exporter->UpdateRumContext(
-        "550e8400-e29b-41d4-a716-446655440000",  // application_id
-        "550e8400-e29b-41d4-a716-446655440001",  // session_id
-        "550e8400-e29b-41d4-a716-446655440002",  // view_id
-        "550e8400-e29b-41d4-a716-446655440003"   // action_id
+        "a991ca10-4004-4004-4004-beefbeefbeef",  // application_id
+        "5e551017-4114-4114-4114-beeeefbeeeef",  // session_id
+        "141ee144-4224-4224-4224-beeeeeeeeeef",  // view_id
+        "home-page",                              // view_name
+        "4c10171e-4334-4334-4334-b0000eeeefff"   // action_id
     );
 
-    // Should succeed - all four rum.* labels should be present
+    // Should succeed - all five rum.* labels should be present
     AddSampleAndExport();
 }
 
 TEST_F(ProfileExporterRumTests, RumContextTruncation) {
     // Pass strings longer than 36 chars (UUID is 36 chars with hyphens)
-    std::string longString(100, 'x');  // 100 x's
+    std::string longUuidString(100, 'x');  // 100 x's
+    std::string longViewName(200, 'v');    // 200 v's
 
     exporter->UpdateRumContext(
-        longString.c_str(),
-        longString.c_str(),
-        longString.c_str(),
-        longString.c_str()
+        longUuidString.c_str(),
+        longUuidString.c_str(),
+        longUuidString.c_str(),
+        longViewName.c_str(),
+        longUuidString.c_str()
     );
 
-    // Should succeed - truncation should happen safely
+    // Should succeed - truncation should happen safely (UUIDs to 36, view_name to 127)
     AddSampleAndExport();
 }
 
 TEST_F(ProfileExporterRumTests, RumContextGenerationIncrement) {
     // Perform multiple updates
     for (int i = 0; i < 5; ++i) {
-        std::string uuid = "550e8400-e29b-41d4-a716-44665544000" + std::to_string(i);
-        exporter->UpdateRumContext(uuid.c_str(), uuid.c_str(), uuid.c_str(), uuid.c_str());
+        std::string viewName = "view-" + std::to_string(i);
+        exporter->UpdateRumContext(
+            "a991ca10-4004-4004-4004-beefbeefbeef",  // application_id
+            "5e551017-4114-4114-4114-beeeefbeeeef",  // session_id
+            "141ee144-4224-4224-4224-beeeeeeeeeef",  // view_id
+            viewName.c_str(),                         // view_name
+            "4c10171e-4334-4334-4334-b0000eeeefff"   // action_id
+        );
 
         // Each update should succeed
         AddSampleAndExport();
@@ -277,9 +287,14 @@ TEST_F(ProfileExporterRumTests, RumContextConcurrentUpdates) {
     for (int i = 0; i < kNumThreads; ++i) {
         threads.emplace_back([this, i, &stopFlag]() {
             while (!stopFlag.load()) {
-                std::string uuid = "550e8400-e29b-41d4-a716-44665544" +
-                                  std::to_string(1000 + i);
-                exporter->UpdateRumContext(uuid.c_str(), uuid.c_str(), uuid.c_str(), uuid.c_str());
+                std::string viewName = "concurrent-view-" + std::to_string(i);
+                exporter->UpdateRumContext(
+                    "a991ca10-4004-4004-4004-beefbeefbeef",  // application_id
+                    "5e551017-4114-4114-4114-beeeefbeeeef",  // session_id
+                    "141ee144-4224-4224-4224-beeeeeeeeeef",  // view_id
+                    viewName.c_str(),                         // view_name
+                    "4c10171e-4334-4334-4334-b0000eeeefff"   // action_id
+                );
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
         });
@@ -307,9 +322,14 @@ TEST_F(ProfileExporterRumTests, RumContextSamplingDuringUpdate) {
     std::thread updater([this, &stopFlag]() {
         int counter = 0;
         while (!stopFlag.load()) {
-            std::string uuid = "550e8400-e29b-41d4-a716-44665544" +
-                              std::to_string(2000 + (counter++ % 10));
-            exporter->UpdateRumContext(uuid.c_str(), uuid.c_str(), uuid.c_str(), uuid.c_str());
+            std::string viewName = "sampling-view-" + std::to_string(counter++ % 10);
+            exporter->UpdateRumContext(
+                "a991ca10-4004-4004-4004-beefbeefbeef",  // application_id
+                "5e551017-4114-4114-4114-beeeefbeeeef",  // session_id
+                "141ee144-4224-4224-4224-beeeeeeeeeef",  // view_id
+                viewName.c_str(),                         // view_name
+                "4c10171e-4334-4334-4334-b0000eeeefff"   // action_id
+            );
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     });
@@ -328,17 +348,23 @@ TEST_F(ProfileExporterRumTests, RumContextSamplingDuringUpdate) {
 }
 
 TEST_F(ProfileExporterRumTests, RumContextMultipleUpdates) {
-    // Test updating context multiple times with different values
-    const std::vector<std::string> testUuids = {
-        "550e8400-e29b-41d4-a716-446655440001",
-        "550e8400-e29b-41d4-a716-446655440002",
-        "550e8400-e29b-41d4-a716-446655440003",
-        "550e8400-e29b-41d4-a716-446655440004",
-        "550e8400-e29b-41d4-a716-446655440005"
+    // Test updating context multiple times with different view names
+    const std::vector<std::string> testViewNames = {
+        "login-page",
+        "dashboard",
+        "settings",
+        "profile",
+        "checkout"
     };
 
-    for (const auto& uuid : testUuids) {
-        exporter->UpdateRumContext(uuid.c_str(), uuid.c_str(), uuid.c_str(), uuid.c_str());
+    for (const auto& viewName : testViewNames) {
+        exporter->UpdateRumContext(
+            "a991ca10-4004-4004-4004-beefbeefbeef",  // application_id
+            "5e551017-4114-4114-4114-beeeefbeeeef",  // session_id
+            "141ee144-4224-4224-4224-beeeeeeeeeef",  // view_id
+            viewName.c_str(),                         // view_name
+            "4c10171e-4334-4334-4334-b0000eeeefff"   // action_id
+        );
         AddSampleAndExport();
     }
 
@@ -349,26 +375,72 @@ TEST_F(ProfileExporterRumTests, RumContextMultipleUpdates) {
 TEST_F(ProfileExporterRumTests, RumContextClearAndSet) {
     // Set RUM context
     exporter->UpdateRumContext(
-        "550e8400-e29b-41d4-a716-446655440001",
-        "550e8400-e29b-41d4-a716-446655440002",
-        "550e8400-e29b-41d4-a716-446655440003",
-        "550e8400-e29b-41d4-a716-446655440004"
+        "a991ca10-4004-4004-4004-beefbeefbeef",  // application_id
+        "5e551017-4114-4114-4114-beeeefbeeeef",  // session_id
+        "141ee144-4224-4224-4224-beeeeeeeeeef",  // view_id
+        "initial-view",                           // view_name
+        "4c10171e-4334-4334-4334-b0000eeeefff"   // action_id
     );
     AddSampleAndExport();
 
     // Clear it (set to empty)
-    exporter->UpdateRumContext("", "", "", "");
+    exporter->UpdateRumContext("", "", "", "", "");
     AddSampleAndExport();
 
     // Set it again
     exporter->UpdateRumContext(
-        "550e8400-e29b-41d4-a716-446655440005",
-        "550e8400-e29b-41d4-a716-446655440006",
-        "550e8400-e29b-41d4-a716-446655440007",
-        "550e8400-e29b-41d4-a716-446655440008"
+        "a991ca10-4004-4004-4004-beefbeefbeef",  // application_id
+        "5e551017-4114-4114-4114-beeeefbeeeef",  // session_id
+        "141ee144-4224-4224-4224-beeeeeeeeeef",  // view_id
+        "final-view",                             // view_name
+        "4c10171e-4334-4334-4334-b0000eeeefff"   // action_id
     );
     AddSampleAndExport();
 
     // Should handle clear/set cycle correctly
     EXPECT_TRUE(exporter->IsInitialized());
+}
+
+TEST_F(ProfileExporterRumTests, RumContextViewNameOnly) {
+    // Update with only view_name set, all UUIDs empty
+    exporter->UpdateRumContext(
+        "",
+        "",
+        "",
+        "my-view-name",  // view_name
+        ""
+    );
+
+    // Should succeed - only rum.view_name label should be added
+    AddSampleAndExport();
+}
+
+TEST_F(ProfileExporterRumTests, RumContextViewNameWithUUIDs) {
+    // Update with view_name and UUIDs
+    exporter->UpdateRumContext(
+        "a991ca10-4004-4004-4004-beefbeefbeef",  // application_id
+        "5e551017-4114-4114-4114-beeeefbeeeef",  // session_id
+        "141ee144-4224-4224-4224-beeeeeeeeeef",  // view_id
+        "checkout-page",                          // view_name
+        "4c10171e-4334-4334-4334-b0000eeeefff"   // action_id
+    );
+
+    // Should succeed - all five rum.* labels should be present
+    AddSampleAndExport();
+}
+
+TEST_F(ProfileExporterRumTests, RumContextViewNameTruncation) {
+    // Pass view_name longer than 128 chars
+    std::string longViewName(200, 'v');  // 200 v's
+
+    exporter->UpdateRumContext(
+        "",
+        "",
+        "",
+        longViewName.c_str(),
+        ""
+    );
+
+    // Should succeed - truncation should happen safely (max 127 chars + null)
+    AddSampleAndExport();
 }
