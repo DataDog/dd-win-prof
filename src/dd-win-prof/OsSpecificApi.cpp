@@ -2,6 +2,7 @@
 // This product includes software developed at Datadog (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
 
 #include "pch.h"
+#include <algorithm>
 
 #include <winternl.h>
 #include <Windows.h>
@@ -231,7 +232,7 @@ namespace OsSpecificApi {
         ::ZeroMemory(szModel, sizeof(szModel));
 
         // get the information associated with each slot where the name can be found
-        for (uint32_t i = 0x80000002; i <= max(lastSlot, 0x80000004); ++i)
+        for (uint32_t i = 0x80000002; i <= std::max(lastSlot, 0x80000004); ++i)
         {
             // get the extended information up to the slot 4
             ::ZeroMemory(cpuInfo, sizeof(cpuInfo));
