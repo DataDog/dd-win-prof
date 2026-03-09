@@ -3,7 +3,9 @@
 
 #pragma once
 
-#ifdef DD_WIN_PROF_EXPORTS
+#ifdef DD_WIN_PROF_STATIC_LINK
+#define DD_WIN_PROF_API
+#elif defined(DD_WIN_PROF_EXPORTS)
 #define DD_WIN_PROF_API __declspec(dllexport)
 #else
 #define DD_WIN_PROF_API __declspec(dllimport)
