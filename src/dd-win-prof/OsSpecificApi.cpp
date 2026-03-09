@@ -5,7 +5,6 @@
 #include <algorithm>
 
 #include <winternl.h>
-#include <Windows.h>
 
 namespace OsSpecificApi {
 

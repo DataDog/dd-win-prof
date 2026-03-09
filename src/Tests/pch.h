@@ -12,9 +12,6 @@
 #include <sstream>
 #include <iomanip>
 
-// Windows headers
-#include <windows.h>
-
 // Google Test headers
 #include <gtest/gtest.h>
 
