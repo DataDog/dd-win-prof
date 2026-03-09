@@ -86,46 +86,49 @@ jobs:
       shell: pwsh
       
     - name: Setup release artifacts for Runner build
+      if: steps.artifact_source.outputs.use_release == 'true'
       run: |
         Write-Host "Setting up reference directory for Runner..."
-        
+
         $profilerLib = Get-ChildItem -Recurse release-artifacts -Filter "dd-win-prof.lib" -ErrorAction SilentlyContinue | Select-Object -First 1
         $profilerHeader = Get-ChildItem -Recurse release-artifacts -Filter "dd-win-prof.h" -ErrorAction SilentlyContinue | Select-Object -First 1
-        
+
         if (-not $profilerLib) {
           Write-Host "ERROR: dd-win-prof.lib not found in release"
           exit 1
         }
-        
+
         if (-not $profilerHeader) {
           Write-Host "ERROR: dd-win-prof.h not found in release"
           exit 1
         }
-        
+
         # Copy to src/reference/ (used by linker and PostBuildEvent)
         New-Item -ItemType Directory -Force -Path "src/reference" | Out-Null
-        
+
         Copy-Item $profilerLib.FullName -Destination "src/reference/" -Force
         Write-Host "Copied: dd-win-prof.lib"
-        
+
         Copy-Item $profilerHeader.FullName -Destination "src/reference/" -Force
         Write-Host "Copied: dd-win-prof.h"
       shell: pwsh
-      
+
     - name: Setup MSBuild
+      if: steps.artifact_source.outputs.use_release == 'true'
       uses: microsoft/setup-msbuild@v2
-      
+
     - name: Build Runner with Release configuration
+      if: steps.artifact_source.outputs.use_release == 'true'
       run: |
         Write-Host "Building Runner.exe with Release configuration..."
-        
+
         msbuild src/Runner/Runner.vcxproj `
           /p:Configuration=Release `
           /p:Platform=x64
-        
+
         Write-Host "`nRunner built successfully:"
         Get-Item src/Runner/x64/Release/Runner.exe
-        
+
         Write-Host "`nDLL dependencies:"
         $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
         $dumpbin = Join-Path $vsPath "VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Get-Item | Select-Object -First 1
@@ -145,11 +148,23 @@ jobs:
         echo "version=$version" >> $env:GITHUB_OUTPUT
       shell: pwsh
       
+    - name: Determine Runner path
+      id: runner_path
+      run: |
+        if ("${{ steps.artifact_source.outputs.use_release }}" -eq "true") {
+          $path = "src/Runner/x64/Release"
+        } else {
+          $path = (Get-ChildItem -Recurse release-artifacts -Filter "Runner.exe" | Select-Object -First 1).Directory.FullName
+        }
+        Write-Host "Runner path: $path"
+        echo "path=$path" >> $env:GITHUB_OUTPUT
+      shell: pwsh
+
     - name: Run release tests
       run: |
         .\scripts\test-release.ps1 `
           -ReleaseDllPath "release-artifacts" `
-          -RunnerPath "src/Runner/x64/Release" `
+          -RunnerPath "${{ steps.runner_path.outputs.path }}" `
           -ReleaseVersion "${{ steps.version.outputs.version }}"
       shell: pwsh
       
