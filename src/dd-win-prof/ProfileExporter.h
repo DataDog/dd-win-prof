@@ -71,8 +71,24 @@ private:
         ddog_prof_StringId processIdValueId;
         ddog_prof_StringId threadIdKeyId;  // String ID for thread_id key (used to create numeric labels per thread)
         ddog_prof_StringId threadNameKeyId;  // String ID for thread_name key
-        // Add more label IDs as needed
+        ddog_prof_StringId rumViewIdKeyId;  // String ID for rum.view_id key
+        ddog_prof_StringId traceEndpointKeyId;  // String ID for "trace endpoint" key
     };
+
+    // Hardcoded RUM view ID / trace endpoint pairs for e2e testing
+    static constexpr size_t RUM_VIEW_COUNT = 3;
+    static constexpr const char* RUM_VIEW_IDS[RUM_VIEW_COUNT] = {
+        "abc12345-1234-5678-9abc-def012345678",
+        "def67890-abcd-1234-5678-901234567890",
+        "11111111-2222-3333-4444-555555555555"
+    };
+    static constexpr const char* RUM_VIEW_NAMES[RUM_VIEW_COUNT] = {
+        "HomePage",
+        "SettingsPage",
+        "InventoryScreen"
+    };
+    static constexpr const char* RUM_APP_ID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+    static constexpr const char* RUM_SESSION_ID = "sess0001-aaaa-bbbb-cccc-ddddeeee0001";
 
     bool InternSampleLabels(SampleLabels& labels);
     ddog_prof_LabelSetId CreateLabelSet(const SampleLabels& labels, std::shared_ptr<ThreadInfo> threadInfo);  // Updated to take threadInfo
@@ -113,6 +129,12 @@ private:
     static constexpr const char* LABEL_PROCESS_ID = "process_id";
     static constexpr const char* LABEL_THREAD_ID = "thread id";  // New label constant for thread ID
     static constexpr const char* LABEL_THREAD_NAME = "thread_name";  // New label constant for thread name if any
+    static constexpr const char* LABEL_RUM_VIEW_ID = "rum.view_id";
+    static constexpr const char* LABEL_TRACE_ENDPOINT = "trace endpoint";
+
+    // Profile-level tag constants for RUM
+    static constexpr const char* TAG_RUM_APPLICATION_ID = "rum.application_id";
+    static constexpr const char* TAG_RUM_SESSION_ID = "rum.session_id";
 
     // Cache management
     void ClearCaches();

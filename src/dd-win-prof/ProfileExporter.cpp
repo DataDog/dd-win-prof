@@ -678,6 +678,14 @@ bool ProfileExporter::PrepareStableTags(ddog_Vec_Tag& tags)
         return false;
     }
 
+    // Add RUM profile-level tags for e2e testing
+    if (!AddSingleTag(tags, TAG_RUM_APPLICATION_ID, RUM_APP_ID)) {
+        return false;
+    }
+    if (!AddSingleTag(tags, TAG_RUM_SESSION_ID, RUM_SESSION_ID)) {
+        return false;
+    }
+
     return true;
 }
 
@@ -734,6 +742,22 @@ bool ProfileExporter::InternSampleLabels(SampleLabels& labels)
     // Store the thread name label key ID (we'll use this to create per-thread labels)
     labels.threadNameKeyId = threadNameKeyResult.ok;
 
+    // Intern the rum.view_id label key
+    auto rumViewIdKeyResult = ddog_prof_Profile_intern_string(profile, to_CharSlice(LABEL_RUM_VIEW_ID));
+    if (rumViewIdKeyResult.tag != DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
+        LogOnce(Error, "InternSampleLabels: Failed to intern rum.view_id label key (tag: ", rumViewIdKeyResult.tag, ")");
+        return false;
+    }
+    labels.rumViewIdKeyId = rumViewIdKeyResult.ok;
+
+    // Intern the "trace endpoint" label key
+    auto traceEndpointKeyResult = ddog_prof_Profile_intern_string(profile, to_CharSlice(LABEL_TRACE_ENDPOINT));
+    if (traceEndpointKeyResult.tag != DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
+        LogOnce(Error, "InternSampleLabels: Failed to intern trace endpoint label key (tag: ", traceEndpointKeyResult.tag, ")");
+        return false;
+    }
+    labels.traceEndpointKeyId = traceEndpointKeyResult.ok;
+
     return true;
 }
 
@@ -780,6 +804,40 @@ ddog_prof_LabelSetId ProfileExporter::CreateLabelSet(const SampleLabels& labels,
                     labelIdArray.push_back(threadNameLabelResult.ok);
                 }
             }
+        }
+    }
+
+    // Add rum.view_id label — pick view based on thread ID to distribute across views
+    {
+        size_t viewIndex = 0;
+        if (threadInfo) {
+            viewIndex = threadInfo->GetThreadId() % RUM_VIEW_COUNT;
+        }
+
+        // Intern the rum.view_id value
+        auto viewIdValueResult = ddog_prof_Profile_intern_string(profile, to_CharSlice(std::string(RUM_VIEW_IDS[viewIndex])));
+        if (viewIdValueResult.tag == DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
+            auto viewIdLabelResult = ddog_prof_Profile_intern_label_str(profile, labels.rumViewIdKeyId, viewIdValueResult.ok);
+            if (viewIdLabelResult.tag == DDOG_PROF_LABEL_ID_RESULT_OK_GENERATIONAL_ID_LABEL_ID) {
+                labelIdArray.push_back(viewIdLabelResult.ok);
+            } else {
+                LogOnce(Error, "Failed to intern rum.view_id label (tag: ", viewIdLabelResult.tag, ")");
+            }
+        } else {
+            LogOnce(Error, "Failed to intern rum.view_id value (tag: ", viewIdValueResult.tag, ")");
+        }
+
+        // Intern the "trace endpoint" value (same view index for consistent pairing)
+        auto endpointValueResult = ddog_prof_Profile_intern_string(profile, to_CharSlice(std::string(RUM_VIEW_NAMES[viewIndex])));
+        if (endpointValueResult.tag == DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
+            auto endpointLabelResult = ddog_prof_Profile_intern_label_str(profile, labels.traceEndpointKeyId, endpointValueResult.ok);
+            if (endpointLabelResult.tag == DDOG_PROF_LABEL_ID_RESULT_OK_GENERATIONAL_ID_LABEL_ID) {
+                labelIdArray.push_back(endpointLabelResult.ok);
+            } else {
+                LogOnce(Error, "Failed to intern trace endpoint label (tag: ", endpointLabelResult.tag, ")");
+            }
+        } else {
+            LogOnce(Error, "Failed to intern trace endpoint value (tag: ", endpointValueResult.tag, ")");
         }
     }
 
