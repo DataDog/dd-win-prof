@@ -6,6 +6,7 @@
 #include "../dd-win-prof/Configuration.h"
 #include "../dd-win-prof/Sample.h"
 #include "../dd-win-prof/SampleValueType.h"
+#include "../dd-win-prof/TagsHelper.h"
 #include "../dd-win-prof/ThreadInfo.h"
 #include <gtest/gtest.h>
 #include <memory>
@@ -158,3 +159,114 @@ TEST_F(ProfileExporterExportTests, ConfigurationIntegration) {
 // Note: These tests will attempt to connect to localhost:8126 (Datadog Agent)
 // If no agent is running, the export will fail but the test should still pass
 // since we're testing the export logic, not the actual network connectivity
+
+// ===========================================================================
+// noEnvVars scenarios -- exporter with defaults-only and overridden config
+// ===========================================================================
+
+static std::shared_ptr<Sample> CreateTestSample()
+{
+    auto timestamp = std::chrono::nanoseconds(std::chrono::system_clock::now().time_since_epoch());
+    HANDLE hThread;
+    ::DuplicateHandle(::GetCurrentProcess(), ::GetCurrentThread(),
+                      ::GetCurrentProcess(), &hThread, 0, FALSE, DUPLICATE_SAME_ACCESS);
+    auto threadInfo = std::make_shared<ThreadInfo>(::GetCurrentThreadId(), hThread);
+    uint64_t frames[] = {0x1000, 0x2000};
+    auto sample = std::make_shared<Sample>(timestamp, threadInfo, frames, 2);
+    sample->AddValue(1000000, 0);
+    sample->AddValue(1, 1);
+    return sample;
+}
+
+TEST_F(ProfileExporterExportTests, ExporterWithDefaultsOnlyConfig) {
+    auto defaultsConfig = std::make_unique<Configuration>();
+    defaultsConfig->ResetToDefaults();
+    defaultsConfig->SetExportEnabled(false);
+
+    std::vector<SampleValueType> types = {{"cpu-time", "nanoseconds"}, {"cpu-samples", "count"}};
+    Sample::SetValuesCount(types.size());
+
+    auto exp = std::make_unique<ProfileExporter>(defaultsConfig.get(), types);
+    ASSERT_TRUE(exp->Initialize());
+    EXPECT_TRUE(exp->IsInitialized());
+
+    EXPECT_TRUE(exp->Add(CreateTestSample()));
+    EXPECT_TRUE(exp->Export());
+}
+
+TEST_F(ProfileExporterExportTests, ExporterWithApiOverriddenConfig) {
+    auto overriddenConfig = std::make_unique<Configuration>();
+    overriddenConfig->ResetToDefaults();
+    overriddenConfig->SetServiceName("my-svc");
+    overriddenConfig->SetEnvironmentName("staging");
+    overriddenConfig->SetVersion("2.0");
+    overriddenConfig->SetUserTags(TagsHelper::Parse("team:infra"));
+    overriddenConfig->SetUploadInterval(std::chrono::seconds(30));
+    overriddenConfig->SetExportEnabled(false);
+
+    std::vector<SampleValueType> types = {{"cpu-time", "nanoseconds"}, {"cpu-samples", "count"}};
+    Sample::SetValuesCount(types.size());
+
+    auto exp = std::make_unique<ProfileExporter>(overriddenConfig.get(), types);
+    ASSERT_TRUE(exp->Initialize());
+    EXPECT_TRUE(exp->IsInitialized());
+
+    EXPECT_TRUE(exp->Add(CreateTestSample()));
+    EXPECT_TRUE(exp->Export());
+}
+
+TEST_F(ProfileExporterExportTests, ExporterWithDebugOutputDir) {
+    // Use a temp directory for pprof output
+    auto tempDir = fs::temp_directory_path() / "dd-win-prof-test-pprof";
+    if (fs::exists(tempDir)) {
+        fs::remove_all(tempDir);
+    }
+
+    auto debugConfig = std::make_unique<Configuration>();
+    debugConfig->ResetToDefaults();
+    debugConfig->SetProfilesOutputDirectory(tempDir);
+    debugConfig->SetExportEnabled(false);
+
+    std::vector<SampleValueType> types = {{"cpu-time", "nanoseconds"}, {"cpu-samples", "count"}};
+    Sample::SetValuesCount(types.size());
+
+    auto exp = std::make_unique<ProfileExporter>(debugConfig.get(), types);
+    ASSERT_TRUE(exp->Initialize());
+    EXPECT_TRUE(exp->Add(CreateTestSample()));
+    EXPECT_TRUE(exp->Export());
+
+    // Verify at least one .pprof file was created
+    bool foundPprof = false;
+    if (fs::exists(tempDir)) {
+        for (auto const& entry : fs::directory_iterator(tempDir)) {
+            if (entry.path().extension() == ".pprof") {
+                foundPprof = true;
+                break;
+            }
+        }
+    }
+    EXPECT_TRUE(foundPprof) << "Expected a .pprof file in " << tempDir.string();
+
+    // Cleanup
+    if (fs::exists(tempDir)) {
+        fs::remove_all(tempDir);
+    }
+}
+
+TEST_F(ProfileExporterExportTests, ExporterInitializesWithDefaultsAndExportEnabled) {
+    // Validates the full InitializeExporter / BuildExportUrl / tag preparation path.
+    // Agent mode with localhost:8126 -- the exporter object is created without connecting.
+    auto agentConfig = std::make_unique<Configuration>();
+    agentConfig->ResetToDefaults();
+    agentConfig->SetExportEnabled(true);
+
+    std::vector<SampleValueType> types = {{"cpu-time", "nanoseconds"}, {"cpu-samples", "count"}};
+    Sample::SetValuesCount(types.size());
+
+    auto exp = std::make_unique<ProfileExporter>(agentConfig.get(), types);
+    ASSERT_TRUE(exp->Initialize()) << "Exporter should initialize with default agent config: " << exp->GetLastError();
+    EXPECT_TRUE(exp->IsInitialized());
+
+    // Explicit cleanup before destruction to avoid potential deadlocks
+    exp->Cleanup();
+}

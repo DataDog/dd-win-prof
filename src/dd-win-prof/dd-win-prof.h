@@ -17,22 +17,32 @@ typedef struct _ProfilerConfig
 {
     uint32_t size; // size of this struct, for versioning
 
+    // env vars usage
+    bool noEnvVars; // if true, ignore all environment variables and use only the values provided in this struct (default: false)
+
     // application information
     const char* serviceEnvironment;
     const char* serviceName;
     const char* serviceVersion;
 
-    // DATADOG endpoint
+    // Datadog endpoint: these are MANDATORY if noEnvVars is true, otherwise they can be set via environment variables instead
     const char* url;
     const char* apiKey;
 
     // profiling tuning parameters
-    uint64_t cpuWallTimeSamplingPeriodNs; // sampling period in nanoseconds (default: 20ms = 20,000,000ns)
-    int32_t walltimeThreadsThreshold;     // number of threads to sample for wall time (default: 5, min: 5, max: 64)
-    int32_t cpuThreadsThreshold;          // number of threads to sample for CPU time (default: 64, min: 5, max: 128)
+    uint64_t cpuWallTimeSamplingPeriodNs;   // sampling period in nanoseconds (default: 20ms = 20,000,000ns)
+    int32_t walltimeThreadsThreshold;       // number of threads to sample for wall time (default: 5, min: 5, max: 64)
+    int32_t cpuThreadsThreshold;            // number of threads to sample for CPU time (default: 64, min: 5, max: 128)
+    int32_t uploadIntervalSeconds;          // how often to upload profiles in seconds (default: 60s or 20s in dev mode)
+    const char* tags;                       // additional tags to attach to profiles as comma separated list (default: empty)
 
     // symbolization
     bool symbolizeCallstacks;        // whether to symbolize stack traces (default: false)
+
+    // debug / test settings (normally set via environment variables)
+    // NOTE: log directory is NOT configurable here -- it is set at DLL load time
+    //       via DD_TRACE_LOG_DIRECTORY (default: %PROGRAMDATA%\Datadog Tracer\logs)
+    const char* pprofOutputDirectory;   // override for pprof debug output directory (default: empty = disabled)
 } ProfilerConfig;
 
 

@@ -168,8 +168,19 @@ This is a Windows native profiler that performs CPU sampling and exports profile
 
 ### Configuration
 
-Configuration is retrieved in `Configuration.cpp` from environment variables defined in `EnvironmentVariables.h` such as sampling period (default 20ms), number of threads to sample (default 5) or upload period (default 60s). It is also possible to set a few parameters via the `SetupProfiler()` API. Note that function names are not symbolized by default. To enable symbolization, set `ProfilerConfig.symbolizeCallstacks` to `true` before calling `SetupProfiler`. 
-Other settings are hardcoded:
+Configuration is managed in `Configuration.cpp`. Values come from two sources, with code-based overrides taking precedence:
+
+1. **Environment variables** (`EnvironmentVariables.h`): sampling period (default 20ms), threads to sample (default 5 for walltime, 64 for CPU), upload period (default 60s), service metadata, API key, agent URL, etc.
+
+2. **`SetupProfiler(ProfilerConfig*)`** (`dd-win-prof.cpp`): Callers pass a `ProfilerConfig` struct; `InitializeConfiguration()` applies its fields to the shared `Configuration` instance.
+
+**No-env-vars mode** (`ProfilerConfig.noEnvVars == true`): `ResetToDefaults()` is called first, then only explicit struct fields are applied. All environment variables are ignored. In this mode, `url` and `apiKey` are mandatory; `SetupProfiler` returns `false` if either is missing.
+
+**ProfilerConfig fields**: `serviceName`, `serviceEnvironment`, `serviceVersion`, `url`, `apiKey`, `tags`, `pprofOutputDirectory`, `symbolizeCallstacks`, plus tuning parameters (`cpuWallTimeSamplingPeriodNs`, `walltimeThreadsThreshold`, etc.). The **log directory** is not configurable via ProfilerConfig; it is set at DLL load time from `DD_TRACE_LOG_DIRECTORY` in `Log.h`.
+
+Function names are not symbolized by default. To enable symbolization, set `ProfilerConfig.symbolizeCallstacks` to `true` before calling `SetupProfiler`.
+
+**Hardcoded settings**:
 - Collection period: 60ms  
 - Max stack frames: 512
 
