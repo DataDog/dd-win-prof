@@ -180,7 +180,7 @@ TEST_F(ConfigurationTest, ConfigurationCanBeOverriden) {
     EXPECT_EQ(config.WalltimeThreadsThreshold(), 15);
     EXPECT_EQ(config.CpuWallTimeSamplingPeriod(), 100ms);
     EXPECT_EQ(config.GetApiKey(), "xxx-xxxx-xxxxx");
-    EXPECT_EQ(config.GetAgentUrl(), "http://localhost:8126");
+    EXPECT_EQ(config.GetSite(), "http://localhost:8126");
     EXPECT_TRUE(config.IsAgentless()) << "Should be in agentless mode when endpoint is set";
 }
 
@@ -351,7 +351,7 @@ TEST_F(ConfigurationTest, InitConfig_NoEnvVars_MandatoryFieldsSet_ReturnsTrue) {
     cfg.apiKey = "my-api-key";
 
     EXPECT_TRUE(InitializeConfiguration(&config, &cfg));
-    EXPECT_EQ(config.GetAgentUrl(), "http://intake.datadoghq.com");
+    EXPECT_EQ(config.GetSite(), "http://intake.datadoghq.com");
     EXPECT_EQ(config.GetApiKey(), "my-api-key");
     EXPECT_TRUE(config.IsAgentless());
 }
@@ -379,7 +379,7 @@ TEST_F(ConfigurationTest, InitConfig_NoEnvVars_AllFieldsApplied) {
 
     ASSERT_TRUE(InitializeConfiguration(&config, &cfg));
 
-    EXPECT_EQ(config.GetAgentUrl(), "https://intake.datadoghq.com");
+    EXPECT_EQ(config.GetSite(), "https://intake.datadoghq.com");
     EXPECT_EQ(config.GetApiKey(), "dd-api-key-123");
     EXPECT_TRUE(config.IsAgentless());
     EXPECT_EQ(config.GetEnvironment(), "staging");
