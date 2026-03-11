@@ -189,45 +189,23 @@ The profiler requires two third-party libraries that are automatically downloade
 
 ### Optional: Build and Run Test Runner
 
-The **Runner** project is an example C++ application for testing the profiler. Build it, then use the PowerShell scripts in `src\Runner\`:
+The **Runner** project is an example C++ application for testing the profiler with four built-in scenarios. It supports both environment-variable and `--noenvvars` modes, plus PowerShell helper scripts.
 
 ```cmd
-msbuild src\Runner\Runner.vcxproj /p:Configuration=Release /p:Platform=x64
+msbuild src\Runner\Runner.vcxproj /p:Configuration=Debug /p:Platform=x64
 ```
 
-**PowerShell scripts** (run from `src\Runner\`):
-
-| Script | Description |
-|--------|-------------|
-| `run-with-envvars.ps1` | Uses environment variables for config (default mode) |
-| `run-noenvvars.ps1` | Uses `--noenvvars`; requires `-Url` and `-ApiKey` |
-| `run-local-debug.ps1` | Writes pprof locally; no backend upload (for debugging) |
-
-```powershell
-# Env-vars mode (set DD_API_KEY, DD_SERVICE, etc. or use .env)
-.\run-with-envvars.ps1 -Name my-app -PprofDir C:\temp\pprof
-
-# No-env-vars mode (all config via CLI)
-.\run-noenvvars.ps1 -Url https://intake.datadoghq.com -ApiKey YOUR_KEY -Name my-app
-
-# Local debug (pprof saved to %TEMP%\dd-profiler-debug\pprof)
-.\run-local-debug.ps1
-```
+See [`src/Runner/README.md`](src/Runner/README.md) for full CLI reference, PowerShell scripts, and examples.
 
 ### Optional: Build and Run Tests
 
-**Note**: Requires **NuGet CLI** to restore test dependencies.
-
 ```cmd
-# Restore test dependencies
 nuget restore src\Tests\packages.config -PackagesDirectory src\packages
-
-# Build tests
 msbuild src\Tests\Tests.vcxproj /p:Configuration=Release /p:Platform=x64
-
-# Run tests
 src\Tests\x64\Release\Tests.exe
 ```
+
+See [`src/Tests/README.md`](src/Tests/README.md) for details on prerequisites and test coverage.
 
 ### Automated Build
 
