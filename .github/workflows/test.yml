@@ -78,6 +78,8 @@ jobs:
         path: |
           src/dd-win-prof/x64/${{ matrix.configuration }}/dd-win-prof.dll
           src/dd-win-prof/x64/${{ matrix.configuration }}/dd-win-prof.pdb
+          src/dd-win-prof/x64/${{ matrix.configuration }}/dd-win-prof.lib
+          src/dd-win-prof/dd-win-prof.h
           src/ProfilerInjector/x64/${{ matrix.configuration }}/ProfilerInjector.exe
           src/ProfilerInjector/x64/${{ matrix.configuration }}/ProfilerInjector.pdb
           src/Runner/x64/${{ matrix.configuration }}/Runner.exe
@@ -91,3 +93,7 @@ jobs:
     if: success()
     uses: ./.github/workflows/e2e.yml
 
+  release-tests:
+    needs: test
+    if: success()
+    uses: ./.github/workflows/release-test.yml

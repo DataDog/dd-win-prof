@@ -87,7 +87,7 @@
     <PostBuildEvent>
       <Command>echo Copy needed binaries to profile the Windows application
 
-copy $(MSBuildStartupDirectory)\reference\*.* $(OutputPath)</Command>
+copy $(MSBuildStartupDirectory)\src\reference\*.* $(OutputPath)</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
