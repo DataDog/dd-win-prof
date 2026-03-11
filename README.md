@@ -64,10 +64,12 @@ If you're _not_ using CMake, you may continue building from `src/WindowsProfiler
 
 ## Configuration
 
-The profiler can be configured in three ways:
+The profiler can be configured in two main ways: **code-based** (via `ProfilerConfig` and `SetupProfiler`) or **environment variables**. Code-based settings override environment variables when both are provided.
 
-### Option 1: Code based
-Before starting the profiler, define your configuration settings in a `ProfilerConfig` instance and pass it to `SetupProfiler` like the following:
+### Option 1: Code-based configuration
+
+Define your configuration in a `ProfilerConfig` instance and pass it to `SetupProfiler` before calling `StartProfiler`:
+
 ```C++
     ProfilerConfig config;
     ::ZeroMemory(&config, sizeof(ProfilerConfig));
@@ -75,34 +77,58 @@ Before starting the profiler, define your configuration settings in a `ProfilerC
     config.serviceEnvironment = "production";
     config.serviceName = "my-windows-app";
     config.serviceVersion = "1.2.3";
-    SetupProfiler(&config);
+    if (!SetupProfiler(&config)) {
+        // Setup failed (e.g. mandatory fields missing when noEnvVars=true)
+        return -1;
+    }
 ```
-### NOTE: method names are obfuscated by default. Add `config.symbolizeCallstacks = true;` to enable symbolization.
 
+**No-env-vars mode** (`config.noEnvVars = true`): Ignores all environment variables and uses only values from the struct. In this mode, `url` and `apiKey` are **mandatory**; `SetupProfiler` returns `false` if either is missing.
 
-### Option 2: Agent-based (with Datadog Agent)
-**Required environment variables:**
+```C++
+    config.noEnvVars = true;
+    config.url = "https://intake.datadoghq.com";
+    config.apiKey = "your_datadog_api_key_here";
+    config.serviceName = "my-windows-app";
+```
+
+**ProfilerConfig fields** (see `dd-win-prof.h`):
+
+| Field | Description |
+|-------|-------------|
+| `noEnvVars` | If true, ignore env vars; use only struct values (default: false) |
+| `serviceName`, `serviceEnvironment`, `serviceVersion` | Application metadata |
+| `url`, `apiKey` | Mandatory when `noEnvVars=true`; otherwise can come from env |
+| `pprofOutputDirectory` | Override for local pprof debug output (default: empty) |
+| `tags`, `symbolizeCallstacks` | Tags and symbolization options |
+
+**Note:** Log output directory is **not** configurable via `ProfilerConfig`. It is set at DLL load time via the `DD_TRACE_LOG_DIRECTORY` environment variable (default: `%PROGRAMDATA%\Datadog Tracer\logs`).
+
+**NOTE:** Method names are obfuscated by default. Add `config.symbolizeCallstacks = true` to enable symbolization.
+
+### Option 2: Environment variables
+
+#### Agent-based (with Datadog Agent)
+
 - `DD_SERVICE=your-app-name` - Application name
 
-### Option 3: Agentless (direct to Datadog)
-**Required environment variables:**
+#### Agentless (direct to Datadog)
+
 - `DD_SERVICE=your-app-name` - Application name
 - `DD_PROFILING_AGENTLESS=1` - Enable agentless mode
 - `DD_SITE=datadoghq.com` - Datadog site (varies by region)
 - `DD_API_KEY=your-api-key` - Your Datadog API key
 
-### Optional (but recommended) variables:
-- `DD_VERSION=1.0.0` - Application version for profile identification
-- `DD_ENV=production` - Environment name (dev, staging, production, etc.)
+#### Optional (recommended)
 
-Call [StartProfiler](./src/dd-win-prof/dd-win-prof.h) when you are ready to run the profiler.
-[StopProfiler](./src/dd-win-prof/dd-win-prof.h) when you want to stop it. Note that, instead of using environment variables, it is possible to configure some settings via `SetupProfiler()` API.
+- `DD_VERSION=1.0.0` - Application version
+- `DD_ENV=production` - Environment (dev, staging, production)
+- `DD_TRACE_LOG_DIRECTORY` - Log output directory
+- `DD_INTERNAL_PROFILING_OUTPUT_DIR` - Local pprof debug output directory
 
-### NOTE: use `DD_PROFILING_ENABLED=0`to disable profiling even if `StartProfiler` is called.
+### Example configurations
 
-### Example configuration:
-
-**Agentless setup:**
+**Agentless via env vars:**
 ```bash
 DD_SERVICE=my-windows-app
 DD_PROFILING_AGENTLESS=1
@@ -112,13 +138,16 @@ DD_VERSION=1.2.3
 DD_ENV=production
 ```
 
-**Agent-based setup:**
+**Agent-based:**
 ```bash
 DD_SERVICE=my-windows-app
 DD_VERSION=1.2.3
 DD_ENV=production
 ```
-### NOTE: method names are obfuscated by default. Add `DD_PROFILING_INTERNAL_SYMBOLIZE_CALLSTACKS=1` to enable symbolization.
+
+Call [StartProfiler](./src/dd-win-prof/dd-win-prof.h) when ready; [StopProfiler](./src/dd-win-prof/dd-win-prof.h) when done. Use `DD_PROFILING_ENABLED=0` to disable profiling even if `StartProfiler` is called.
+
+**NOTE:** Method names are obfuscated by default. Add `DD_PROFILING_INTERNAL_SYMBOLIZE_CALLSTACKS=1` to enable symbolization.
 
 
 ## How to build dd-win-prof
@@ -158,28 +187,25 @@ The profiler requires two third-party libraries that are automatically downloade
    - `src\dd-win-prof\x64\Release\` (or `Debug\`)
    - Key files: `dd-win-prof.dll`, `dd-win-prof.lib`, `dd-win-prof.pdb`
 
-### Optional: Build Test Runner
+### Optional: Build and Run Test Runner
 
-The **Runner** project provides an example C++ application for testing the profiler:
+The **Runner** project is an example C++ application for testing the profiler with four built-in scenarios. It supports both environment-variable and `--noenvvars` modes, plus PowerShell helper scripts.
 
 ```cmd
-msbuild src\Runner\Runner.vcxproj /p:Configuration=Release /p:Platform=x64
+msbuild src\Runner\Runner.vcxproj /p:Configuration=Debug /p:Platform=x64
 ```
+
+See [`src/Runner/README.md`](src/Runner/README.md) for full CLI reference, PowerShell scripts, and examples.
 
 ### Optional: Build and Run Tests
 
-**Note**: Requires **NuGet CLI** to restore test dependencies.
-
 ```cmd
-# Restore test dependencies
 nuget restore src\Tests\packages.config -PackagesDirectory src\packages
-
-# Build tests
 msbuild src\Tests\Tests.vcxproj /p:Configuration=Release /p:Platform=x64
-
-# Run tests
 src\Tests\x64\Release\Tests.exe
 ```
+
+See [`src/Tests/README.md`](src/Tests/README.md) for details on prerequisites and test coverage.
 
 ### Automated Build
 

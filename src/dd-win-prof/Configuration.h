@@ -37,7 +37,6 @@ public:
     bool IsCpuProfilingEnabled() const;
     bool IsWallTimeProfilingEnabled() const;
     bool IsExportEnabled() const;
-    double MinimumCores() const;
     bool AreCallstacksSymbolized() const;
 
     // Manual configuration methods (primarily for testing)
@@ -49,6 +48,11 @@ public:
 
     template <typename T>
     static T GetEnvironmentValue(char const* name, T const& defaultValue);
+
+    // Reset all fields to their default values (no env var reads).
+    // Used when noEnvVars is set in ProfilerConfig so that only
+    // explicit API overrides are applied on top of defaults.
+    void ResetToDefaults();
 
 // some values can be set via API and will override the environment variables
 public:
@@ -62,8 +66,13 @@ public:
     void SetCpuWallTimeSamplingPeriod(std::chrono::nanoseconds rate) { _cpuWallTimeSamplingPeriod = rate; }
     void SetWalltimeThreadsThreshold(int32_t threshold) { _walltimeThreadsThreshold = threshold; }
     void SetCpuThreadsThreshold(int32_t threshold) { _cpuThreadsThreshold = threshold; }
+    void SetUploadInterval(std::chrono::seconds interval) { _uploadPeriod = interval; }
+    void SetUserTags(tags userTags) { _userTags = std::move(userTags); }
+    void SetProfilesOutputDirectory(const fs::path& dir) { _pprofDirectory = dir; }
 
 private:
+    void InitDefaults();
+
     static tags ExtractUserTags();
     static std::string GetDefaultSite();
     static std::string ExtractSite();
@@ -119,9 +128,9 @@ private:
     int32_t _walltimeThreadsThreshold;
     int32_t _cpuThreadsThreshold;
 
-    double _minimumCores;
-
     static const uint64_t DefaultSamplingPeriod = 20;
     static const uint64_t MinimumSamplingPeriod = 5;
+    static const int32_t DefaultWalltimeThreadsThreshold = 5;
+    static const int32_t DefaultCpuThreadsThreshold = 64;
 };
 

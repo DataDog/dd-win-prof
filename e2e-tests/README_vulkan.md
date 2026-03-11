@@ -20,6 +20,8 @@ DD_ENV=development
 DD_TRACE_DEBUG=1
 DD_PROFILING_LOG_LEVEL=debug
 DD_PROFILING_LOG_TO_CONSOLE=1
+# Optional: save pprof files locally
+# DD_INTERNAL_PROFILING_OUTPUT_DIR=e2e-tests/pprof
 ```
 
 ### 3. Build and run

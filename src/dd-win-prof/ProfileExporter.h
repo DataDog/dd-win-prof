@@ -121,7 +121,6 @@ private:
 
     // Utility methods
     std::string ComputeRuntimeId();
-    std::string BuildAgentEndpoint();
 
     // Configuration and state
     std::string _kProfilerVersion;

@@ -17,10 +17,26 @@
 //  2 : C++ calls
 //  3 : create CPU-bound threads
 //  4 : create threads waiting on different synchronization primitives
+
+struct RunnerOptions
+{
+    int scenario = 0;
+    int iterations = 1;
+
+    std::string serviceName;
+    std::string serviceEnv;
+    std::string serviceVersion;
+
+    bool noEnvVars = false;
+    bool symbolize = false;
+    std::string url;
+    std::string apiKey;
+    std::string tags;
+    std::string pprofDir;
+};
+
 void ShowHelp(const char* programName);
-bool ParseCommandLine(int argc, char* argv[],
-    int& scenario, int& iterations,
-    std::string& serviceName, std::string& serviceEnv, std::string& serviceVersion);
+bool ParseCommandLine(int argc, char* argv[], RunnerOptions& opts);
 
 void SimpleCall2()
 {
@@ -318,33 +334,41 @@ void RunWaitingThreads()
 
 int main(int argc, char* argv[])
 {
-    int scenario = 0;
-    int iterations = 1;
-    std::string serviceName;
-    std::string serviceEnv;
-    std::string serviceVersion;
-    if (!ParseCommandLine(argc, argv, scenario, iterations, serviceName, serviceEnv, serviceVersion))
+    RunnerOptions opts;
+    if (!ParseCommandLine(argc, argv, opts))
     {
-        return -1; // Exit if command line parsing fails or help was requested
+        return -1;
     }
 
     std::cout << "\nStarting Datadog Windows Profiler Test\n";
     std::cout << "======================================\n";
-    std::cout << "Scenario: " << scenario << " (" <<
-        (scenario == 1 ? "Simple C function calls" :
-         scenario == 2 ? "C++ class method calls" :
-         scenario == 3 ? "Multi-threaded execution" :
-         scenario == 4 ? "Waiting threads (mutex, semaphore, critical section, sleep)" : "Unknown") << ")\n";
-    std::cout << "Iterations: " << iterations << "\n\n";
+    std::cout << "Scenario: " << opts.scenario << " (" <<
+        (opts.scenario == 1 ? "Simple C function calls" :
+         opts.scenario == 2 ? "C++ class method calls" :
+         opts.scenario == 3 ? "Multi-threaded execution" :
+         opts.scenario == 4 ? "Waiting threads (mutex, semaphore, critical section, sleep)" : "Unknown") << ")\n";
+    std::cout << "Iterations: " << opts.iterations << "\n";
+    std::cout << "NoEnvVars:  " << (opts.noEnvVars ? "true" : "false") << "\n\n";
 
     ProfilerConfig config;
     ::ZeroMemory(&config, sizeof(ProfilerConfig));
     config.size = sizeof(ProfilerConfig);
-    config.serviceEnvironment = serviceEnv.empty() ? nullptr : serviceEnv.c_str();
-    config.serviceName = serviceName.empty() ? nullptr : serviceName.c_str();
-    config.serviceVersion = serviceVersion.empty() ? nullptr : serviceVersion.c_str();
 
-    SetupProfiler(&config);
+    config.noEnvVars           = opts.noEnvVars;
+    config.serviceEnvironment  = opts.serviceEnv.empty()     ? nullptr : opts.serviceEnv.c_str();
+    config.serviceName         = opts.serviceName.empty()    ? nullptr : opts.serviceName.c_str();
+    config.serviceVersion      = opts.serviceVersion.empty() ? nullptr : opts.serviceVersion.c_str();
+    config.url                 = opts.url.empty()            ? nullptr : opts.url.c_str();
+    config.apiKey              = opts.apiKey.empty()          ? nullptr : opts.apiKey.c_str();
+    config.tags                = opts.tags.empty()            ? nullptr : opts.tags.c_str();
+    config.pprofOutputDirectory = opts.pprofDir.empty()       ? nullptr : opts.pprofDir.c_str();
+    config.symbolizeCallstacks  = opts.symbolize;
+
+    if (!SetupProfiler(&config))
+    {
+        std::cout << "SetupProfiler failed. Check that mandatory fields are set (url, apiKey when --noenvvars)." << std::endl;
+        return -2;
+    }
 
     if (!StartProfiler())
     {
@@ -352,9 +376,9 @@ int main(int argc, char* argv[])
         return -1;
     }
 
-    for (size_t i = 0; i < iterations; i++)
+    for (size_t i = 0; i < static_cast<size_t>(opts.iterations); i++)
     {
-        switch (scenario)
+        switch (opts.scenario)
         {
             case 1:
                 SimpleCalls();
@@ -380,7 +404,36 @@ int main(int argc, char* argv[])
     StopProfiler();
 
     std::cout << "\nProfiling completed successfully!\n";
-    std::cout << "Check the output for profile data and any debug files.\n";
+
+    // Show where output files can be found
+    // Log directory is set at DLL load time (env var or default), not via ProfilerConfig
+    std::string logDir;
+    {
+        char buf[MAX_PATH] = {};
+        if (::GetEnvironmentVariableA("DD_TRACE_LOG_DIRECTORY", buf, MAX_PATH) > 0)
+            logDir = buf;
+    }
+    if (logDir.empty())
+    {
+        char buf[MAX_PATH] = {};
+        if (::ExpandEnvironmentStringsA("%PROGRAMDATA%\\Datadog Tracer\\logs", buf, MAX_PATH) > 0)
+            logDir = buf;
+    }
+
+    std::string pprofDir = opts.pprofDir;
+    if (pprofDir.empty() && !opts.noEnvVars)
+    {
+        char buf[MAX_PATH] = {};
+        if (::GetEnvironmentVariableA("DD_INTERNAL_PROFILING_OUTPUT_DIR", buf, MAX_PATH) > 0)
+            pprofDir = buf;
+    }
+
+    std::cout << "Log files       : " << logDir
+              << "  (set via DD_TRACE_LOG_DIRECTORY env var)\n";
+    if (!pprofDir.empty())
+        std::cout << "Pprof files     : " << pprofDir << "\n";
+    else
+        std::cout << "Pprof files     : (not saved locally -- profiles uploaded to backend)\n";
 
     return 0;
 }
@@ -389,34 +442,60 @@ void ShowHelp(const char* programName)
 {
     std::cout << "\nDatadog Windows Profiler Test Runner\n";
     std::cout << "====================================\n\n";
-    std::cout << "Usage: " << programName << " --scenario <scenario_number> --iterations <iteration_count>\n\n";
+    std::cout << "Usage: " << programName << " --scenario <1-4> --iterations <num> [options]\n\n";
+
     std::cout << "Required Arguments:\n";
-    std::cout << "  --scenario <1-4>     Scenario to run:\n";
-    std::cout << "                       1 = Simple C function calls\n";
-    std::cout << "                       2 = C++ class method calls\n";
-    std::cout << "                       3 = Multi-threaded execution (CPU-bound)\n";
-    std::cout << "                       4 = Waiting threads (mutex, semaphore, critical section, sleep)\n";
-    std::cout << "  --iterations <num>   Number of times to repeat the scenario\n\n";
-    std::cout << "  --name <service>     Name of the service to profile\n\n";
-    std::cout << "  --version <version>  Version of the service to profile\n\n";
-    std::cout << "  --env <environment>  Environment of the service to profile\n\n";
-    std::cout << "Optional Arguments:\n";
-    std::cout << "  --help, -h          Show this help message\n\n";
+    std::cout << "  --scenario <1-4>       Scenario to run:\n";
+    std::cout << "                           1 = Simple C function calls\n";
+    std::cout << "                           2 = C++ class method calls\n";
+    std::cout << "                           3 = Multi-threaded execution (CPU-bound)\n";
+    std::cout << "                           4 = Waiting threads (mutex, semaphore, critical section, sleep)\n";
+    std::cout << "  --iterations <num>     Number of times to repeat the scenario\n\n";
+
+    std::cout << "Service Information:\n";
+    std::cout << "  --name <service>       Service name\n";
+    std::cout << "  --version <version>    Service version\n";
+    std::cout << "  --env <environment>    Service environment\n\n";
+
+    std::cout << "No-Environment-Variables Mode (--noenvvars):\n";
+    std::cout << "  --noenvvars            Ignore all environment variables; only use explicit flags\n";
+    std::cout << "  --url <url>            Datadog intake URL     (MANDATORY with --noenvvars)\n";
+    std::cout << "  --apikey <key>         Datadog API key        (MANDATORY with --noenvvars)\n\n";
+
+    std::cout << "Additional Options:\n";
+    std::cout << "  --symbolize            Enable call stack symbolization (default: obfuscated)\n";
+    std::cout << "  --tags <k:v,...>       Comma-separated tags to attach to profiles\n";
+    std::cout << "  --pprofdir <path>      Override pprof debug output directory\n";
+    std::cout << "  --help, -h             Show this help message\n\n";
+
     std::cout << "Examples:\n";
     std::cout << "  " << programName << " --scenario 1 --iterations 5\n";
-    std::cout << "  " << programName << " --scenario 3 --iterations 1\n";
-    std::cout << "  " << programName << " --scenario 2 --iterations 10 --name testApp --version 42 --env local\n";
-    std::cout << "  " << programName << " --scenario 4 --iterations 2 --name waitTest --env dev\n\n";
-    std::cout << "Environment Variables (for debug output):\n";
-    std::cout << "  DD_INTERNAL_PROFILING_OUTPUT_DIR  Directory to write debug pprof files\n\n";
+    std::cout << "  " << programName << " --scenario 3 --iterations 1 --name myApp --env staging\n";
+    std::cout << "  " << programName << " --scenario 2 --iterations 10 --noenvvars"
+                 " --url https://intake.datadoghq.com --apikey DD_API_KEY"
+                 " --name testApp --version 42 --env local\n";
+    std::cout << "  " << programName << " --scenario 4 --iterations 2 --noenvvars"
+                 " --url https://intake.datadoghq.com --apikey DD_API_KEY"
+                 " --pprofdir C:\\temp\\pprof\n\n";
+
+    std::cout << "When --noenvvars is NOT used, environment variables are read as usual:\n";
+    std::cout << "  DD_AGENT_HOST, DD_API_KEY, DD_ENV, DD_SERVICE, DD_VERSION, etc.\n";
+    std::cout << "  DD_TRACE_LOG_DIRECTORY               Log output directory\n";
+    std::cout << "  DD_INTERNAL_PROFILING_OUTPUT_DIR      Directory to write debug pprof files\n\n";
 }
 
-bool ParseCommandLine(
-    int argc, char* argv[],
-    int& scenario, int& iterations,
-    std::string& serviceName, std::string& serviceEnv, std::string& serviceVersion)
+static bool RequireValue(int i, int argc, char* argv[], const char* flag)
 {
-    // Check for help request first
+    if (i + 1 >= argc)
+    {
+        std::cout << "Error: Missing value for " << flag << " argument.\n";
+        return false;
+    }
+    return true;
+}
+
+bool ParseCommandLine(int argc, char* argv[], RunnerOptions& opts)
+{
     for (int i = 1; i < argc; ++i)
     {
         if (_stricmp(argv[i], "--help") == 0 || _stricmp(argv[i], "-h") == 0)
@@ -426,8 +505,7 @@ bool ParseCommandLine(
         }
     }
 
-    // Check minimum argument count
-    if (argc < 5) // program name + 4 arguments (--scenario X --iterations Y)
+    if (argc < 5)
     {
         std::cout << "Error: Missing required arguments.\n";
         ShowHelp(argv[0]);
@@ -441,19 +519,13 @@ bool ParseCommandLine(
     {
         if (_stricmp(argv[i], "--scenario") == 0)
         {
-            if (i + 1 >= argc)
-            {
-                std::cout << "Error: Missing value for --scenario argument.\n";
-                ShowHelp(argv[0]);
-                return false;
-            }
-
+            if (!RequireValue(i, argc, argv, "--scenario")) { ShowHelp(argv[0]); return false; }
             try
             {
-                scenario = std::stoi(argv[++i]);
-                if (scenario < 1 || scenario > 4)
+                opts.scenario = std::stoi(argv[++i]);
+                if (opts.scenario < 1 || opts.scenario > 4)
                 {
-                    std::cout << "Error: Scenario " << scenario << " is invalid. Must be between 1 and 4.\n";
+                    std::cout << "Error: Scenario " << opts.scenario << " is invalid. Must be between 1 and 4.\n";
                     ShowHelp(argv[0]);
                     return false;
                 }
@@ -468,19 +540,13 @@ bool ParseCommandLine(
         }
         else if (_stricmp(argv[i], "--iterations") == 0)
         {
-            if (i + 1 >= argc)
-            {
-                std::cout << "Error: Missing value for --iterations argument.\n";
-                ShowHelp(argv[0]);
-                return false;
-            }
-
+            if (!RequireValue(i, argc, argv, "--iterations")) { ShowHelp(argv[0]); return false; }
             try
             {
-                iterations = std::stoi(argv[++i]);
-                if (iterations < 1)
+                opts.iterations = std::stoi(argv[++i]);
+                if (opts.iterations < 1)
                 {
-                    std::cout << "Error: Iterations must be a positive number, got " << iterations << ".\n";
+                    std::cout << "Error: Iterations must be a positive number, got " << opts.iterations << ".\n";
                     ShowHelp(argv[0]);
                     return false;
                 }
@@ -495,36 +561,46 @@ bool ParseCommandLine(
         }
         else if (_stricmp(argv[i], "--name") == 0)
         {
-            if (i + 1 >= argc)
-            {
-                std::cout << "Error: Missing value for --name argument.\n";
-                ShowHelp(argv[0]);
-                return false;
-            }
-
-            serviceName = argv[++i];
+            if (!RequireValue(i, argc, argv, "--name")) { ShowHelp(argv[0]); return false; }
+            opts.serviceName = argv[++i];
         }
         else if (_stricmp(argv[i], "--version") == 0)
         {
-            if (i + 1 >= argc)
-            {
-                std::cout << "Error: Missing value for --version argument.\n";
-                ShowHelp(argv[0]);
-                return false;
-            }
-
-            serviceVersion = argv[++i];
+            if (!RequireValue(i, argc, argv, "--version")) { ShowHelp(argv[0]); return false; }
+            opts.serviceVersion = argv[++i];
         }
         else if (_stricmp(argv[i], "--env") == 0)
         {
-            if (i + 1 >= argc)
-            {
-                std::cout << "Error: Missing value for --env argument.\n";
-                ShowHelp(argv[0]);
-                return false;
-            }
-
-            serviceEnv = argv[++i];
+            if (!RequireValue(i, argc, argv, "--env")) { ShowHelp(argv[0]); return false; }
+            opts.serviceEnv = argv[++i];
+        }
+        else if (_stricmp(argv[i], "--noenvvars") == 0)
+        {
+            opts.noEnvVars = true;
+        }
+        else if (_stricmp(argv[i], "--symbolize") == 0)
+        {
+            opts.symbolize = true;
+        }
+        else if (_stricmp(argv[i], "--url") == 0)
+        {
+            if (!RequireValue(i, argc, argv, "--url")) { ShowHelp(argv[0]); return false; }
+            opts.url = argv[++i];
+        }
+        else if (_stricmp(argv[i], "--apikey") == 0)
+        {
+            if (!RequireValue(i, argc, argv, "--apikey")) { ShowHelp(argv[0]); return false; }
+            opts.apiKey = argv[++i];
+        }
+        else if (_stricmp(argv[i], "--tags") == 0)
+        {
+            if (!RequireValue(i, argc, argv, "--tags")) { ShowHelp(argv[0]); return false; }
+            opts.tags = argv[++i];
+        }
+        else if (_stricmp(argv[i], "--pprofdir") == 0)
+        {
+            if (!RequireValue(i, argc, argv, "--pprofdir")) { ShowHelp(argv[0]); return false; }
+            opts.pprofDir = argv[++i];
         }
         else if (argv[i][0] == '-')
         {
@@ -534,7 +610,6 @@ bool ParseCommandLine(
         }
     }
 
-    // Verify both required arguments were provided
     if (!scenarioFound)
     {
         std::cout << "Error: Missing required argument --scenario.\n";
@@ -547,6 +622,20 @@ bool ParseCommandLine(
         std::cout << "Error: Missing required argument --iterations.\n";
         ShowHelp(argv[0]);
         return false;
+    }
+
+    if (opts.noEnvVars)
+    {
+        if (opts.url.empty())
+        {
+            std::cout << "Error: --url is mandatory when --noenvvars is used.\n";
+            return false;
+        }
+        if (opts.apiKey.empty())
+        {
+            std::cout << "Error: --apikey is mandatory when --noenvvars is used.\n";
+            return false;
+        }
     }
 
     return true;

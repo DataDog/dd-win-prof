@@ -891,32 +891,6 @@ bool ProfileExporter::WriteProfileToFile(const ddog_prof_EncodedProfile* encoded
     return true;
 }
 
-std::string ProfileExporter::BuildAgentEndpoint()
-{
-    // handle "with agent" case
-    auto url = _pConfiguration->GetAgentUrl();
-
-    if (url.empty())
-    {
-        // Agent mode
-        const std::string& namePipeName = _pConfiguration->GetNamedPipeName();
-        if (!namePipeName.empty())
-        {
-            url = R"(windows:\\.\pipe\)" + namePipeName;
-        }
-
-        if (url.empty())
-        {
-            // Use default HTTP endpoint
-            std::stringstream oss;
-            oss << "http://" << _pConfiguration->GetAgentHost() << ":" << _pConfiguration->GetAgentPort();
-            url = oss.str();
-        }
-    }
-
-    return url;
-}
-
 // Export functionality implementation
 
 bool ProfileExporter::InitializeExporter()
@@ -1070,7 +1044,7 @@ bool ProfileExporter::CreateExporterEndpoint(ddog_prof_Endpoint& endpoint)
         endpoint = ddog_prof_Endpoint_agentless(urlSlice, apiKeySlice);
     }
 
-    return true;
+     return true;
 }
 
 bool ProfileExporter::ExportProfile(const ddog_prof_EncodedProfile* encodedProfile, uint32_t profileSeq)

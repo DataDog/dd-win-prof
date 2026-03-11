@@ -3,7 +3,9 @@
 
 #include "pch.h"
 #include "Configuration.h"
+#include "dd-win-prof-internal.h"
 #include "EnvironmentVariables.h"
+#include "Log.h"
 #include "OpSysTools.h"
 
 std::string const Configuration::DefaultDevSite = "datad0g.com";
@@ -35,7 +37,8 @@ void Configuration::SetVersion(const char* version)
 
 void Configuration::SetEndpoint(const char* url)
 {
-    _agentUrl = url;
+    //_agentUrl = url;
+    _site = url;
 
     // force agentless mode when setting the full URL
     _isAgentLess = true;
@@ -47,22 +50,49 @@ void Configuration::SetApiKey(const char* apiKey)
 }
 
 
+void Configuration::InitDefaults()
+{
+    _debugLogEnabled = false;
+    _logDirectory = GetDefaultLogDirectoryPath();
+    _pprofDirectory = fs::path();
+    _isProfilerEnabled = true;
+    _isProfilerAutoStartEnabled = false;
+    _isCpuProfilingEnabled = true;
+    _isWallTimeProfilingEnabled = true;
+    _isExportEnabled = true;
+    _uploadPeriod = DefaultProdUploadInterval;
+    _userTags = {};
+    _version = DefaultVersion;
+    _environmentName = DefaultEnvironment;
+    _serviceName = OpSysTools::GetProcessName();
+    _hostname = OpSysTools::GetHostname();
+    _cpuWallTimeSamplingPeriod = std::chrono::nanoseconds(DefaultSamplingPeriod * 1'000'000);
+    _walltimeThreadsThreshold = DefaultWalltimeThreadsThreshold;
+    _cpuThreadsThreshold = DefaultCpuThreadsThreshold;
+    _apiKey = DefaultEmptyString;
+    _isAgentLess = false;
+    _agentUrl = DefaultEmptyString;
+    _agentHost = DefaultAgentHost;
+    _agentPort = DefaultAgentPort;
+    _site = DefaultProdSite;
+    _namedPipeName = DefaultEmptyString;
+    _areCallstacksSymbolized = false;
+}
+
+void Configuration::ResetToDefaults()
+{
+    InitDefaults();
+}
+
 Configuration::Configuration()
 {
-    //wchar_t* environment = GetEnvironmentStrings();
-    //wchar_t* var = environment;
-    //while (*var != L'\0')
-    //{
-    //    std::wcout << "  " << var << std::endl;
+    InitDefaults();
 
-    //    // Move to the next string (skip past the null terminator)
-    //    var += wcslen(var) + 1;
-    //}
-
+    // overlay with environment variable values
     _debugLogEnabled = GetEnvironmentValue(EnvironmentVariables::DebugLogEnabled, GetDefaultDebugLogEnabled());
     _logDirectory = ExtractLogDirectory();
     _pprofDirectory = ExtractPprofDirectory();
-    _isProfilerEnabled = GetBooleanEnvironmentValue(EnvironmentVariables::ProfilerEnabled, true); // enabled by default when not set
+    _isProfilerEnabled = GetBooleanEnvironmentValue(EnvironmentVariables::ProfilerEnabled, true);
     _isProfilerAutoStartEnabled = GetEnvironmentValue(EnvironmentVariables::ProfilerAutoStart, false);
     _isCpuProfilingEnabled = GetEnvironmentValue(EnvironmentVariables::CpuProfilingEnabled, true);
     _isWallTimeProfilingEnabled = GetEnvironmentValue(EnvironmentVariables::WallTimeProfilingEnabled, true);
@@ -71,7 +101,6 @@ Configuration::Configuration()
     _uploadPeriod = ExtractUploadInterval();
     _userTags = ExtractUserTags();
 
-    // TODO: update the IConfiguration interface to allow setting these values via API
     _version = GetEnvironmentValue(EnvironmentVariables::Version, DefaultVersion);
     _environmentName = GetEnvironmentValue(EnvironmentVariables::Environment, DefaultEnvironment);
     _serviceName = GetEnvironmentValue(EnvironmentVariables::ServiceName, OpSysTools::GetProcessName());
@@ -81,15 +110,12 @@ Configuration::Configuration()
     _cpuThreadsThreshold = ExtractCpuThreadsThreshold();
     _apiKey = GetEnvironmentValue(EnvironmentVariables::ApiKey, DefaultEmptyString);
 
-    // TODO: see if the Agent mode should be supported and how it should be configured
     _isAgentLess = GetEnvironmentValue(EnvironmentVariables::Agentless, false);
     _agentUrl = GetEnvironmentValue(EnvironmentVariables::AgentUrl, DefaultEmptyString);
     _agentHost = GetEnvironmentValue(EnvironmentVariables::AgentHost, DefaultAgentHost);
     _agentPort = GetEnvironmentValue(EnvironmentVariables::AgentPort, DefaultAgentPort);
     _site = ExtractSite();
     _namedPipeName = GetEnvironmentValue(EnvironmentVariables::NamedPipeName, DefaultEmptyString);
-
-    _minimumCores = GetEnvironmentValue<double>(EnvironmentVariables::CoreMinimumOverride, 1.0);
 
     _areCallstacksSymbolized = GetEnvironmentValue<bool>(EnvironmentVariables::SymbolizeCallstacks, false);
 }
@@ -346,7 +372,7 @@ int32_t Configuration::CpuThreadsThreshold() const
 int32_t Configuration::ExtractCpuThreadsThreshold()
 {
     // default threads to sample for CPU profiling is 64; could be changed via env vars from 5 to 128
-    int32_t threshold = GetEnvironmentValue(EnvironmentVariables::CpuTimeThreadsThreshold, 64);
+    int32_t threshold = GetEnvironmentValue(EnvironmentVariables::CpuTimeThreadsThreshold, DefaultCpuThreadsThreshold);
     if (threshold < 5)
     {
         threshold = 5;
@@ -357,11 +383,6 @@ int32_t Configuration::ExtractCpuThreadsThreshold()
     }
 
     return threshold;
-}
-
-double Configuration::MinimumCores() const
-{
-    return _minimumCores;
 }
 
 std::chrono::seconds Configuration::GetUploadInterval() const
@@ -517,7 +538,7 @@ std::chrono::nanoseconds Configuration::ExtractCpuWallTimeSamplingRate()
 int32_t Configuration::ExtractWallTimeThreadsThreshold()
 {
     // default threads to sample for wall time is 5; could be changed via env vars from 5 to 64
-    int32_t threshold = GetEnvironmentValue(EnvironmentVariables::WalltimeThreadsThreshold, 5);
+    int32_t threshold = GetEnvironmentValue(EnvironmentVariables::WalltimeThreadsThreshold, DefaultWalltimeThreadsThreshold);
     if (threshold < 5)
     {
         threshold = 5;
@@ -564,4 +585,83 @@ T Configuration::GetEnvironmentValue(char const* name, T const& defaultValue)
     }
 
     return result;
+}
+
+bool InitializeConfiguration(Configuration* pConfig, ProfilerConfig* pSettings)
+{
+    // if noEnvVars is set, we ignore all environment variables and use only the values provided in the ProfilerConfig struct (or defaults if not set in the struct)
+    if (pSettings->noEnvVars)
+    {
+        pConfig->ResetToDefaults();
+    }
+
+    if (pSettings->url != nullptr)
+    {
+        pConfig->SetEndpoint(pSettings->url);
+    }
+    else if (pSettings->noEnvVars)
+    {
+        Log::Error("Url endpoint must be set.");
+        return false;
+    }
+
+    if (pSettings->apiKey != nullptr)
+    {
+        pConfig->SetApiKey(pSettings->apiKey);
+    }
+    else if (pSettings->noEnvVars)
+    {
+        Log::Error("Datadog API Key must be set.");
+        return false;
+    }
+
+    if (pSettings->serviceEnvironment != nullptr)
+    {
+        pConfig->SetEnvironmentName(pSettings->serviceEnvironment);
+    }
+    if (pSettings->serviceName != nullptr)
+    {
+        pConfig->SetServiceName(pSettings->serviceName);
+    }
+    if (pSettings->serviceVersion != nullptr)
+    {
+        pConfig->SetVersion(pSettings->serviceVersion);
+    }
+
+    if (pSettings->cpuWallTimeSamplingPeriodNs > 0)
+    {
+        pConfig->SetCpuWallTimeSamplingPeriod(std::chrono::nanoseconds(pSettings->cpuWallTimeSamplingPeriodNs));
+    }
+
+    if (pSettings->walltimeThreadsThreshold > 0)
+    {
+        pConfig->SetWalltimeThreadsThreshold(pSettings->walltimeThreadsThreshold);
+    }
+
+    if (pSettings->cpuThreadsThreshold > 0)
+    {
+        pConfig->SetCpuThreadsThreshold(pSettings->cpuThreadsThreshold);
+    }
+
+    if (pSettings->uploadIntervalSeconds > 0)
+    {
+        pConfig->SetUploadInterval(std::chrono::seconds(pSettings->uploadIntervalSeconds));
+    }
+
+    if (pSettings->tags != nullptr)
+    {
+        pConfig->SetUserTags(TagsHelper::Parse(pSettings->tags));
+    }
+
+    if (pSettings->pprofOutputDirectory != nullptr)
+    {
+        pConfig->SetProfilesOutputDirectory(fs::path(pSettings->pprofOutputDirectory));
+    }
+
+    if (pSettings->symbolizeCallstacks)
+    {
+        pConfig->EnableSymbolizedCallstacks();
+    }
+
+    return true;
 }

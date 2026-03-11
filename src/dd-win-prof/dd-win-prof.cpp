@@ -2,7 +2,7 @@
 // This product includes software developed at Datadog (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
 
 #include "pch.h"
-#include "dd-win-prof.h"
+#include "dd-win-prof-internal.h"
 #include "Log.h"
 #include "Profiler.h"
 
@@ -35,50 +35,7 @@ DD_WIN_PROF_API bool SetupProfiler(ProfilerConfig* pSettings)
         return false;
     }
 
-    auto configuration = Profiler::GetConfiguration();
-    if (pSettings->serviceEnvironment != nullptr)
-    {
-        configuration->SetEnvironmentName(pSettings->serviceEnvironment);
-    }
-    if (pSettings->serviceName != nullptr)
-    {
-        configuration->SetServiceName(pSettings->serviceName);
-    }
-    if (pSettings->serviceVersion != nullptr)
-    {
-        configuration->SetVersion(pSettings->serviceVersion);
-    }
-    if (pSettings->url != nullptr)
-    {
-        configuration->SetEndpoint(pSettings->url);
-    }
-    if (pSettings->apiKey != nullptr)
-    {
-        configuration->SetApiKey(pSettings->apiKey);
-    }
-
-    // TODO: enforce min/max values as for environment variables?
-    if (pSettings->cpuWallTimeSamplingPeriodNs > 0)
-    {
-        configuration->SetCpuWallTimeSamplingPeriod(std::chrono::nanoseconds(pSettings->cpuWallTimeSamplingPeriodNs));
-    }
-
-    if (pSettings->walltimeThreadsThreshold > 0)
-    {
-        configuration->SetWalltimeThreadsThreshold(pSettings->walltimeThreadsThreshold);
-    }
-
-    if (pSettings->cpuThreadsThreshold > 0)
-    {
-        configuration->SetCpuThreadsThreshold(pSettings->cpuThreadsThreshold);
-    }
-
-    if (pSettings->symbolizeCallstacks)
-    {
-        configuration->EnableSymbolizedCallstacks();
-    }
-
-    return true;
+    return InitializeConfiguration(Profiler::GetConfiguration(), pSettings);
 }
 
 DD_WIN_PROF_API bool StartProfiler()
