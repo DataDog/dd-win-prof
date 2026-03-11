@@ -496,7 +496,10 @@ try {
         Write-Step "Profiler DLL directory: $ProfilerDllDir"
         
         if (Test-Path $dllPath) {
+            $dllInfo = Get-Item $dllPath
             Write-Step "dd-win-prof.dll found at: $dllPath" "OK"
+            Write-Step "  Last modified: $($dllInfo.LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss'))" "OK"
+            Write-Step "  Size: $([math]::Round($dllInfo.Length / 1KB, 1)) KB" "OK"
         } else {
             Write-Step "ERROR: dd-win-prof.dll not found at: $dllPath" "ERROR"
             Write-Step "Please build the profiler solution first using Visual Studio:" "ERROR"
@@ -657,7 +660,8 @@ try {
         $dllSource = Join-Path $ProfilerDllDir "dd-win-prof.dll"
         $dllDest = Join-Path $binPath "dd-win-prof.dll"
         Copy-Item $dllSource $dllDest -Force
-        Write-Step "Copied dd-win-prof.dll to $dllDest" "OK"
+        $copiedDllInfo = Get-Item $dllDest
+        Write-Step "Copied dd-win-prof.dll to $dllDest (modified: $($copiedDllInfo.LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss')))" "OK"
         
         # Copy injector to bin directory for convenience
         $injectorDest = Join-Path $binPath "ProfilerInjector.exe"
@@ -672,6 +676,7 @@ try {
             $batFilePath = Join-Path $binPath $batFileName
             
             # Generate bat file content using local copies
+            $dllTimestamp = $copiedDllInfo.LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss')
             $batContent = @"
 @echo off
 REM Auto-generated profiler runner for $($exe.Name)
@@ -692,6 +697,7 @@ if not exist "ProfilerInjector.exe" (
 )
 
 echo Running $($exe.Name) with Datadog profiler...
+echo dd-win-prof.dll built: $dllTimestamp
 echo Working directory: %CD%
 echo.
 
