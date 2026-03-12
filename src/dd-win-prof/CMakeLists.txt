@@ -20,6 +20,40 @@ add_library(dd-win-prof SHARED
     ThreadList.cpp
     Uuid.cpp
     WalltimeProvider.cpp
+
+    # Headers (listed for IDE navigation, not compiled)
+    CollectorBase.h
+    Configuration.h
+    CpuTimeProvider.h
+    dd-win-prof.h
+    dd-win-prof-internal.h
+    EnvironmentVariables.h
+    framework.h
+    ISamplesProvider.h
+    LibDatadogHelper.h
+    Log.h
+    OpSysTools.h
+    OsSpecificApi.h
+    pch.h
+    PprofAggregator.h
+    Profiler.h
+    ProfileExporter.h
+    ProfilingConstants.h
+    resource.h
+    Sample.h
+    SamplesCollector.h
+    SampleValueType.h
+    SampleValueTypeProvider.h
+    ScopedHandle.h
+    StackFrameCollector.h
+    StackSamplerLoop.h
+    Symbolication.h
+    TagsHelper.h
+    ThreadInfo.h
+    ThreadList.h
+    Uuid.h
+    version.h
+    WalltimeProvider.h
 )
 
 # pch.cpp is the "Create PCH" translation unit in the MSBuild project; CMake

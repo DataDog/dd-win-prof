@@ -1,5 +1,6 @@
 add_library(TestSymbolsDll SHARED
     TestSymbolsDll.cpp
+    TestSymbolsDll.h
 )
 
 target_compile_definitions(TestSymbolsDll PRIVATE
