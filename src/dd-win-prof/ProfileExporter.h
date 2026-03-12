@@ -22,7 +22,8 @@
 class ProfileExporter
 {
 public:
-    ProfileExporter(Configuration* pConfiguration, std::span<const SampleValueType> sampleTypeDefinitions);
+    ProfileExporter(Configuration* pConfiguration, std::span<const SampleValueType> sampleTypeDefinitions,
+                    IRumViewRecordProvider* pRumViewRecordProvider = nullptr);
     ~ProfileExporter();
     bool Initialize();
     bool Add(std::shared_ptr<Sample> const& sample);
@@ -35,6 +36,11 @@ public:
 
     // RUM application-level tags (set once by Profiler, emitted per-export)
     void SetRumApplicationTags(const std::string& applicationId, const std::string& sessionId);
+
+    // JSON serialization for RUM view records (public so unit tests can exercise them directly)
+    // Note: public because neeeded for unit testing, but not intended for external use.
+    static std::string SerializeViewRecordsToJson(const std::vector<RumViewRecord>& records);
+    static void EscapeJsonString(std::ostream& out, const std::string& s);
 
     // Configuration methods for debug file writing
     // These methods allow enabling/disabling writing of pprof files to disk for debugging purposes.
@@ -58,7 +64,8 @@ public:
     bool InitializeExporter();
     bool CreateExporterEndpoint(ddog_prof_Endpoint& endpoint);
     bool BuildExportUrl();
-    bool ExportProfile(const ddog_prof_EncodedProfile* encodedProfile, uint32_t profileSeq);
+    bool ExportProfile(const ddog_prof_EncodedProfile* encodedProfile, uint32_t profileSeq,
+                       const std::string& viewRecordsJson = {});
     bool PrepareAdditionalTags(ddog_Vec_Tag& tags, uint32_t profileSeq);
     bool CheckExportResponse(uint16_t responseCode);
     void CleanupExporter();
@@ -84,6 +91,7 @@ private:
 
     // Debug file writing methods
     bool WritePprofFile(const ddog_prof_EncodedProfile* encodedProfile);
+    bool WriteViewRecordsFile(const std::string& json, const ddog_Timespec& startTime);
     bool CreatePprofFile(const ddog_Timespec& startTime, int* fd);
     bool WriteProfileToFile(const ddog_prof_EncodedProfile* encodedProfile, int fd);
 
@@ -191,5 +199,9 @@ private:
     // RUM application-level IDs (set once, emitted as profile tags per-export)
     std::string _rumApplicationId;
     std::string _rumSessionId;
+
+    // RUM view record provider and reusable swap buffer
+    IRumViewRecordProvider* _pRumViewRecordProvider;
+    std::vector<RumViewRecord> _viewRecordsBuffer;
 };
 

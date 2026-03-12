@@ -26,7 +26,7 @@ $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $runnerDir = Join-Path $scriptDir "..\Runner"
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+# -- Helpers ------------------------------------------------------------------
 
 $script:passed = 0
 $script:failed = 0
@@ -43,7 +43,7 @@ function Assert($condition, [string]$message) {
     }
 }
 
-# ── Check prerequisites ─────────────────────────────────────────────────────
+# -- Check prerequisites ------------------------------------------------------
 
 Write-Host "`n=== RUM Scenario 5 Integration Test ===" -ForegroundColor Cyan
 Write-Host ""
@@ -61,7 +61,7 @@ try {
 . (Join-Path $runnerDir "find-runner.ps1")
 $runner = Find-Runner -ScriptDir $runnerDir -Config $Config
 
-# ── Setup temp directories ───────────────────────────────────────────────────
+# -- Setup temp directories ----------------------------------------------------
 
 $testRoot = Join-Path $env:TEMP "dd-rum-integration-test-$(Get-Date -Format 'yyyyMMddHHmmss')"
 $pprofDir = Join-Path $testRoot "pprof"
@@ -74,7 +74,7 @@ Write-Host "Pprof dir : $pprofDir" -ForegroundColor Gray
 Write-Host "Log dir   : $logDir"   -ForegroundColor Gray
 Write-Host ""
 
-# ── Run Runner scenario 5 ───────────────────────────────────────────────────
+# -- Run Runner scenario 5 ----------------------------------------------------
 
 $rumAppId     = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 $rumSessionId = "11111111-2222-3333-4444-555555555555"
@@ -101,11 +101,11 @@ $runnerExit = $LASTEXITCODE
 Remove-Item Env:\DD_TRACE_LOG_DIRECTORY -ErrorAction SilentlyContinue
 
 Write-Host ""
-Write-Host "── Assertions ──" -ForegroundColor Cyan
+Write-Host "-- Assertions --" -ForegroundColor Cyan
 
 Assert ($runnerExit -eq 0) "Runner exited with code 0 (got $runnerExit)"
 
-# ── Validate log file ───────────────────────────────────────────────────────
+# -- Validate log file --------------------------------------------------------
 
 $logFiles = Get-ChildItem -Path $logDir -Filter "DD-InprocProfiler-*.log" -ErrorAction SilentlyContinue
 Assert ($logFiles.Count -gt 0) "Profiler log file exists ($($logFiles.Count) found)"
@@ -120,7 +120,7 @@ if ($logFiles.Count -gt 0) {
     Assert ($null -ne $lastExportMatch) "Log contains 'Export last profile #' (final export ran)"
 }
 
-# ── Validate pprof content ──────────────────────────────────────────────────
+# -- Validate pprof content ----------------------------------------------------
 
 $pprofFiles = Get-ChildItem -Path $pprofDir -Filter "*.pprof" -ErrorAction SilentlyContinue
 Assert ($pprofFiles.Count -gt 0) "At least one .pprof file was written ($($pprofFiles.Count) found)"
@@ -161,10 +161,49 @@ $noViewSamples = $allSamples | Where-Object {
 Assert ($noViewSamples.Count -gt 0) `
     "Found samples without rum.view_id (no active view periods) ($($noViewSamples.Count) samples)"
 
-# ── Summary ──────────────────────────────────────────────────────────────────
+# -- Validate .rum-views.json content ------------------------------------------
+
+$jsonFiles = Get-ChildItem -Path $pprofDir -Filter "*.rum-views.json" -ErrorAction SilentlyContinue
+Assert ($jsonFiles.Count -gt 0) "At least one .rum-views.json file was written ($($jsonFiles.Count) found)"
+
+$allViewEntries = @()
+
+foreach ($jsonFile in $jsonFiles) {
+    $entries = Get-Content $jsonFile.FullName -Raw | ConvertFrom-Json
+    $allViewEntries += $entries
+}
+
+$expectedViewCount = 3 * $Iterations
+Assert ($allViewEntries.Count -eq $expectedViewCount) `
+    "Total view entries = $expectedViewCount ($($allViewEntries.Count) found)"
+
+foreach ($entry in $allViewEntries) {
+    Assert ($entry.startClocks.relative -eq 0) `
+        "startClocks.relative == 0 for viewId=$($entry.viewId)"
+    Assert ($entry.startClocks.timeStamp -gt 0) `
+        "startClocks.timeStamp > 0 for viewId=$($entry.viewId) (got $($entry.startClocks.timeStamp))"
+    Assert ($entry.duration -gt 0) `
+        "duration > 0 for viewId=$($entry.viewId) (got $($entry.duration))"
+}
+
+$expectedViewPairs = @(
+    @{ ViewId = "11111111-1111-1111-1111-111111111111"; ViewName = "HomePage" },
+    @{ ViewId = "22222222-2222-2222-2222-222222222222"; ViewName = "SettingsPage" },
+    @{ ViewId = "33333333-3333-3333-3333-333333333333"; ViewName = "ProfilePage" }
+)
+
+foreach ($vp in $expectedViewPairs) {
+    $matching = $allViewEntries | Where-Object {
+        $_.viewId -eq $vp.ViewId -and $_.viewName -eq $vp.ViewName
+    }
+    Assert ($matching.Count -ge $Iterations) `
+        "Found $($matching.Count) entries for viewId=$($vp.ViewId), viewName=$($vp.ViewName) (expected >= $Iterations)"
+}
+
+# -- Summary ------------------------------------------------------------------
 
 Write-Host ""
-Write-Host "── Results ──" -ForegroundColor Cyan
+Write-Host "-- Results --" -ForegroundColor Cyan
 Write-Host "  Passed: $($script:passed)" -ForegroundColor Green
 Write-Host "  Failed: $($script:failed)" -ForegroundColor $(if ($script:failed -gt 0) { "Red" } else { "Green" })
 
@@ -176,7 +215,7 @@ if ($script:failed -gt 0) {
     }
 }
 
-# ── Cleanup ──────────────────────────────────────────────────────────────────
+# -- Cleanup ------------------------------------------------------------------
 
 try {
     Remove-Item -Recurse -Force $testRoot -ErrorAction SilentlyContinue

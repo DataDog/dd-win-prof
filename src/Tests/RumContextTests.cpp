@@ -11,6 +11,7 @@
 #include "../dd-win-prof/ThreadInfo.h"
 #include "../dd-win-prof/dd-win-prof.h"
 #include <gtest/gtest.h>
+#include <sstream>
 #include <thread>
 
 // ---------------------------------------------------------------------------
@@ -378,4 +379,240 @@ TEST_F(ProfileExporterRumTests, MultipleExportsWithRumTags) {
         EXPECT_TRUE(exporter->Add(CreateTestSample(viewId.c_str(), viewName.c_str())));
         EXPECT_TRUE(exporter->Export());
     }
+}
+
+// ---------------------------------------------------------------------------
+// RumViewRecord struct tests
+// ---------------------------------------------------------------------------
+
+TEST(RumViewRecordTests, DefaultConstruction) {
+    RumViewRecord record;
+    EXPECT_EQ(record.timestamp_ms, 0);
+    EXPECT_EQ(record.duration_ms, 0);
+    EXPECT_TRUE(record.view_id.empty());
+    EXPECT_TRUE(record.view_name.empty());
+}
+
+TEST(RumViewRecordTests, ValueInitialization) {
+    RumViewRecord record{1773058873970, 2000, "view-abc", "HomePage"};
+    EXPECT_EQ(record.timestamp_ms, 1773058873970);
+    EXPECT_EQ(record.duration_ms, 2000);
+    EXPECT_EQ(record.view_id, "view-abc");
+    EXPECT_EQ(record.view_name, "HomePage");
+}
+
+// ---------------------------------------------------------------------------
+// Profiler ConsumeViewRecords tests
+// ---------------------------------------------------------------------------
+
+TEST_F(ProfilerRumContextTest, ConsumeViewRecordsEmptyByDefault) {
+    std::vector<RumViewRecord> records;
+    _profiler->ConsumeViewRecords(records);
+    EXPECT_TRUE(records.empty());
+}
+
+TEST_F(ProfilerRumContextTest, SetAndClearViewProducesOneRecord) {
+    RumContextValues ctx = {};
+    ctx.application_id = "app-1";
+    ctx.session_id = "session-1";
+    ctx.view_id = "view-1";
+    ctx.view_name = "HomePage";
+
+    auto beforeMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+
+    _profiler->UpdateRumContext(&ctx);
+    ::Sleep(50);
+
+    // Clear the view
+    ctx.view_id = "";
+    ctx.view_name = "";
+    _profiler->UpdateRumContext(&ctx);
+
+    auto afterMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+
+    std::vector<RumViewRecord> records;
+    _profiler->ConsumeViewRecords(records);
+    ASSERT_EQ(records.size(), 1u);
+    EXPECT_EQ(records[0].view_id, "view-1");
+    EXPECT_EQ(records[0].view_name, "HomePage");
+    EXPECT_GE(records[0].timestamp_ms, beforeMs);
+    EXPECT_LE(records[0].timestamp_ms, afterMs);
+    EXPECT_GE(records[0].duration_ms, 40);  // at least ~50ms minus tolerance
+    EXPECT_LE(records[0].duration_ms, afterMs - beforeMs + 50);
+}
+
+TEST_F(ProfilerRumContextTest, ConsumeSwapsBufferSecondCallEmpty) {
+    RumContextValues ctx = {};
+    ctx.application_id = "app-1";
+    ctx.session_id = "session-1";
+    ctx.view_id = "view-1";
+    ctx.view_name = "Page1";
+    _profiler->UpdateRumContext(&ctx);
+
+    ctx.view_id = "";
+    ctx.view_name = "";
+    _profiler->UpdateRumContext(&ctx);
+
+    std::vector<RumViewRecord> records;
+    _profiler->ConsumeViewRecords(records);
+    ASSERT_EQ(records.size(), 1u);
+
+    std::vector<RumViewRecord> records2;
+    _profiler->ConsumeViewRecords(records2);
+    EXPECT_TRUE(records2.empty());
+}
+
+TEST_F(ProfilerRumContextTest, PendingViewProducesNoRecord) {
+    RumContextValues ctx = {};
+    ctx.application_id = "app-1";
+    ctx.session_id = "session-1";
+    ctx.view_id = "view-1";
+    ctx.view_name = "Page1";
+    _profiler->UpdateRumContext(&ctx);
+
+    std::vector<RumViewRecord> records;
+    _profiler->ConsumeViewRecords(records);
+    EXPECT_TRUE(records.empty());
+}
+
+TEST_F(ProfilerRumContextTest, ClearWithoutSetProducesNoRecord) {
+    RumContextValues ctx = {};
+    ctx.application_id = "app-1";
+    ctx.session_id = "session-1";
+    ctx.view_id = "";
+    ctx.view_name = "";
+    _profiler->UpdateRumContext(&ctx);
+
+    std::vector<RumViewRecord> records;
+    _profiler->ConsumeViewRecords(records);
+    EXPECT_TRUE(records.empty());
+}
+
+TEST_F(ProfilerRumContextTest, ViewTransitionsProduceMultipleRecords) {
+    RumContextValues ctx = {};
+    ctx.application_id = "app-1";
+    ctx.session_id = "session-1";
+
+    // View 1
+    ctx.view_id = "view-1";
+    ctx.view_name = "Page1";
+    _profiler->UpdateRumContext(&ctx);
+    ::Sleep(20);
+
+    // Clear view 1
+    ctx.view_id = "";
+    ctx.view_name = "";
+    _profiler->UpdateRumContext(&ctx);
+
+    // View 2
+    ctx.view_id = "view-2";
+    ctx.view_name = "Page2";
+    _profiler->UpdateRumContext(&ctx);
+    ::Sleep(20);
+
+    // Clear view 2
+    ctx.view_id = "";
+    ctx.view_name = "";
+    _profiler->UpdateRumContext(&ctx);
+
+    std::vector<RumViewRecord> records;
+    _profiler->ConsumeViewRecords(records);
+    ASSERT_EQ(records.size(), 2u);
+    EXPECT_EQ(records[0].view_id, "view-1");
+    EXPECT_EQ(records[0].view_name, "Page1");
+    EXPECT_GT(records[0].duration_ms, 0);
+    EXPECT_EQ(records[1].view_id, "view-2");
+    EXPECT_EQ(records[1].view_name, "Page2");
+    EXPECT_GT(records[1].duration_ms, 0);
+}
+
+// ---------------------------------------------------------------------------
+// JSON serialization tests
+// ---------------------------------------------------------------------------
+
+TEST(ViewRecordJsonTests, EmptyRecordsProducesEmptyArray) {
+    std::vector<RumViewRecord> records;
+    auto json = ProfileExporter::SerializeViewRecordsToJson(records);
+    EXPECT_EQ(json, "[]");
+}
+
+TEST(ViewRecordJsonTests, SingleRecord) {
+    std::vector<RumViewRecord> records = {
+        {1773058873970, 2000, "view-1", "HomePage"}
+    };
+    auto json = ProfileExporter::SerializeViewRecordsToJson(records);
+    EXPECT_EQ(json,
+        "[{\"startClocks\":{\"relative\":0,\"timeStamp\":1773058873970}"
+        ",\"duration\":2000"
+        ",\"viewId\":\"view-1\""
+        ",\"viewName\":\"HomePage\"}]");
+}
+
+TEST(ViewRecordJsonTests, MultipleRecords) {
+    std::vector<RumViewRecord> records = {
+        {1773058873970, 2000, "view-1", "HomePage"},
+        {1773058876000, 1500, "view-2", "Settings"}
+    };
+    auto json = ProfileExporter::SerializeViewRecordsToJson(records);
+
+    // Should contain both entries separated by comma
+    EXPECT_NE(json.find("\"timeStamp\":1773058873970"), std::string::npos);
+    EXPECT_NE(json.find("\"timeStamp\":1773058876000"), std::string::npos);
+    EXPECT_NE(json.find("\"duration\":2000"), std::string::npos);
+    EXPECT_NE(json.find("\"duration\":1500"), std::string::npos);
+    EXPECT_NE(json.find("\"viewId\":\"view-1\""), std::string::npos);
+    EXPECT_NE(json.find("\"viewId\":\"view-2\""), std::string::npos);
+    EXPECT_EQ(json.front(), '[');
+    EXPECT_EQ(json.back(), ']');
+}
+
+TEST(ViewRecordJsonTests, ZeroDuration) {
+    std::vector<RumViewRecord> records = {
+        {1773058873970, 0, "view-1", "Quick"}
+    };
+    auto json = ProfileExporter::SerializeViewRecordsToJson(records);
+    EXPECT_NE(json.find("\"duration\":0"), std::string::npos);
+}
+
+// ---------------------------------------------------------------------------
+// EscapeJsonString tests
+// ---------------------------------------------------------------------------
+
+TEST(EscapeJsonStringTests, PlainString) {
+    std::ostringstream ss;
+    ProfileExporter::EscapeJsonString(ss, "hello world");
+    EXPECT_EQ(ss.str(), "hello world");
+}
+
+TEST(EscapeJsonStringTests, Backslash) {
+    std::ostringstream ss;
+    ProfileExporter::EscapeJsonString(ss, R"(path\to\file)");
+    EXPECT_EQ(ss.str(), R"(path\\to\\file)");
+}
+
+TEST(EscapeJsonStringTests, DoubleQuote) {
+    std::ostringstream ss;
+    ProfileExporter::EscapeJsonString(ss, R"(say "hi")");
+    EXPECT_EQ(ss.str(), R"(say \"hi\")");
+}
+
+TEST(EscapeJsonStringTests, ControlCharacters) {
+    std::ostringstream ss;
+    ProfileExporter::EscapeJsonString(ss, "line1\nline2\ttab");
+    EXPECT_EQ(ss.str(), "line1\\nline2\\ttab");
+}
+
+TEST(EscapeJsonStringTests, LowControlChar) {
+    std::ostringstream ss;
+    std::string input(1, '\x01');
+    ProfileExporter::EscapeJsonString(ss, input);
+    EXPECT_EQ(ss.str(), "\\u0001");
+}
+
+TEST(EscapeJsonStringTests, EmptyString) {
+    std::ostringstream ss;
+    ProfileExporter::EscapeJsonString(ss, "");
+    EXPECT_EQ(ss.str(), "");
 }

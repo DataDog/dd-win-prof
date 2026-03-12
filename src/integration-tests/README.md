@@ -55,7 +55,7 @@ From `src\integration-tests\`:
 
 | Script | Scenario | What it validates |
 |--------|----------|-------------------|
-| `test_rum_scenario.ps1` | Runner scenario 5 (RUM view transitions) | Log contains successful export messages; pprof samples carry expected `rum.view_id` / `trace endpoint` labels for each view; samples without RUM labels exist during the "no active view" gap |
+| `test_rum_scenario.ps1` | Runner scenario 5 (RUM view transitions) | Log contains successful export messages; pprof samples carry expected `rum.view_id` / `trace endpoint` labels for each view; samples without RUM labels exist during the "no active view" gap; `.rum-views.json` files contain the expected view entries with valid `startClocks`, `duration`, `viewId`, and `viewName` fields |
 
 ## Utilities
 

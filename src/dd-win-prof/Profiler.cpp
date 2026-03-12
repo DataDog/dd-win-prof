@@ -56,7 +56,7 @@ bool Profiler::StartProfiling()
     Sample::SetValuesCount(sampleTypeDefinitions.size());
 
     //... and pass them to the exporter
-    _pProfileExporter = std::make_unique<ProfileExporter>(_pConfiguration.get(), sampleTypeDefinitions);
+    _pProfileExporter = std::make_unique<ProfileExporter>(_pConfiguration.get(), sampleTypeDefinitions, this);
 
     // Initialize the ProfileExporter
     if (!_pProfileExporter->Initialize())
@@ -200,9 +200,26 @@ bool Profiler::UpdateRumContext(const RumContextValues* pContext)
             _currentRumView.view_id = pContext->view_id;
             _currentRumView.view_name = (pContext->view_name != nullptr) ? pContext->view_name : "";
             _hasActiveView = true;
+
+            _pendingViewStartMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            _hasPendingView = true;
         }
         else
         {
+            if (_hasPendingView)
+            {
+                auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count();
+                _completedViewRecords.push_back({
+                    _pendingViewStartMs,
+                    nowMs - _pendingViewStartMs,
+                    std::move(_currentRumView.view_id),
+                    std::move(_currentRumView.view_name)
+                });
+                _hasPendingView = false;
+            }
+
             _currentRumView.view_id.clear();
             _currentRumView.view_name.clear();
             _hasActiveView = false;
@@ -221,4 +238,10 @@ bool Profiler::GetCurrentViewContext(RumViewContext& context) const
     }
     context = _currentRumView;
     return true;
+}
+
+void Profiler::ConsumeViewRecords(std::vector<RumViewRecord>& records)
+{
+    std::unique_lock lock(_rumViewMutex);
+    _completedViewRecords.swap(records);
 }

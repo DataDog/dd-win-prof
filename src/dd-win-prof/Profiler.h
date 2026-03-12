@@ -15,7 +15,7 @@
 #include "ThreadList.h"
 
 
-class Profiler : public IRumViewContextProvider
+class Profiler : public IRumViewContextProvider, public IRumViewRecordProvider
 {
 public :
     Profiler();
@@ -36,6 +36,9 @@ public :
 
     // IRumViewContextProvider implementation
     bool GetCurrentViewContext(RumViewContext& context) const override;
+
+    // IRumViewRecordProvider implementation
+    void ConsumeViewRecords(std::vector<RumViewRecord>& records) override;
 
 public:
     static Configuration* GetConfiguration()
@@ -84,6 +87,11 @@ private:
     mutable std::shared_mutex _rumViewMutex;
     bool _hasActiveView{false};
     RumViewContext _currentRumView;
+
+    // RUM view timeline recording (protected by _rumViewMutex)
+    std::vector<RumViewRecord> _completedViewRecords;
+    int64_t _pendingViewStartMs{0};
+    bool _hasPendingView{false};
 
     // RUM app-level IDs (write-once, buffered until exporter exists)
     std::mutex _rumAppMutex;

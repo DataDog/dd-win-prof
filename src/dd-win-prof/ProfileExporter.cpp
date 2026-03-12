@@ -9,6 +9,7 @@
 #include <iostream>
 #include <chrono>
 #include <fstream>
+#include <sstream>
 #include <ctime>
 #include <cassert>
 #include <cerrno>
@@ -23,19 +24,21 @@
 using namespace dd_win_prof;
 using namespace OsSpecificApi;
 
-ProfileExporter::ProfileExporter(Configuration* pConfiguration, std::span<const SampleValueType> sampleTypeDefinitions)
+ProfileExporter::ProfileExporter(Configuration* pConfiguration, std::span<const SampleValueType> sampleTypeDefinitions,
+                                 IRumViewRecordProvider* pRumViewRecordProvider)
     :
     _pConfiguration(pConfiguration),
     _sampleTypeDefinitions{ sampleTypeDefinitions.begin(), sampleTypeDefinitions.end() },
     _initialized(false),
     _processId{0},
     _currentExportId(0),
-    _debugPprofFileWritingEnabled(false),  // Will be set based on configuration
+    _debugPprofFileWritingEnabled(false),
     _debugPprofPrefix(""),
     _exportEnabled(false),
     _exporter(nullptr),
     _agentMode(true),
-    _consecutiveErrors(0)
+    _consecutiveErrors(0),
+    _pRumViewRecordProvider(pRumViewRecordProvider)
 {
     _runtimeId = ComputeRuntimeId();
 
@@ -237,17 +240,39 @@ bool ProfileExporter::Export(bool lastCall)
         return false;
     }
 
+    // Consume RUM view records and serialize to JSON
+    std::string viewRecordsJson;
+    if (_pRumViewRecordProvider != nullptr)
+    {
+        _pRumViewRecordProvider->ConsumeViewRecords(_viewRecordsBuffer);
+        if (!_viewRecordsBuffer.empty())
+        {
+            viewRecordsJson = SerializeViewRecordsToJson(_viewRecordsBuffer);
+            _viewRecordsBuffer.clear();
+        }
+    }
+
     // Write debug pprof file if enabled
     if (_debugPprofFileWritingEnabled && !_debugPprofPrefix.empty()) {
         if (!WritePprofFile(encodedProfile)) {
             Log::Warn("Failed to write debug pprof file (continuing with export)");
+        }
+
+        if (!viewRecordsJson.empty())
+        {
+            auto time_t_now = std::chrono::system_clock::to_time_t(currentTime);
+            ddog_Timespec ts = { static_cast<int64_t>(time_t_now), 0 };
+            if (!WriteViewRecordsFile(viewRecordsJson, ts))
+            {
+                Log::Warn("Failed to write RUM view records file (continuing with export)");
+            }
         }
     }
 
     // Export profile to backend if enabled
     bool exportSuccess = true;
     if (_exportEnabled && _exporter.inner) {
-        exportSuccess = ExportProfile(encodedProfile, _currentExportId);
+        exportSuccess = ExportProfile(encodedProfile, _currentExportId, viewRecordsJson);
         if (!exportSuccess) {
             Log::Error("Failed to export profile to backend");
             // Continue with cleanup even if export failed
@@ -877,6 +902,48 @@ bool ProfileExporter::WritePprofFile(const ddog_prof_EncodedProfile* encodedProf
     return success;
 }
 
+bool ProfileExporter::WriteViewRecordsFile(const std::string& json, const ddog_Timespec& startTime)
+{
+    if (json.empty() || _debugPprofPrefix.empty())
+    {
+        return false;
+    }
+
+    constexpr size_t k_max_time_length = 128;
+    char time_start[k_max_time_length] = {};
+
+    std::tm tm_storage;
+    if (gmtime_s(&tm_storage, &startTime.seconds) != 0)
+    {
+        Log::Debug("Failed to convert timestamp: cannot write view records to disk");
+        return false;
+    }
+
+    std::strftime(time_start, std::size(time_start), "%Y%m%dT%H%M%SZ", &tm_storage);
+
+    char filename[MAX_PATH];
+    std::snprintf(filename, std::size(filename), "%s%s.rum-views.json", _debugPprofPrefix.c_str(), time_start);
+
+    Log::Debug("Writing RUM view records to file ", filename);
+
+    std::ofstream ofs(filename, std::ios::binary);
+    if (!ofs)
+    {
+        Log::Error("Failed to create RUM view records file: '", filename, "'");
+        return false;
+    }
+
+    ofs.write(json.data(), json.size());
+    if (!ofs)
+    {
+        Log::Error("Failed to write RUM view records to file: '", filename, "'");
+        return false;
+    }
+
+    Log::Info("Successfully wrote RUM view records to ", filename);
+    return true;
+}
+
 bool ProfileExporter::CreatePprofFile(const ddog_Timespec& startTime, int* fd)
 {
     constexpr size_t k_max_time_length = 128;
@@ -936,6 +1003,55 @@ bool ProfileExporter::WriteProfileToFile(const ddog_prof_EncodedProfile* encoded
 
     Log::Info("Successfully wrote ", bytes_written, " bytes to pprof file");
     return true;
+}
+
+void ProfileExporter::EscapeJsonString(std::ostream& out, const std::string& s)
+{
+    for (char c : s)
+    {
+        switch (c)
+        {
+        case '"':  out << "\\\""; break;
+        case '\\': out << "\\\\"; break;
+        case '\b': out << "\\b";  break;
+        case '\f': out << "\\f";  break;
+        case '\n': out << "\\n";  break;
+        case '\r': out << "\\r";  break;
+        case '\t': out << "\\t";  break;
+        default:
+            if (static_cast<unsigned char>(c) < 0x20)
+            {
+                char buf[8];
+                std::snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned char>(c));
+                out << buf;
+            }
+            else
+            {
+                out << c;
+            }
+            break;
+        }
+    }
+}
+
+std::string ProfileExporter::SerializeViewRecordsToJson(const std::vector<RumViewRecord>& records)
+{
+    std::ostringstream ss;
+    ss << '[';
+    for (size_t i = 0; i < records.size(); ++i)
+    {
+        if (i > 0) ss << ',';
+        ss << "{\"startClocks\":{\"relative\":0,\"timeStamp\":"
+           << records[i].timestamp_ms
+           << "},\"duration\":" << records[i].duration_ms
+           << ",\"viewId\":\"";
+        EscapeJsonString(ss, records[i].view_id);
+        ss << "\",\"viewName\":\"";
+        EscapeJsonString(ss, records[i].view_name);
+        ss << "\"}";
+    }
+    ss << ']';
+    return ss.str();
 }
 
 // Export functionality implementation
@@ -1094,7 +1210,8 @@ bool ProfileExporter::CreateExporterEndpoint(ddog_prof_Endpoint& endpoint)
      return true;
 }
 
-bool ProfileExporter::ExportProfile(const ddog_prof_EncodedProfile* encodedProfile, uint32_t profileSeq)
+bool ProfileExporter::ExportProfile(const ddog_prof_EncodedProfile* encodedProfile, uint32_t profileSeq,
+                                    const std::string& viewRecordsJson)
 {
     if (!_exporter.inner || !encodedProfile) {
         _lastError = "Exporter not initialized or invalid profile";
@@ -1116,12 +1233,25 @@ bool ProfileExporter::ExportProfile(const ddog_prof_EncodedProfile* encodedProfi
         return false;
     }
 
+    // Prepare optional RUM view records file attachment
+    ddog_prof_Exporter_File viewFile;
+    ddog_prof_Exporter_Slice_File filesToCompress = ddog_prof_Exporter_Slice_File_empty();
+    if (!viewRecordsJson.empty())
+    {
+        viewFile.name = to_CharSlice("rum-views.json");
+        viewFile.file = {
+            reinterpret_cast<const uint8_t*>(viewRecordsJson.data()),
+            viewRecordsJson.size()
+        };
+        filesToCompress = { &viewFile, 1 };
+    }
+
     // Build request - time information is now embedded in the EncodedProfile
     auto requestResult = ddog_prof_Exporter_Request_build(
         &_exporter,
         const_cast<ddog_prof_EncodedProfile*>(encodedProfile), // profile
-        ddog_prof_Exporter_Slice_File_empty(), // files_to_compress_and_export
-        ddog_prof_Exporter_Slice_File_empty(), // files_to_compress_and_export
+        filesToCompress,                        // files_to_compress_and_export
+        ddog_prof_Exporter_Slice_File_empty(), // files_to_export_unmodified
         &additionalTags,                        // optional_additional_tags
         nullptr,                                // optional_internal_metadata_json
         nullptr                                 // optional_info_json

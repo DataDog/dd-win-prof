@@ -50,6 +50,8 @@ Runner.exe --scenario <1-5> --iterations <num> [options]
 | `--rum-app-id <uuid>` | RUM application ID (required for scenario 5) |
 | `--rum-session-id <uuid>` | RUM session ID (required for scenario 5) |
 
+When `--pprofdir` is set, scenario 5 also produces `.rum-views.json` files alongside the `.lz4.pprof` files. Each JSON file contains an array of view records with `startClocks` (relative + epoch timestamp in ms), `duration` (ms), `viewId`, and `viewName`.
+
 ### Additional Options
 
 | Flag | Description |
