@@ -1,71 +1,48 @@
-# Build script for Symbols solution
-# Usage: .\build.ps1 [Debug|Release] [x64|x86]
+# Build script for ObfSymbols using CMake
+# Usage: .\build.ps1 [Debug|Release] [-BuildDir <path>] [-Clean]
 
 param(
     [Parameter(Position=0)]
     [ValidateSet("Debug", "Release")]
     [string]$Configuration = "Debug",
 
-    [Parameter(Position=1)]
-    [ValidateSet("x64", "x86")]
-    [string]$Platform = "x64",
+    [string]$BuildDir = "",
 
     [switch]$Clean
 )
 
+$ErrorActionPreference = "Stop"
+
+$ProjectRoot = Split-Path -Parent $PSScriptRoot
+
+if (-not $BuildDir) {
+    $BuildDir = Join-Path $ProjectRoot "build"
+}
+
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Building Symbols Solution" -ForegroundColor Cyan
+Write-Host "Building ObfSymbols (CMake)" -ForegroundColor Cyan
 Write-Host "Configuration: $Configuration" -ForegroundColor Yellow
-Write-Host "Platform: $Platform" -ForegroundColor Yellow
+Write-Host "Build directory: $BuildDir" -ForegroundColor Yellow
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Check if Visual Studio Developer PowerShell is already initialized
-if (-not (Get-Command msbuild -ErrorAction SilentlyContinue)) {
-    Write-Host "Initializing Visual Studio Developer Environment..." -ForegroundColor Green
+if ($Clean -and (Test-Path $BuildDir)) {
+    Write-Host "Cleaning build directory..." -ForegroundColor Yellow
+    Remove-Item -Recurse -Force $BuildDir
+}
 
-    # Try to find and load Visual Studio Developer PowerShell
-    # Check for editions in this order: Enterprise, Professional, Community
-    $vsEditions = @(
-        @{Name = "Enterprise"; Path = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\Launch-VsDevShell.ps1"},
-        @{Name = "Professional"; Path = "C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\Tools\Launch-VsDevShell.ps1"},
-        @{Name = "Community"; Path = "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1"}
-    )
-
-    $vsDevShell = $null
-    $vsEdition = $null
-
-    foreach ($edition in $vsEditions) {
-        if (Test-Path $edition.Path) {
-            $vsDevShell = $edition.Path
-            $vsEdition = $edition.Name
-            break
-        }
-    }
-
-    if ($vsDevShell) {
-        Write-Host "Using Visual Studio 2022 $vsEdition" -ForegroundColor Yellow
-        & $vsDevShell -Arch amd64 -SkipAutomaticLocation
-        # Return to solution directory after VS initialization
-        Set-Location $PSScriptRoot
-    } else {
-        Write-Host "ERROR: Visual Studio 2022 not found!" -ForegroundColor Red
-        Write-Host "Please install Visual Studio 2022 (Community, Professional, or Enterprise edition)." -ForegroundColor Red
+# Configure if needed
+if (-not (Test-Path (Join-Path $BuildDir "CMakeCache.txt"))) {
+    Write-Host "Configuring CMake..." -ForegroundColor Green
+    cmake -G "Visual Studio 17 2022" -A x64 -B "$BuildDir" -S "$ProjectRoot" -DDD_WIN_PROF_BUILD_OBFUSCATION=ON
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "CMake configure failed."
         exit 1
     }
 }
 
-# Determine build target
-$target = if ($Clean) { "Rebuild" } else { "Build" }
-
-Write-Host "Running MSBuild ($target)..." -ForegroundColor Green
-Write-Host ""
-
-# Build the project (slnx files need to build via the project file)
-$projectPath = "ObfSymbols\ObfSymbols.vcxproj"
-
-# Run MSBuild
-msbuild $projectPath /t:$target /p:Configuration=$Configuration /p:Platform=$Platform /v:minimal
+Write-Host "Building ObfSymbols..." -ForegroundColor Green
+cmake --build "$BuildDir" --config $Configuration --target ObfSymbols
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host ""
@@ -73,9 +50,10 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "BUILD SUCCEEDED!" -ForegroundColor Green
     Write-Host "========================================" -ForegroundColor Green
     Write-Host ""
-    Write-Host "Output: ObfSymbols\$Platform\$Configuration\ObfSymbols.exe" -ForegroundColor Yellow
+    $exePath = Join-Path $BuildDir "obfuscation/ObfSymbols/$Configuration/ObfSymbols.exe"
+    Write-Host "Output: $exePath" -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "Usage: .\ObfSymbols\$Platform\$Configuration\ObfSymbols.exe --pdb <pdb_file> --out <output_file> [--obf <obfuscated_output_file>]" -ForegroundColor Cyan
+    Write-Host "Usage: $exePath --pdb <pdb_file> --out <output_file> [--obf <obfuscated_output_file>]" -ForegroundColor Cyan
     Write-Host "  If --obf is not specified, the obfuscated file will be auto-generated" -ForegroundColor Gray
 } else {
     Write-Host ""
@@ -84,4 +62,3 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "========================================" -ForegroundColor Red
     exit $LASTEXITCODE
 }
-

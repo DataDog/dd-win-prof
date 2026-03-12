@@ -60,8 +60,6 @@ install(TARGETS dd-win-prof
 install(FILES "$<TARGET_FILE:libdatadog_dynamic>" DESTINATION bin)
 ```
 
-If you're _not_ using CMake, you may continue building from `src/WindowsProfiler.sln` (with accompanying PowerShell scripts) and configuring your project's dependencies manually. See [**How to build dd-win-prof**](#how-to-build-dd-win-prof) below for manual build instructions.
-
 ## Configuration
 
 The profiler can be configured in two main ways: **code-based** (via `ProfilerConfig` and `SetupProfiler`) or **environment variables**. Code-based settings override environment variables when both are provided.
@@ -156,59 +154,88 @@ Call [StartProfiler](./src/dd-win-prof/dd-win-prof.h) when ready; [StopProfiler]
 
 - **Windows 10/11** or **Windows Server 2019/2022**
 - **Visual Studio 2022** or later with C++ development tools (or **Build Tools for Visual Studio**)
-- **PowerShell 5.1** or later
+- **CMake 3.21** or later
 
 ### Dependencies
 
-The profiler requires two third-party libraries that are automatically downloaded:
+All dependencies are downloaded automatically by CMake at configure time via `FetchContent`:
 
-- **libdatadog v19.0.0** - Datadog profiling library for profile serialization and upload
-- **spdlog v1.14.1** - Logging library
+- **libdatadog v19.0.0** — profile serialization and upload
+- **spdlog v1.14.1** — logging
+- **Google Test v1.14.0** — unit testing
 
-### Build Steps
+### Build with CMake (command line)
 
-1. **Download dependencies**:
-   ```powershell
-   .\scripts\download-libdatadog.ps1 -Version 19.0.0 -Platform x64
-   .\scripts\download-spdlog.ps1 -Version 1.14.1
-   ```
-
-2. **Build the profiler**:
-   ```cmd
-   msbuild src\dd-win-prof\dd-win-prof.vcxproj /p:Configuration=Release /p:Platform=x64
-   ```
-
-   For debug builds:
-   ```cmd
-   msbuild src\dd-win-prof\dd-win-prof.vcxproj /p:Configuration=Debug /p:Platform=x64
-   ```
-
-3. **Output files** will be generated in:
-   - `src\dd-win-prof\x64\Release\` (or `Debug\`)
-   - Key files: `dd-win-prof.dll`, `dd-win-prof.lib`, `dd-win-prof.pdb`
-
-### Optional: Build and Run Test Runner
-
-The **Runner** project is an example C++ application for testing the profiler with four built-in scenarios. It supports both environment-variable and `--noenvvars` modes, plus PowerShell helper scripts.
-
-```cmd
-msbuild src\Runner\Runner.vcxproj /p:Configuration=Debug /p:Platform=x64
+```powershell
+# Configure and build (Release)
+cmake -G "Visual Studio 17 2022" -A x64 -B build
+cmake --build build --config Release
 ```
 
-See [`src/Runner/README.md`](src/Runner/README.md) for full CLI reference, PowerShell scripts, and examples.
+### Build with Visual Studio
 
-### Optional: Build and Run Tests
+Run the helper script to generate and open the solution:
 
-```cmd
-nuget restore src\Tests\packages.config -PackagesDirectory src\packages
-msbuild src\Tests\Tests.vcxproj /p:Configuration=Release /p:Platform=x64
-src\Tests\x64\Release\Tests.exe
+```powershell
+.\scripts\generate-vs.ps1
 ```
 
-See [`src/Tests/README.md`](src/Tests/README.md) for details on prerequisites and test coverage.
+This generates a Visual Studio solution in `build\` and opens it automatically. You can then build and debug directly from the IDE. See `.\scripts\generate-vs.ps1 -?` for options (custom build directory, VS version, etc.).
+
+### Project structure and build outputs
+
+```
+dd-win-prof/
+├── CMakeLists.txt                  # Root CMake configuration
+├── src/
+│   ├── CMakeLists.txt              # Dependencies (libdatadog, spdlog, googletest via FetchContent)
+│   ├── dd-win-prof/                # Main profiler DLL
+│   ├── Runner/                     # Example app for testing the profiler
+│   ├── Tests/                      # Unit tests (Google Test)
+│   ├── ProfilerInjector/           # Utility to inject profiler into a target process
+│   └── reference/                  # Staging directory (POST_BUILD copies DLLs here)
+├── obfuscation/                    # Symbol obfuscation tools (optional, requires DIA SDK)
+│   ├── ObfSymbols/                 # PDB symbol extractor/obfuscator
+│   ├── TestSymbols/                # Test executable for ObfSymbols
+│   └── TestSymbolsDll/             # Test DLL for ObfSymbols
+├── e2e-tests/                      # End-to-end Vulkan profiling tests
+└── scripts/
+    └── generate-vs.ps1             # Generate and open VS solution from CMake
+```
+
+After building, the key artifacts are:
+
+| Artifact | Location |
+|----------|----------|
+| `dd-win-prof.dll` / `.lib` / `.pdb` | `build\src\dd-win-prof\<Config>\` |
+| `datadog_profiling_ffi.dll` | `build\_deps\libdatadog-src\<config>\dynamic\` |
+| `Runner.exe` | `build\src\Runner\<Config>\` |
+| `Tests.exe` | `build\src\Tests\<Config>\` |
+| `ProfilerInjector.exe` | `build\src\ProfilerInjector\<Config>\` |
+| **All runtime DLLs together** | `src\reference\` (copied by POST_BUILD) |
+
+The `src\reference\` directory is the easiest way to get all the files needed at runtime — after a successful build it contains `dd-win-prof.dll`, `dd-win-prof.lib`, `dd-win-prof.pdb`, `datadog_profiling_ffi.dll`, and `datadog_profiling_ffi.pdb`.
+
+### Run Tests
+
+```powershell
+cmake --build build --config Debug
+build\src\Tests\Debug\Tests.exe
+```
+
+See [`src/Tests/README.md`](src/Tests/README.md) for details on test coverage.
+
+### Build and Run the Test Runner
+
+The **Runner** project is an example application for testing the profiler. It supports both environment-variable and `--noenvvars` modes.
+
+```powershell
+cmake --build build --config Debug --target Runner
+build\src\Runner\Debug\Runner.exe
+```
+
+See [`src/Runner/README.md`](src/Runner/README.md) for full CLI reference and examples.
 
 ### Automated Build
 
 For reference, see the complete automated build process in [`.github/workflows/test.yml`](.github/workflows/test.yml).
-
-The CI uses `windows-2022` runners which come pre-installed with **Visual Studio Enterprise 2022** and MSBuild tools.

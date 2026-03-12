@@ -6,88 +6,52 @@ on:
   pull_request:
     branches: [ main, master, develop ]
 
-env:
-  LIBDATADOG_VERSION: "19.0.0"
-  SPDLOG_VERSION: "1.14.1"
-
 jobs:
   test:
     runs-on: windows-2022
-    
+
     strategy:
       matrix:
         configuration: [Debug, Release]
-        platform: [x64]
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
-    - name: Cache third-party dependencies
+
+    - name: Cache dependencies
       uses: actions/cache@v4
       with:
-        path: third-party
-        key: third-party-libdatadog-${{ env.LIBDATADOG_VERSION }}-spdlog-${{ env.SPDLOG_VERSION }}-${{ matrix.platform }}
-        restore-keys: |
-          third-party-libdatadog-${{ env.LIBDATADOG_VERSION }}-spdlog-${{ env.SPDLOG_VERSION }}-
-          third-party-libdatadog-${{ env.LIBDATADOG_VERSION }}-
-          third-party-libdatadog-
-    
-    - name: Cache NuGet packages
-      uses: actions/cache@v4
-      with:
-        path: src/packages
-        key: nuget-packages-${{ hashFiles('src/Tests/packages.config') }}
-        restore-keys: |
-          nuget-packages-
-      
-    - name: Download dependencies
-      run: |
-        .\scripts\download-libdatadog.ps1 -Version ${{ env.LIBDATADOG_VERSION }} -Platform ${{ matrix.platform }}
-        .\scripts\download-spdlog.ps1 -Version ${{ env.SPDLOG_VERSION }}
-      shell: pwsh
-      
-    - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@v2
-      
-    - name: Setup NuGet
-      uses: nuget/setup-nuget@v2
-      with:
-        nuget-version: 'latest'
-        
-    - name: Restore NuGet packages
-      run: |
-        nuget restore src/Tests/packages.config -PackagesDirectory src/packages
-        
-    - name: Build solution
-      run: |
-        msbuild src/dd-win-prof/dd-win-prof.vcxproj /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /p:RestorePackagesConfig=true
-        msbuild src/ProfilerInjector/ProfilerInjector.vcxproj /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /p:RestorePackagesConfig=true
-        msbuild src/Runner/Runner.vcxproj /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /p:RestorePackagesConfig=true
-        msbuild src/Tests/Tests.vcxproj /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /p:RestorePackagesConfig=true
-        
+        path: .deps
+        key: deps-${{ hashFiles('src/CMakeLists.txt') }}
+
+    - name: Configure CMake
+      run: cmake -G "Visual Studio 17 2022" -A x64 -B build -DFETCHCONTENT_BASE_DIR=${{ github.workspace }}/.deps
+
+    - name: Build
+      run: cmake --build build --config ${{ matrix.configuration }}
+
     - name: Run tests
-      run: |
-        src/Tests/x64/${{ matrix.configuration }}/Tests.exe
+      run: build/src/Tests/${{ matrix.configuration }}/Tests.exe
 
     - name: Upload build artifacts
       if: matrix.configuration == 'Release'
       uses: actions/upload-artifact@v4
       with:
-        name: profiler-artifacts-${{ matrix.platform }}
+        name: profiler-artifacts-x64
         path: |
-          src/dd-win-prof/x64/${{ matrix.configuration }}/dd-win-prof.dll
-          src/dd-win-prof/x64/${{ matrix.configuration }}/dd-win-prof.pdb
-          src/ProfilerInjector/x64/${{ matrix.configuration }}/ProfilerInjector.exe
-          src/ProfilerInjector/x64/${{ matrix.configuration }}/ProfilerInjector.pdb
-          src/Runner/x64/${{ matrix.configuration }}/Runner.exe
-          src/Runner/x64/${{ matrix.configuration }}/Runner.pdb
-          src/Tests/x64/${{ matrix.configuration }}/Tests.exe
-          third-party/libdatadog-x64-windows/Release/dynamic/datadog_profiling_ffi.dll
+          src/reference/dd-win-prof.dll
+          src/reference/dd-win-prof.lib
+          src/reference/dd-win-prof.pdb
+          src/reference/datadog_profiling_ffi.dll
+          src/reference/datadog_profiling_ffi.pdb
+          build/src/ProfilerInjector/${{ matrix.configuration }}/ProfilerInjector.exe
+          build/src/ProfilerInjector/${{ matrix.configuration }}/ProfilerInjector.pdb
+          build/src/Runner/${{ matrix.configuration }}/Runner.exe
+          build/src/Runner/${{ matrix.configuration }}/Runner.pdb
+          build/src/Tests/${{ matrix.configuration }}/Tests.exe
         retention-days: 7
 
   e2e-tests:
     needs: test
     if: success()
     uses: ./.github/workflows/e2e.yml
-

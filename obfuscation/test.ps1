@@ -6,9 +6,7 @@ param(
     [ValidateSet("Debug", "Release")]
     [string]$Configuration = "Debug",
 
-    [Parameter(Position=1)]
-    [ValidateSet("x64", "x86")]
-    [string]$Platform = "x64"
+    [string]$BuildDir = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -50,10 +48,19 @@ function Test-Condition {
 # MAIN TEST EXECUTION
 # ============================================================================
 
+$ProjectRoot = Split-Path -Parent $PSScriptRoot
+
+if (-not $BuildDir) {
+    $BuildDir = Join-Path $ProjectRoot "build"
+}
+
+# CMake output base for obfuscation targets
+$ObfBuildDir = Join-Path $BuildDir "obfuscation"
+
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "ObfSymbols Test Suite" -ForegroundColor Cyan
 Write-Host "Configuration: $Configuration" -ForegroundColor Yellow
-Write-Host "Platform: $Platform" -ForegroundColor Yellow
+Write-Host "Build directory: $BuildDir" -ForegroundColor Yellow
 Write-Host "========================================" -ForegroundColor Cyan
 
 # ============================================================================
@@ -61,25 +68,18 @@ Write-Host "========================================" -ForegroundColor Cyan
 # ============================================================================
 Write-TestHeader "Building TestSymbolsDll"
 
-# Check if Visual Studio Developer PowerShell is already initialized
-if (-not (Get-Command msbuild -ErrorAction SilentlyContinue)) {
-    Write-Info "Initializing Visual Studio Developer Environment..."
-
-    $vsDevShell = "C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\Tools\Launch-VsDevShell.ps1"
-
-    if (Test-Path $vsDevShell) {
-        & $vsDevShell -Arch amd64 -SkipAutomaticLocation
-        Set-Location $PSScriptRoot
-    } else {
-        Write-Failure "Visual Studio 2022 Professional not found!"
+# Configure CMake if needed
+if (-not (Test-Path (Join-Path $BuildDir "CMakeCache.txt"))) {
+    Write-Info "Configuring CMake..."
+    cmake -G "Visual Studio 17 2022" -A x64 -B "$BuildDir" -S "$ProjectRoot" -DDD_WIN_PROF_BUILD_OBFUSCATION=ON
+    if ($LASTEXITCODE -ne 0) {
+        Write-Failure "CMake configure failed"
         exit 1
     }
 }
 
-$testProjectPath = "TestSymbolsDll\TestSymbolsDll.vcxproj"
-Write-Info "Building: $testProjectPath"
-
-msbuild $testProjectPath /t:Build /p:Configuration=$Configuration /p:Platform=$Platform /v:minimal /nologo
+Write-Info "Building TestSymbolsDll with CMake..."
+cmake --build "$BuildDir" --config $Configuration --target TestSymbolsDll
 
 if ($LASTEXITCODE -ne 0) {
     Write-Failure "Failed to build TestSymbolsDll"
@@ -93,8 +93,8 @@ Write-Success "TestSymbolsDll built successfully"
 # ============================================================================
 Write-TestHeader "Verifying TestSymbolsDll Outputs"
 
-$testDll = "TestSymbolsDll\$Platform\$Configuration\TestSymbolsDll.dll"
-$testPdb = "TestSymbolsDll\$Platform\$Configuration\TestSymbolsDll.pdb"
+$testDll = "$ObfBuildDir/TestSymbolsDll/$Configuration/TestSymbolsDll.dll"
+$testPdb = "$ObfBuildDir/TestSymbolsDll/$Configuration/TestSymbolsDll.pdb"
 
 Test-Condition "TestSymbolsDll.dll exists" (Test-Path $testDll) "File not found: $testDll"
 Test-Condition "TestSymbolsDll.pdb exists" (Test-Path $testPdb) "File not found: $testPdb"
@@ -109,9 +109,9 @@ if (-not (Test-Path $testPdb)) {
 # ============================================================================
 Write-TestHeader "Running ObfSymbols"
 
-$obfSymbolsExe = "ObfSymbols\$Platform\$Configuration\ObfSymbols.exe"
-$outputFile = "TestSymbolsDll\$Platform\$Configuration\TestSymbolsDll.sym"
-$obfOutputFile = "TestSymbolsDll\$Platform\$Configuration\TestSymbolsDll_obf.sym"
+$obfSymbolsExe = "$ObfBuildDir/ObfSymbols/$Configuration/ObfSymbols.exe"
+$outputFile = "$ObfBuildDir/TestSymbolsDll/$Configuration/TestSymbolsDll.sym"
+$obfOutputFile = "$ObfBuildDir/TestSymbolsDll/$Configuration/TestSymbolsDll_obf.sym"
 
 # Clean up previous test outputs
 if (Test-Path $outputFile) { Remove-Item $outputFile -Force }
@@ -121,7 +121,7 @@ Test-Condition "ObfSymbols.exe exists" (Test-Path $obfSymbolsExe) "File not foun
 
 if (-not (Test-Path $obfSymbolsExe)) {
     Write-Info "Building ObfSymbols first..."
-    & "$PSScriptRoot\build.ps1" -Configuration $Configuration -Platform $Platform
+    cmake --build "$BuildDir" --config $Configuration --target ObfSymbols
     if ($LASTEXITCODE -ne 0) {
         Write-Failure "Failed to build ObfSymbols"
         exit 1

@@ -16,54 +16,59 @@ on:
 jobs:
   build-obfuscation:
     runs-on: windows-2022
-    
+
     strategy:
       matrix:
         configuration: [Debug, Release]
-        platform: [x64]
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
-    - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@v2
-      
-    - name: Build Solution
+
+    - name: Cache dependencies
+      uses: actions/cache@v4
+      with:
+        path: .deps
+        key: deps-${{ hashFiles('src/CMakeLists.txt') }}
+
+    - name: Configure CMake
+      run: cmake -G "Visual Studio 17 2022" -A x64 -B build -DDD_WIN_PROF_BUILD_OBFUSCATION=ON -DFETCHCONTENT_BASE_DIR=${{ github.workspace }}/.deps
+
+    - name: Build obfuscation tools
       run: |
-        msbuild obfuscation/Symbols.slnx /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /v:minimal
-      shell: cmd
-      
+        cmake --build build --config ${{ matrix.configuration }} --target ObfSymbols
+        cmake --build build --config ${{ matrix.configuration }} --target TestSymbolsDll
+        cmake --build build --config ${{ matrix.configuration }} --target TestSymbols
+
     - name: Run tests
       run: |
         cd obfuscation
-        .\test.ps1 -Configuration ${{ matrix.configuration }} -Platform ${{ matrix.platform }}
+        .\test.ps1 -Configuration ${{ matrix.configuration }} -BuildDir ..\build
       shell: pwsh
       continue-on-error: false
-      
+
     - name: Upload build artifacts
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: obfuscation-artifacts-${{ matrix.configuration }}-${{ matrix.platform }}
+        name: obfuscation-artifacts-${{ matrix.configuration }}-x64
         path: |
-          obfuscation/ObfSymbols/${{ matrix.platform }}/${{ matrix.configuration }}/ObfSymbols.exe
-          obfuscation/ObfSymbols/${{ matrix.platform }}/${{ matrix.configuration }}/ObfSymbols.pdb
-          obfuscation/TestSymbols/${{ matrix.platform }}/${{ matrix.configuration }}/TestSymbols.exe
-          obfuscation/TestSymbols/${{ matrix.platform }}/${{ matrix.configuration }}/TestSymbols.pdb
-          obfuscation/TestSymbolsDll/${{ matrix.platform }}/${{ matrix.configuration }}/TestSymbolsDll.dll
-          obfuscation/TestSymbolsDll/${{ matrix.platform }}/${{ matrix.configuration }}/TestSymbolsDll.pdb
-          obfuscation/TestSymbolsDll/${{ matrix.platform }}/${{ matrix.configuration }}/*.sym
+          build/obfuscation/ObfSymbols/${{ matrix.configuration }}/ObfSymbols.exe
+          build/obfuscation/ObfSymbols/${{ matrix.configuration }}/ObfSymbols.pdb
+          build/obfuscation/TestSymbols/${{ matrix.configuration }}/TestSymbols.exe
+          build/obfuscation/TestSymbols/${{ matrix.configuration }}/TestSymbols.pdb
+          build/obfuscation/TestSymbolsDll/${{ matrix.configuration }}/TestSymbolsDll.dll
+          build/obfuscation/TestSymbolsDll/${{ matrix.configuration }}/TestSymbolsDll.pdb
+          build/obfuscation/TestSymbolsDll/${{ matrix.configuration }}/*.sym
         retention-days: 7
         if-no-files-found: warn
-        
+
     - name: Upload test results
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: test-results-${{ matrix.configuration }}-${{ matrix.platform }}
+        name: test-results-${{ matrix.configuration }}-x64
         path: |
-          obfuscation/TestSymbolsDll/${{ matrix.platform }}/${{ matrix.configuration }}/*.sym
+          build/obfuscation/TestSymbolsDll/${{ matrix.configuration }}/*.sym
         retention-days: 7
         if-no-files-found: ignore
-

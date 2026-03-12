@@ -37,60 +37,31 @@ For new features:
 
 ### Prerequisites
 
-Building **dd-win-prof** requires:
-
-- Visual Studio 2022 (or compatible)
+- Visual Studio 2022 (or compatible) with C++ development tools
 - Windows 10/11 SDK
-
-If building with CMake, you'll also need:
-
 - CMake 3.21 or later
-
-Alternatively, the legacy build scripts require:
-
-- PowerShell (for dependency scripts)
 
 ### Building
 
-#### With CMake
-
-```bash
-# Configure the CMake build (including all dependencies)
-cmake -S . -B build
-
-# Use CMake to invoke a Visual Studio build of all targets
+```powershell
+# Configure and build
+cmake -G "Visual Studio 17 2022" -A x64 -B build
 cmake --build build --config Release
 ```
 
 To omit obfuscation tools from the build, pass `-DDD_WIN_PROF_BUILD_OBFUSCATION=OFF` when configuring.
 
-#### With legacy build scripts
+To open the project in Visual Studio, use the helper script:
 
-```bash
-# Download dependencies
-.\scripts\download-libdatadog.ps1
-.\scripts\download-spdlog.ps1
-
-# Build with Visual Studio or MSBuild
-msbuild src/InprocProfiling/InprocProfiling.vcxproj /p:Configuration=Release
+```powershell
+.\scripts\generate-vs.ps1
 ```
 
 ### Testing
 
-### With CMake
-
-```bash
-# Build and run tests
-cmake --build build --target Tests --config Debug
+```powershell
+cmake --build build --config Debug
 build\src\Tests\Debug\Tests.exe
-```
-
-### With legacy build scripts
-
-```bash
-# Build and run tests
-msbuild src/Tests/Tests.vcxproj /p:Configuration=Debug
-src/Tests/x64/Debug/Tests.exe
 ```
 
 ## Code Guidelines

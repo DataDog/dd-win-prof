@@ -39,12 +39,12 @@ $Src = Join-Path $Root "Vulkan"
 $Build = Join-Path $Root "build"
 $Config = "Release"
 
-# Determine profiler DLL directory - look in src/x64/Release or src/dd-win-prof/x64/Release
+# Determine profiler DLL directory - look in src/reference (populated by CMake POST_BUILD)
 if ([string]::IsNullOrWhiteSpace($ProfilerDllDir)) {
-    $srcDir = Join-Path $PSScriptRoot "..\src"
+    $repoRoot = Join-Path $PSScriptRoot ".."
     $candidates = @(
-        (Join-Path $srcDir "x64\$Config"),
-        (Join-Path $srcDir "dd-win-prof\x64\$Config")
+        (Join-Path $repoRoot "src\reference"),
+        (Join-Path $repoRoot "build\src\dd-win-prof\$Config")
     )
     foreach ($candidate in $candidates) {
         if (Test-Path (Join-Path $candidate "dd-win-prof.dll")) {
@@ -499,10 +499,10 @@ try {
             Write-Step "dd-win-prof.dll found at: $dllPath" "OK"
         } else {
             Write-Step "ERROR: dd-win-prof.dll not found at: $dllPath" "ERROR"
-            Write-Step "Please build the profiler solution first using Visual Studio:" "ERROR"
-            Write-Step "  1. Open src/WindowsProfiler.sln in Visual Studio" "ERROR"
-            Write-Step "  2. Build -> Build Solution (or press Ctrl+Shift+B)" "ERROR"
-            Write-Step "  3. Ensure dd-win-prof project builds successfully" "ERROR"
+            Write-Step "Please build the profiler first:" "ERROR"
+            Write-Step "  cmake -G `"Visual Studio 17 2022`" -A x64 -B build" "ERROR"
+            Write-Step "  cmake --build build --config Release" "ERROR"
+            Write-Step "Or use: .\scripts\generate-vs.ps1" "ERROR"
             exit 1
         }
         
@@ -510,7 +510,7 @@ try {
             Write-Step "ProfilerInjector.exe found at: $ProfilerInjectorExe" "OK"
         } else {
             Write-Step "WARNING: ProfilerInjector.exe not found" "WARN"
-            Write-Step "Please ensure ProfilerInjector project is built in Visual Studio" "WARN"
+            Write-Step "Build it with: cmake --build build --config Release --target ProfilerInjector" "WARN"
         }
         
         # Add profiler DLL directory to PATH so it can be found at runtime
