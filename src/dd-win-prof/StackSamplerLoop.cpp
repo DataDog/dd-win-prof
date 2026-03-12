@@ -15,7 +15,8 @@ StackSamplerLoop::StackSamplerLoop(
     Configuration* pConfiguration,
     ThreadList* pThreadList,
     CpuTimeProvider* pCpuTimeProvider,
-    WallTimeProvider* pWallTimeProvider
+    WallTimeProvider* pWallTimeProvider,
+    IRumViewContextProvider* pRumViewContextProvider
     )
     :
     _samplingPeriod(pConfiguration->CpuWallTimeSamplingPeriod()),
@@ -25,6 +26,7 @@ StackSamplerLoop::StackSamplerLoop(
     _pThreadList(pThreadList),
     _pCpuTimeProvider(pCpuTimeProvider),
     _pWallTimeProvider(pWallTimeProvider),
+    _pRumViewContextProvider(pRumViewContextProvider),
     _iteratorCpuTime(0),
     _iteratorWallTime(0),
     _pLoopThread(nullptr)
@@ -270,6 +272,14 @@ void StackSamplerLoop::CollectOneThreadSample(std::shared_ptr<ThreadInfo>& pThre
             frames[framesCount - 1] = 0;
         }
 
+        // Snapshot the current RUM view context (shared-lock, fast copy)
+        RumViewContext rumView;
+        bool hasRumView = false;
+        if (_pRumViewContextProvider != nullptr)
+        {
+            hasRumView = _pRumViewContextProvider->GetCurrentViewContext(rumView);
+        }
+
         // create a sample
         if (profilingType == PROFILING_TYPE::CpuTime)
         {
@@ -278,6 +288,10 @@ void StackSamplerLoop::CollectOneThreadSample(std::shared_ptr<ThreadInfo>& pThre
                 pThreadInfo,
                 frames,
                 framesCount);
+            if (hasRumView)
+            {
+                sample.SetRumViewContext(std::move(rumView));
+            }
             _pCpuTimeProvider->Add(std::move(sample), duration);
         }
         else
@@ -306,6 +320,10 @@ void StackSamplerLoop::CollectOneThreadSample(std::shared_ptr<ThreadInfo>& pThre
                 pThreadInfo,
                 frames,
                 framesCount);
+            if (hasRumView)
+            {
+                sample.SetRumViewContext(std::move(rumView));
+            }
             _pWallTimeProvider->Add(std::move(sample), duration, waitDuration, waitingReason);
         }
         else

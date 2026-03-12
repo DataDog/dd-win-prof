@@ -199,8 +199,11 @@ bool ProfileExporter::Add(std::shared_ptr<Sample> const& sample)
     // Get thread info for labeling
     std::shared_ptr<ThreadInfo> threadInfo = sample->GetThreadInfo();
 
-    // Create labelset for this sample (includes thread name if available)
-    ddog_prof_LabelSetId labelsetId = CreateLabelSet(_sampleLabels, threadInfo);
+    // Get RUM view context for labeling
+    const auto& rumView = sample->GetRumViewContext();
+
+    // Create labelset for this sample (includes thread name and RUM labels if available)
+    ddog_prof_LabelSetId labelsetId = CreateLabelSet(_sampleLabels, threadInfo, rumView);
 
     // Add sample to aggregator with labels
     if (!_aggregator->AddSample(locationIds, sampleValues, timestampNs, labelsetId)) {
@@ -734,10 +737,25 @@ bool ProfileExporter::InternSampleLabels(SampleLabels& labels)
     // Store the thread name label key ID (we'll use this to create per-thread labels)
     labels.threadNameKeyId = threadNameKeyResult.ok;
 
+    // Intern RUM label keys (values are interned per-sample since they vary across views)
+    auto rumViewIdKeyResult = ddog_prof_Profile_intern_string(profile, to_CharSlice(LABEL_RUM_VIEW_ID));
+    if (rumViewIdKeyResult.tag != DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
+        LogOnce(Error, "InternSampleLabels: Failed to intern rum.view_id label key (tag: ", rumViewIdKeyResult.tag, ")");
+        return false;
+    }
+    labels.rumViewIdKeyId = rumViewIdKeyResult.ok;
+
+    auto traceEndpointKeyResult = ddog_prof_Profile_intern_string(profile, to_CharSlice(LABEL_TRACE_ENDPOINT));
+    if (traceEndpointKeyResult.tag != DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
+        LogOnce(Error, "InternSampleLabels: Failed to intern trace endpoint label key (tag: ", traceEndpointKeyResult.tag, ")");
+        return false;
+    }
+    labels.traceEndpointKeyId = traceEndpointKeyResult.ok;
+
     return true;
 }
 
-ddog_prof_LabelSetId ProfileExporter::CreateLabelSet(const SampleLabels& labels, std::shared_ptr<ThreadInfo> threadInfo)
+ddog_prof_LabelSetId ProfileExporter::CreateLabelSet(const SampleLabels& labels, std::shared_ptr<ThreadInfo> threadInfo, const RumViewContext& rumView)
 {
     // Get profile for interning operations
     ddog_prof_Profile* profile = _aggregator->GetProfile();
@@ -783,6 +801,29 @@ ddog_prof_LabelSetId ProfileExporter::CreateLabelSet(const SampleLabels& labels,
         }
     }
 
+    // Add RUM view labels if an active view was captured for this sample
+    if (!rumView.view_id.empty()) {
+        auto viewIdValueResult = ddog_prof_Profile_intern_string(profile, to_CharSlice(rumView.view_id));
+        if (viewIdValueResult.tag == DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
+            auto viewIdLabelResult = ddog_prof_Profile_intern_label_str(
+                profile, labels.rumViewIdKeyId, viewIdValueResult.ok);
+            if (viewIdLabelResult.tag == DDOG_PROF_LABEL_ID_RESULT_OK_GENERATIONAL_ID_LABEL_ID) {
+                labelIdArray.push_back(viewIdLabelResult.ok);
+            }
+        }
+
+        if (!rumView.view_name.empty()) {
+            auto viewNameValueResult = ddog_prof_Profile_intern_string(profile, to_CharSlice(rumView.view_name));
+            if (viewNameValueResult.tag == DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
+                auto endpointLabelResult = ddog_prof_Profile_intern_label_str(
+                    profile, labels.traceEndpointKeyId, viewNameValueResult.ok);
+                if (endpointLabelResult.tag == DDOG_PROF_LABEL_ID_RESULT_OK_GENERATIONAL_ID_LABEL_ID) {
+                    labelIdArray.push_back(endpointLabelResult.ok);
+                }
+            }
+        }
+    }
+
     ddog_prof_Slice_LabelId labelSlice = {
         .ptr = labelIdArray.data(),
         .len = labelIdArray.size()
@@ -795,6 +836,12 @@ ddog_prof_LabelSetId ProfileExporter::CreateLabelSet(const SampleLabels& labels,
     }
 
     return labelsetResult.ok;
+}
+
+void ProfileExporter::SetRumApplicationTags(const std::string& applicationId, const std::string& sessionId)
+{
+    _rumApplicationId = applicationId;
+    _rumSessionId = sessionId;
 }
 
 uint32_t ProfileExporter::GetCurrentProcessId()
@@ -1142,6 +1189,18 @@ bool ProfileExporter::PrepareAdditionalTags(ddog_Vec_Tag& tags, uint32_t profile
     // Add process ID as additional tag
     if (!AddSingleTag(tags, "pid", std::to_string(_processId))) {
         return false;
+    }
+
+    // Add RUM application-level tags (set once via SetRumApplicationTags)
+    if (!_rumApplicationId.empty()) {
+        if (!AddSingleTag(tags, TAG_RUM_APPLICATION_ID, _rumApplicationId)) {
+            return false;
+        }
+    }
+    if (!_rumSessionId.empty()) {
+        if (!AddSingleTag(tags, TAG_RUM_SESSION_ID, _rumSessionId)) {
+            return false;
+        }
     }
 
     return true;

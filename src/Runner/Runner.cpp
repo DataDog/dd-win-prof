@@ -17,6 +17,7 @@
 //  2 : C++ calls
 //  3 : create CPU-bound threads
 //  4 : create threads waiting on different synchronization primitives
+//  5 : RUM context (view transitions)
 
 struct RunnerOptions
 {
@@ -33,6 +34,9 @@ struct RunnerOptions
     std::string apiKey;
     std::string tags;
     std::string pprofDir;
+
+    std::string rumApplicationId;
+    std::string rumSessionId;
 };
 
 void ShowHelp(const char* programName);
@@ -332,6 +336,46 @@ void RunWaitingThreads()
 }
 
 
+// Scenario 5: RUM context view transitions
+void SetView(const std::string& appId, const std::string& sessionId,
+             const char* viewId, const char* viewName)
+{
+    RumContextValues ctx = {};
+    ctx.application_id = appId.c_str();
+    ctx.session_id = sessionId.c_str();
+    ctx.view_id = viewId;
+    ctx.view_name = viewName;
+    UpdateRumContext(&ctx);
+}
+
+void ClearView(const std::string& appId, const std::string& sessionId)
+{
+    SetView(appId, sessionId, nullptr, nullptr);
+}
+
+void RunRumScenario(const std::string& appId, const std::string& sessionId)
+{
+    SetView(appId, sessionId, "11111111-1111-1111-1111-111111111111", "HomePage");
+    std::cout << "View 1: HomePage (spinning 2s)..." << std::endl;
+    Spin(2000);
+
+    ClearView(appId, sessionId);
+    SetView(appId, sessionId, "22222222-2222-2222-2222-222222222222", "SettingsPage");
+    std::cout << "View 2: SettingsPage (spinning 2s)..." << std::endl;
+    Spin(2000);
+
+    ClearView(appId, sessionId);
+    std::cout << "No active view (spinning 1s)..." << std::endl;
+    Spin(1000);
+
+    SetView(appId, sessionId, "33333333-3333-3333-3333-333333333333", "ProfilePage");
+    std::cout << "View 3: ProfilePage (spinning 2s)..." << std::endl;
+    Spin(2000);
+
+    ClearView(appId, sessionId);
+}
+
+
 int main(int argc, char* argv[])
 {
     RunnerOptions opts;
@@ -346,7 +390,8 @@ int main(int argc, char* argv[])
         (opts.scenario == 1 ? "Simple C function calls" :
          opts.scenario == 2 ? "C++ class method calls" :
          opts.scenario == 3 ? "Multi-threaded execution" :
-         opts.scenario == 4 ? "Waiting threads (mutex, semaphore, critical section, sleep)" : "Unknown") << ")\n";
+         opts.scenario == 4 ? "Waiting threads (mutex, semaphore, critical section, sleep)" :
+         opts.scenario == 5 ? "RUM context (view transitions)" : "Unknown") << ")\n";
     std::cout << "Iterations: " << opts.iterations << "\n";
     std::cout << "NoEnvVars:  " << (opts.noEnvVars ? "true" : "false") << "\n\n";
 
@@ -396,6 +441,10 @@ int main(int argc, char* argv[])
                 RunWaitingThreads();
             break;
 
+            case 5:
+                RunRumScenario(opts.rumApplicationId, opts.rumSessionId);
+            break;
+
             default:
             break;
         }
@@ -442,14 +491,15 @@ void ShowHelp(const char* programName)
 {
     std::cout << "\nDatadog Windows Profiler Test Runner\n";
     std::cout << "====================================\n\n";
-    std::cout << "Usage: " << programName << " --scenario <1-4> --iterations <num> [options]\n\n";
+    std::cout << "Usage: " << programName << " --scenario <1-5> --iterations <num> [options]\n\n";
 
     std::cout << "Required Arguments:\n";
-    std::cout << "  --scenario <1-4>       Scenario to run:\n";
+    std::cout << "  --scenario <1-5>       Scenario to run:\n";
     std::cout << "                           1 = Simple C function calls\n";
     std::cout << "                           2 = C++ class method calls\n";
     std::cout << "                           3 = Multi-threaded execution (CPU-bound)\n";
     std::cout << "                           4 = Waiting threads (mutex, semaphore, critical section, sleep)\n";
+    std::cout << "                           5 = RUM context (view transitions)\n";
     std::cout << "  --iterations <num>     Number of times to repeat the scenario\n\n";
 
     std::cout << "Service Information:\n";
@@ -461,6 +511,10 @@ void ShowHelp(const char* programName)
     std::cout << "  --noenvvars            Ignore all environment variables; only use explicit flags\n";
     std::cout << "  --url <url>            Datadog intake URL     (MANDATORY with --noenvvars)\n";
     std::cout << "  --apikey <key>         Datadog API key        (MANDATORY with --noenvvars)\n\n";
+
+    std::cout << "RUM Context Options (scenario 5):\n";
+    std::cout << "  --rum-app-id <uuid>    RUM application ID (required for scenario 5)\n";
+    std::cout << "  --rum-session-id <uuid> RUM session ID (required for scenario 5)\n\n";
 
     std::cout << "Additional Options:\n";
     std::cout << "  --symbolize            Enable call stack symbolization (default: obfuscated)\n";
@@ -523,9 +577,9 @@ bool ParseCommandLine(int argc, char* argv[], RunnerOptions& opts)
             try
             {
                 opts.scenario = std::stoi(argv[++i]);
-                if (opts.scenario < 1 || opts.scenario > 4)
+                if (opts.scenario < 1 || opts.scenario > 5)
                 {
-                    std::cout << "Error: Scenario " << opts.scenario << " is invalid. Must be between 1 and 4.\n";
+                    std::cout << "Error: Scenario " << opts.scenario << " is invalid. Must be between 1 and 5.\n";
                     ShowHelp(argv[0]);
                     return false;
                 }
@@ -533,7 +587,7 @@ bool ParseCommandLine(int argc, char* argv[], RunnerOptions& opts)
             }
             catch (const std::exception&)
             {
-                std::cout << "Error: Invalid scenario value '" << argv[i] << "'. Must be a number between 1 and 4.\n";
+                std::cout << "Error: Invalid scenario value '" << argv[i] << "'. Must be a number between 1 and 5.\n";
                 ShowHelp(argv[0]);
                 return false;
             }
@@ -602,6 +656,16 @@ bool ParseCommandLine(int argc, char* argv[], RunnerOptions& opts)
             if (!RequireValue(i, argc, argv, "--pprofdir")) { ShowHelp(argv[0]); return false; }
             opts.pprofDir = argv[++i];
         }
+        else if (_stricmp(argv[i], "--rum-app-id") == 0)
+        {
+            if (!RequireValue(i, argc, argv, "--rum-app-id")) { ShowHelp(argv[0]); return false; }
+            opts.rumApplicationId = argv[++i];
+        }
+        else if (_stricmp(argv[i], "--rum-session-id") == 0)
+        {
+            if (!RequireValue(i, argc, argv, "--rum-session-id")) { ShowHelp(argv[0]); return false; }
+            opts.rumSessionId = argv[++i];
+        }
         else if (argv[i][0] == '-')
         {
             std::cout << "Error: Unknown argument '" << argv[i] << "'.\n";
@@ -634,6 +698,20 @@ bool ParseCommandLine(int argc, char* argv[], RunnerOptions& opts)
         if (opts.apiKey.empty())
         {
             std::cout << "Error: --apikey is mandatory when --noenvvars is used.\n";
+            return false;
+        }
+    }
+
+    if (opts.scenario == 5)
+    {
+        if (opts.rumApplicationId.empty())
+        {
+            std::cout << "Error: --rum-app-id is mandatory for scenario 5.\n";
+            return false;
+        }
+        if (opts.rumSessionId.empty())
+        {
+            std::cout << "Error: --rum-session-id is mandatory for scenario 5.\n";
             return false;
         }
     }

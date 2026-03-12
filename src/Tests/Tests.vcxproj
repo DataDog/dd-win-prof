@@ -112,7 +112,19 @@
     <ClInclude Include="../dd-win-prof/OsSpecificApi.h" />
     <ClInclude Include="../dd-win-prof/Uuid.h" />
     <ClInclude Include="../dd-win-prof/SampleValueType.h" />
+    <ClInclude Include="../dd-win-prof/Profiler.h" />
     <ClInclude Include="../dd-win-prof/ProfileExporter.h" />
+    <ClInclude Include="../dd-win-prof/RumContext.h" />
+    <ClInclude Include="../dd-win-prof/dd-win-prof.h" />
+    <ClInclude Include="../dd-win-prof/CpuTimeProvider.h" />
+    <ClInclude Include="../dd-win-prof/WalltimeProvider.h" />
+    <ClInclude Include="../dd-win-prof/StackSamplerLoop.h" />
+    <ClInclude Include="../dd-win-prof/StackFrameCollector.h" />
+    <ClInclude Include="../dd-win-prof/SamplesCollector.h" />
+    <ClInclude Include="../dd-win-prof/SampleValueTypeProvider.h" />
+    <ClInclude Include="../dd-win-prof/ThreadList.h" />
+    <ClInclude Include="../dd-win-prof/CollectorBase.h" />
+    <ClInclude Include="../dd-win-prof/ISamplesProvider.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -126,16 +138,25 @@
     <ClCompile Include="ConfigurationTests.cpp" />
     <ClCompile Include="UuidTests.cpp" />
     <ClCompile Include="ProfileExporterTests.cpp" />
-    <ClCompile Include="../dd-win-prof/Symbolication.cpp" />
+    <ClCompile Include="RumContextTests.cpp" />
+    <ClCompile Include="../dd-win-prof/Configuration.cpp" />
+    <ClCompile Include="../dd-win-prof/CpuTimeProvider.cpp" />
+    <ClCompile Include="../dd-win-prof/OsSpecificApi.cpp" />
+    <ClCompile Include="../dd-win-prof/OsSysTools.cpp" />
     <ClCompile Include="../dd-win-prof/PprofAggregator.cpp" />
+    <ClCompile Include="../dd-win-prof/Profiler.cpp" />
     <ClCompile Include="../dd-win-prof/ProfileExporter.cpp" />
     <ClCompile Include="../dd-win-prof/Sample.cpp" />
-    <ClCompile Include="../dd-win-prof/ThreadInfo.cpp" />
-    <ClCompile Include="../dd-win-prof/Configuration.cpp" />
+    <ClCompile Include="../dd-win-prof/SamplesCollector.cpp" />
+    <ClCompile Include="../dd-win-prof/SampleValueTypeProvider.cpp" />
+    <ClCompile Include="../dd-win-prof/StackFrameCollector.cpp" />
+    <ClCompile Include="../dd-win-prof/StackSamplerLoop.cpp" />
+    <ClCompile Include="../dd-win-prof/Symbolication.cpp" />
     <ClCompile Include="../dd-win-prof/TagsHelper.cpp" />
-    <ClCompile Include="../dd-win-prof/OsSysTools.cpp" />
-    <ClCompile Include="../dd-win-prof/OsSpecificApi.cpp" />
+    <ClCompile Include="../dd-win-prof/ThreadInfo.cpp" />
+    <ClCompile Include="../dd-win-prof/ThreadList.cpp" />
     <ClCompile Include="../dd-win-prof/Uuid.cpp" />
+    <ClCompile Include="../dd-win-prof/WalltimeProvider.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />

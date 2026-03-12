@@ -5,6 +5,7 @@
 
 #include "pch.h"
 #include "Configuration.h"
+#include "RumContext.h"
 #include "Sample.h"
 #include "PprofAggregator.h"
 #include "Symbolication.h"
@@ -31,6 +32,9 @@ public:
     // Check if properly initialized
     bool IsInitialized() const { return _initialized; }
     const std::string& GetLastError() const { return _lastError; }
+
+    // RUM application-level tags (set once by Profiler, emitted per-export)
+    void SetRumApplicationTags(const std::string& applicationId, const std::string& sessionId);
 
     // Configuration methods for debug file writing
     // These methods allow enabling/disabling writing of pprof files to disk for debugging purposes.
@@ -71,11 +75,12 @@ private:
         ddog_prof_StringId processIdValueId;
         ddog_prof_StringId threadIdKeyId;  // String ID for thread_id key (used to create numeric labels per thread)
         ddog_prof_StringId threadNameKeyId;  // String ID for thread_name key
-        // Add more label IDs as needed
+        ddog_prof_StringId rumViewIdKeyId;       // String ID for "rum.view_id" key
+        ddog_prof_StringId traceEndpointKeyId;   // String ID for "trace endpoint" key
     };
 
     bool InternSampleLabels(SampleLabels& labels);
-    ddog_prof_LabelSetId CreateLabelSet(const SampleLabels& labels, std::shared_ptr<ThreadInfo> threadInfo);  // Updated to take threadInfo
+    ddog_prof_LabelSetId CreateLabelSet(const SampleLabels& labels, std::shared_ptr<ThreadInfo> threadInfo, const RumViewContext& rumView);
 
     // Debug file writing methods
     bool WritePprofFile(const ddog_prof_EncodedProfile* encodedProfile);
@@ -104,6 +109,10 @@ private:
     static constexpr const char* TAG_GPU_CHIP_PREFIX = "gpu_chip_";
     static constexpr const char* TAG_GPU_RAM_PREFIX = "gpu_ram_";
 
+    // RUM tags (per-export, set once via SetRumApplicationTags)
+    static constexpr const char* TAG_RUM_APPLICATION_ID = "rum.application_id";
+    static constexpr const char* TAG_RUM_SESSION_ID = "rum.session_id";
+
     // TODO: how to define metrics? With tags? With separate json file?
     static constexpr const char* TAG_RAM_SIZE = "ram_size";
     static constexpr const char* TAG_RAM_AVAIL = "ram_available";
@@ -111,8 +120,10 @@ private:
 
     // Label key constants (for per-sample labels)
     static constexpr const char* LABEL_PROCESS_ID = "process_id";
-    static constexpr const char* LABEL_THREAD_ID = "thread id";  // New label constant for thread ID
-    static constexpr const char* LABEL_THREAD_NAME = "thread_name";  // New label constant for thread name if any
+    static constexpr const char* LABEL_THREAD_ID = "thread id";
+    static constexpr const char* LABEL_THREAD_NAME = "thread_name";
+    static constexpr const char* LABEL_RUM_VIEW_ID = "rum.view_id";
+    static constexpr const char* LABEL_TRACE_ENDPOINT = "trace endpoint";
 
     // Cache management
     void ClearCaches();
@@ -176,5 +187,9 @@ private:
 
     // Interned sample labels (reused across samples)
     SampleLabels _sampleLabels;
+
+    // RUM application-level IDs (set once, emitted as profile tags per-export)
+    std::string _rumApplicationId;
+    std::string _rumSessionId;
 };
 

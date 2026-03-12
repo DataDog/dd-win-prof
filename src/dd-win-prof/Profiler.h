@@ -7,13 +7,15 @@
 
 #include "Configuration.h"
 #include "CpuTimeProvider.h"
+#include "dd-win-prof.h"
 #include "ProfileExporter.h"
+#include "RumContext.h"
 #include "SamplesCollector.h"
 #include "StackSamplerLoop.h"
 #include "ThreadList.h"
 
 
-class Profiler
+class Profiler : public IRumViewContextProvider
 {
 public :
     Profiler();
@@ -28,6 +30,12 @@ public :
     bool IsStarted() const { return _isStarted; }
     size_t GetThreadCount() const { return _pThreadList ? _pThreadList->Count() : 0; }
     bool IsAutoStartEnabled() const { return _pConfiguration->IsProfilerAutoStartEnabled(); }
+
+    // RUM context management (called from the C API, thread-safe)
+    bool UpdateRumContext(const RumContextValues* pContext);
+
+    // IRumViewContextProvider implementation
+    bool GetCurrentViewContext(RumViewContext& context) const override;
 
 public:
     static Configuration* GetConfiguration()
@@ -71,5 +79,16 @@ private:
 
     // samples collector
     std::unique_ptr<SamplesCollector> _pSamplesCollector = nullptr;
+
+    // RUM view context (dynamic, protected by reader/writer lock)
+    mutable std::shared_mutex _rumViewMutex;
+    bool _hasActiveView{false};
+    RumViewContext _currentRumView;
+
+    // RUM app-level IDs (write-once, buffered until exporter exists)
+    std::mutex _rumAppMutex;
+    bool _rumAppIdsSet{false};
+    std::string _rumApplicationId;
+    std::string _rumSessionId;
 };
 

@@ -1,9 +1,6 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <ClCompile Include="../dd-win-prof/Configuration.cpp">
-      <Filter>Source</Filter>
-    </ClCompile>
     <ClCompile Include="ConfigurationTests.cpp">
       <Filter>Source</Filter>
     </ClCompile>
@@ -13,34 +10,61 @@
     <ClCompile Include="main.cpp">
       <Filter>Source</Filter>
     </ClCompile>
+    <ClCompile Include="pch.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="PprofAggregatorTests.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="ProfileExporterTests.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="RumContextTests.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="SymbolicationTests.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="UuidTests.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="../dd-win-prof/Configuration.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="../dd-win-prof/CpuTimeProvider.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
     <ClCompile Include="../dd-win-prof/OsSpecificApi.cpp">
       <Filter>Source</Filter>
     </ClCompile>
     <ClCompile Include="../dd-win-prof/OsSysTools.cpp">
       <Filter>Source</Filter>
     </ClCompile>
-    <ClCompile Include="pch.cpp">
-      <Filter>Source</Filter>
-    </ClCompile>
     <ClCompile Include="../dd-win-prof/PprofAggregator.cpp">
       <Filter>Source</Filter>
     </ClCompile>
-    <ClCompile Include="PprofAggregatorTests.cpp">
+    <ClCompile Include="../dd-win-prof/Profiler.cpp">
       <Filter>Source</Filter>
     </ClCompile>
     <ClCompile Include="../dd-win-prof/ProfileExporter.cpp">
       <Filter>Source</Filter>
     </ClCompile>
-    <ClCompile Include="ProfileExporterTests.cpp">
-      <Filter>Source</Filter>
-    </ClCompile>
     <ClCompile Include="../dd-win-prof/Sample.cpp">
       <Filter>Source</Filter>
     </ClCompile>
-    <ClCompile Include="../dd-win-prof/Symbolication.cpp">
+    <ClCompile Include="../dd-win-prof/SamplesCollector.cpp">
       <Filter>Source</Filter>
     </ClCompile>
-    <ClCompile Include="SymbolicationTests.cpp">
+    <ClCompile Include="../dd-win-prof/SampleValueTypeProvider.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="../dd-win-prof/StackFrameCollector.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="../dd-win-prof/StackSamplerLoop.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="../dd-win-prof/Symbolication.cpp">
       <Filter>Source</Filter>
     </ClCompile>
     <ClCompile Include="../dd-win-prof/TagsHelper.cpp">
@@ -49,21 +73,39 @@
     <ClCompile Include="../dd-win-prof/ThreadInfo.cpp">
       <Filter>Source</Filter>
     </ClCompile>
+    <ClCompile Include="../dd-win-prof/ThreadList.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
     <ClCompile Include="../dd-win-prof/Uuid.cpp">
       <Filter>Source</Filter>
     </ClCompile>
-    <ClCompile Include="UuidTests.cpp">
+    <ClCompile Include="../dd-win-prof/WalltimeProvider.cpp">
       <Filter>Source</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="pch.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="../dd-win-prof/CollectorBase.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
     <ClInclude Include="../dd-win-prof/Configuration.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="../dd-win-prof/CpuTimeProvider.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="../dd-win-prof/dd-win-prof.h">
       <Filter>Includes</Filter>
     </ClInclude>
     <ClInclude Include="../dd-win-prof/EnvironmentVariables.h">
       <Filter>Includes</Filter>
     </ClInclude>
     <ClInclude Include="../dd-win-prof/framework.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="../dd-win-prof/ISamplesProvider.h">
       <Filter>Includes</Filter>
     </ClInclude>
     <ClInclude Include="../dd-win-prof/LibDatadogHelper.h">
@@ -75,10 +117,10 @@
     <ClInclude Include="../dd-win-prof/OsSpecificApi.h">
       <Filter>Includes</Filter>
     </ClInclude>
-    <ClInclude Include="pch.h">
+    <ClInclude Include="../dd-win-prof/PprofAggregator.h">
       <Filter>Includes</Filter>
     </ClInclude>
-    <ClInclude Include="../dd-win-prof/PprofAggregator.h">
+    <ClInclude Include="../dd-win-prof/Profiler.h">
       <Filter>Includes</Filter>
     </ClInclude>
     <ClInclude Include="../dd-win-prof/ProfileExporter.h">
@@ -87,13 +129,28 @@
     <ClInclude Include="../dd-win-prof/ProfilingConstants.h">
       <Filter>Includes</Filter>
     </ClInclude>
+    <ClInclude Include="../dd-win-prof/RumContext.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
     <ClInclude Include="../dd-win-prof/Sample.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="../dd-win-prof/SamplesCollector.h">
       <Filter>Includes</Filter>
     </ClInclude>
     <ClInclude Include="../dd-win-prof/SampleValueType.h">
       <Filter>Includes</Filter>
     </ClInclude>
+    <ClInclude Include="../dd-win-prof/SampleValueTypeProvider.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
     <ClInclude Include="../dd-win-prof/ScopedHandle.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="../dd-win-prof/StackFrameCollector.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="../dd-win-prof/StackSamplerLoop.h">
       <Filter>Includes</Filter>
     </ClInclude>
     <ClInclude Include="../dd-win-prof/Symbolication.h">
@@ -105,7 +162,13 @@
     <ClInclude Include="../dd-win-prof/ThreadInfo.h">
       <Filter>Includes</Filter>
     </ClInclude>
+    <ClInclude Include="../dd-win-prof/ThreadList.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
     <ClInclude Include="../dd-win-prof/Uuid.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="../dd-win-prof/WalltimeProvider.h">
       <Filter>Includes</Filter>
     </ClInclude>
   </ItemGroup>

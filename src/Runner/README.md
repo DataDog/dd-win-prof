@@ -17,14 +17,14 @@ cmake --build build --target Runner --config Debug
 ## CLI Reference
 
 ```
-Runner.exe --scenario <1-4> --iterations <num> [options]
+Runner.exe --scenario <1-5> --iterations <num> [options]
 ```
 
 ### Required
 
 | Flag | Description |
 |------|-------------|
-| `--scenario <1-4>` | 1 = Simple C calls, 2 = C++ class calls, 3 = Multi-threaded (CPU), 4 = Waiting threads |
+| `--scenario <1-5>` | 1 = Simple C calls, 2 = C++ class calls, 3 = Multi-threaded (CPU), 4 = Waiting threads, 5 = RUM context |
 | `--iterations <num>` | Number of times to repeat the scenario |
 
 ### Service Information
@@ -43,6 +43,13 @@ Runner.exe --scenario <1-4> --iterations <num> [options]
 | `--url <url>` | Datadog intake URL (mandatory with `--noenvvars`) |
 | `--apikey <key>` | Datadog API key (mandatory with `--noenvvars`) |
 
+### RUM Context Options (scenario 5)
+
+| Flag | Description |
+|------|-------------|
+| `--rum-app-id <uuid>` | RUM application ID (required for scenario 5) |
+| `--rum-session-id <uuid>` | RUM session ID (required for scenario 5) |
+
 ### Additional Options
 
 | Flag | Description |
@@ -59,6 +66,7 @@ Runner.exe --scenario 1 --iterations 5
 Runner.exe --scenario 3 --iterations 1 --name myApp --env staging --symbolize
 Runner.exe --scenario 2 --iterations 10 --noenvvars --url https://intake.datadoghq.com --apikey DD_API_KEY --name testApp
 Runner.exe --scenario 4 --iterations 2 --noenvvars --url https://intake.datadoghq.com --apikey DD_API_KEY --pprofdir C:\temp\pprof
+Runner.exe --scenario 5 --iterations 1 --rum-app-id aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee --rum-session-id 11111111-2222-3333-4444-555555555555 --pprofdir C:\temp\rum-test --symbolize
 ```
 
 ## PowerShell Scripts
@@ -101,7 +109,7 @@ Uses `--noenvvars` with a placeholder URL/apikey. Pprof files are written locall
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `-Config` | string | `Debug`, `Release`, or `Auto` (default: Auto, tries Debug first) |
-| `-Scenario` | int | Scenario number 1-4 (default: 1) |
+| `-Scenario` | int | Scenario number 1-5 (default: 1) |
 | `-Iterations` | int | Iteration count (default: 3) |
 | `-Name` | string | Service name |
 | `-Env` | string | Service environment |

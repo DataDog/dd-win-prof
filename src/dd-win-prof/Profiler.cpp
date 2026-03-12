@@ -48,7 +48,8 @@ bool Profiler::StartProfiling()
         _pConfiguration.get(),
         _pThreadList.get(),
         _pCpuTimeProvider.get(),
-        _pCpuWallTimeProvider.get());
+        _pCpuWallTimeProvider.get(),
+        this);
 
     // get the values definition from the different providers...
     auto const& sampleTypeDefinitions = valueTypeProvider.GetValueTypes();
@@ -62,6 +63,15 @@ bool Profiler::StartProfiling()
     {
         Log::Error("Failed to initialize profile exporter: ", _pProfileExporter->GetLastError());
         return false;
+    }
+
+    // Flush buffered RUM application-level IDs to the exporter
+    {
+        std::lock_guard lock(_rumAppMutex);
+        if (_rumAppIdsSet)
+        {
+            _pProfileExporter->SetRumApplicationTags(_rumApplicationId, _rumSessionId);
+        }
     }
 
     // create the samples collector and pass it the exporter
@@ -142,4 +152,73 @@ void Profiler::RemoveCurrentThread()
 {
     auto tid = ::GetCurrentThreadId();
     _pThreadList->RemoveThread(tid);
+}
+
+bool Profiler::UpdateRumContext(const RumContextValues* pContext)
+{
+    if (pContext == nullptr)
+    {
+        return false;
+    }
+
+    // Application-level IDs: set once, buffered until exporter exists
+    {
+        std::lock_guard lock(_rumAppMutex);
+        bool hasAppId = pContext->application_id != nullptr && pContext->application_id[0] != '\0';
+        bool hasSessionId = pContext->session_id != nullptr && pContext->session_id[0] != '\0';
+
+        if (hasAppId && hasSessionId)
+        {
+            if (_rumAppIdsSet)
+            {
+                // Reject calls with different application/session IDs
+                if (_rumApplicationId != pContext->application_id ||
+                    _rumSessionId != pContext->session_id)
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                _rumApplicationId = pContext->application_id;
+                _rumSessionId = pContext->session_id;
+                _rumAppIdsSet = true;
+
+                if (_pProfileExporter != nullptr)
+                {
+                    _pProfileExporter->SetRumApplicationTags(_rumApplicationId, _rumSessionId);
+                }
+            }
+        }
+    }
+
+    // View-level context: update under exclusive/writer lock
+    {
+        std::unique_lock lock(_rumViewMutex);
+        if (pContext->view_id != nullptr && pContext->view_id[0] != '\0')
+        {
+            _currentRumView.view_id = pContext->view_id;
+            _currentRumView.view_name = (pContext->view_name != nullptr) ? pContext->view_name : "";
+            _hasActiveView = true;
+        }
+        else
+        {
+            _currentRumView.view_id.clear();
+            _currentRumView.view_name.clear();
+            _hasActiveView = false;
+        }
+    }
+
+    return true;
+}
+
+bool Profiler::GetCurrentViewContext(RumViewContext& context) const
+{
+    std::shared_lock lock(_rumViewMutex);
+    if (!_hasActiveView)
+    {
+        return false;
+    }
+    context = _currentRumView;
+    return true;
 }
