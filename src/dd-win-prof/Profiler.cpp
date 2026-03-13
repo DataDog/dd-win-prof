@@ -186,9 +186,9 @@ bool Profiler::UpdateRumContext(const RumContextValues* pContext)
         }
     }
 
-    // Session + view context: update under exclusive/writer lock
+    // Session + view context
     {
-        std::unique_lock lock(_rumContextMutex);
+        std::lock_guard lock(_rumContextMutex);
 
         // Session tracking: complete previous session on change, start new one
         bool hasSessionId = pContext->session_id != nullptr && pContext->session_id[0] != '\0';
@@ -214,9 +214,10 @@ bool Profiler::UpdateRumContext(const RumContextValues* pContext)
         // View tracking
         if (pContext->view_id != nullptr && pContext->view_id[0] != '\0')
         {
-            _currentRumView.view_id = pContext->view_id;
-            _currentRumView.view_name = (pContext->view_name != nullptr) ? pContext->view_name : "";
-            _hasActiveView = true;
+            auto snapshot = std::make_shared<const RumViewContext>(RumViewContext{
+                pContext->view_id,
+                (pContext->view_name != nullptr) ? pContext->view_name : ""});
+            std::atomic_store(&_currentView, snapshot);
 
             _pendingViewStartMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
@@ -226,51 +227,47 @@ bool Profiler::UpdateRumContext(const RumContextValues* pContext)
         {
             if (_hasPendingView)
             {
+                auto prevView = std::atomic_load(&_currentView);
                 auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::system_clock::now().time_since_epoch()).count();
-                _completedViewRecords.push_back({
-                    _pendingViewStartMs,
-                    nowMs - _pendingViewStartMs,
-                    std::move(_currentRumView.view_id),
-                    std::move(_currentRumView.view_name)
-                });
+                if (prevView)
+                {
+                    _completedViewRecords.push_back({
+                        _pendingViewStartMs,
+                        nowMs - _pendingViewStartMs,
+                        prevView->view_id,
+                        prevView->view_name
+                    });
+                }
                 _hasPendingView = false;
             }
 
-            _currentRumView.view_id.clear();
-            _currentRumView.view_name.clear();
-            _hasActiveView = false;
+            std::atomic_store(&_currentView, std::shared_ptr<const RumViewContext>{nullptr});
         }
     }
 
     return true;
 }
 
-bool Profiler::GetCurrentViewContext(RumViewContext& context) const
+std::shared_ptr<const RumViewContext> Profiler::GetCurrentViewContext() const
 {
-    std::shared_lock lock(_rumContextMutex);
-    if (!_hasActiveView)
-    {
-        return false;
-    }
-    context = _currentRumView;
-    return true;
+    return std::atomic_load(&_currentView);
 }
 
 void Profiler::ConsumeViewRecords(std::vector<RumViewRecord>& records)
 {
-    std::unique_lock lock(_rumContextMutex);
+    std::lock_guard lock(_rumContextMutex);
     _completedViewRecords.swap(records);
 }
 
 void Profiler::ConsumeSessionRecords(std::vector<RumSessionRecord>& records)
 {
-    std::unique_lock lock(_rumContextMutex);
+    std::lock_guard lock(_rumContextMutex);
     _completedSessionRecords.swap(records);
 }
 
 std::string Profiler::GetCurrentSessionId() const
 {
-    std::shared_lock lock(_rumContextMutex);
+    std::lock_guard lock(_rumContextMutex);
     return _currentSessionId;
 }

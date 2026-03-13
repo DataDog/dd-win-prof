@@ -272,12 +272,11 @@ void StackSamplerLoop::CollectOneThreadSample(std::shared_ptr<ThreadInfo>& pThre
             frames[framesCount - 1] = 0;
         }
 
-        // Snapshot the current RUM view context (shared-lock, fast copy)
-        RumViewContext rumView;
-        bool hasRumView = false;
+        // Snapshot the current RUM view context (atomic ref-count bump, no lock, no string copy)
+        std::shared_ptr<const RumViewContext> rumView;
         if (_pRumViewContextProvider != nullptr)
         {
-            hasRumView = _pRumViewContextProvider->GetCurrentViewContext(rumView);
+            rumView = _pRumViewContextProvider->GetCurrentViewContext();
         }
 
         // create a sample
@@ -288,9 +287,9 @@ void StackSamplerLoop::CollectOneThreadSample(std::shared_ptr<ThreadInfo>& pThre
                 pThreadInfo,
                 frames,
                 framesCount);
-            if (hasRumView)
+            if (rumView)
             {
-                sample.SetRumViewContext(std::move(rumView));
+                sample.SetRumViewContext(rumView);
             }
             _pCpuTimeProvider->Add(std::move(sample), duration);
         }
@@ -320,9 +319,9 @@ void StackSamplerLoop::CollectOneThreadSample(std::shared_ptr<ThreadInfo>& pThre
                 pThreadInfo,
                 frames,
                 framesCount);
-            if (hasRumView)
+            if (rumView)
             {
-                sample.SetRumViewContext(std::move(rumView));
+                sample.SetRumViewContext(rumView);
             }
             _pWallTimeProvider->Add(std::move(sample), duration, waitDuration, waitingReason);
         }

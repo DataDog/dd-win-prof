@@ -4,6 +4,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -29,9 +30,10 @@ class IRumViewContextProvider {
 public:
     virtual ~IRumViewContextProvider() = default;
 
-    // Returns true and fills 'context' with a copy of the current view if active.
-    // Returns false if no view is currently active.
-    virtual bool GetCurrentViewContext(RumViewContext& context) const = 0;
+    // Returns the current view snapshot, or nullptr if no view is active.
+    // The returned shared_ptr points to an immutable object; no string copies
+    // are performed on the hot (sampling) path -- only a ref-count bump.
+    virtual std::shared_ptr<const RumViewContext> GetCurrentViewContext() const = 0;
 };
 
 class IRumRecordProvider {

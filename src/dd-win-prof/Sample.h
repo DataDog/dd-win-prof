@@ -32,14 +32,14 @@ public:
     inline std::span<const int64_t> GetValues() { return _values; }
     inline std::shared_ptr<ThreadInfo> GetThreadInfo() { return _threadInfo; }
 
-    void SetRumViewContext(RumViewContext&& ctx) { _rumViewContext = std::move(ctx); }
-    const RumViewContext& GetRumViewContext() const { return _rumViewContext; }
+    void SetRumViewContext(std::shared_ptr<const RumViewContext> ctx) { _rumView = std::move(ctx); }
+    const std::shared_ptr<const RumViewContext>& GetRumViewContext() const { return _rumView; }
 
 private:
     std::chrono::nanoseconds _timestamp;
     std::vector<uint64_t> _callstack;
     std::vector<int64_t> _values;
     std::shared_ptr<ThreadInfo> _threadInfo;
-    RumViewContext _rumViewContext;
+    std::shared_ptr<const RumViewContext> _rumView;
 };
 

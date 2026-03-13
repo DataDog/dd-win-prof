@@ -91,7 +91,7 @@ private:
     };
 
     bool InternSampleLabels(SampleLabels& labels);
-    ddog_prof_LabelSetId CreateLabelSet(const SampleLabels& labels, std::shared_ptr<ThreadInfo> threadInfo, const RumViewContext& rumView);
+    ddog_prof_LabelSetId CreateLabelSet(const SampleLabels& labels, std::shared_ptr<ThreadInfo> threadInfo, const RumViewContext* rumView);
 
     // Debug file writing methods
     bool WritePprofFile(const ddog_prof_EncodedProfile* encodedProfile);

@@ -203,10 +203,9 @@ bool ProfileExporter::Add(std::shared_ptr<Sample> const& sample)
     // Get thread info for labeling
     std::shared_ptr<ThreadInfo> threadInfo = sample->GetThreadInfo();
 
-    // Get RUM view context for labeling
-    const auto& rumView = sample->GetRumViewContext();
+    // Get RUM view context for labeling (raw pointer, no ownership transfer)
+    const RumViewContext* rumView = sample->GetRumViewContext().get();
 
-    // Create labelset for this sample (includes thread name and RUM labels if available)
     ddog_prof_LabelSetId labelsetId = CreateLabelSet(_sampleLabels, threadInfo, rumView);
 
     // Add sample to aggregator with labels
@@ -798,7 +797,7 @@ bool ProfileExporter::InternSampleLabels(SampleLabels& labels)
     return true;
 }
 
-ddog_prof_LabelSetId ProfileExporter::CreateLabelSet(const SampleLabels& labels, std::shared_ptr<ThreadInfo> threadInfo, const RumViewContext& rumView)
+ddog_prof_LabelSetId ProfileExporter::CreateLabelSet(const SampleLabels& labels, std::shared_ptr<ThreadInfo> threadInfo, const RumViewContext* rumView)
 {
     // Get profile for interning operations
     ddog_prof_Profile* profile = _aggregator->GetProfile();
@@ -845,8 +844,8 @@ ddog_prof_LabelSetId ProfileExporter::CreateLabelSet(const SampleLabels& labels,
     }
 
     // Add RUM view labels if an active view was captured for this sample
-    if (!rumView.view_id.empty()) {
-        auto viewIdValueResult = ddog_prof_Profile_intern_string(profile, to_CharSlice(rumView.view_id));
+    if (rumView != nullptr && !rumView->view_id.empty()) {
+        auto viewIdValueResult = ddog_prof_Profile_intern_string(profile, to_CharSlice(rumView->view_id));
         if (viewIdValueResult.tag == DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
             auto viewIdLabelResult = ddog_prof_Profile_intern_label_str(
                 profile, labels.rumViewIdKeyId, viewIdValueResult.ok);
@@ -855,8 +854,8 @@ ddog_prof_LabelSetId ProfileExporter::CreateLabelSet(const SampleLabels& labels,
             }
         }
 
-        if (!rumView.view_name.empty()) {
-            auto viewNameValueResult = ddog_prof_Profile_intern_string(profile, to_CharSlice(rumView.view_name));
+        if (!rumView->view_name.empty()) {
+            auto viewNameValueResult = ddog_prof_Profile_intern_string(profile, to_CharSlice(rumView->view_name));
             if (viewNameValueResult.tag == DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
                 auto endpointLabelResult = ddog_prof_Profile_intern_label_str(
                     profile, labels.traceEndpointKeyId, viewNameValueResult.ok);

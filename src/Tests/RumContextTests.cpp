@@ -78,10 +78,10 @@ TEST_F(ProfilerRumContextTest, SetViewContextAndReadBack) {
 
     EXPECT_TRUE(_profiler->UpdateRumContext(&ctx));
 
-    RumViewContext viewCtx;
-    EXPECT_TRUE(_profiler->GetCurrentViewContext(viewCtx));
-    EXPECT_EQ(viewCtx.view_id, "view-id-1");
-    EXPECT_EQ(viewCtx.view_name, "HomePage");
+    auto viewCtx = _profiler->GetCurrentViewContext();
+    ASSERT_NE(viewCtx, nullptr);
+    EXPECT_EQ(viewCtx->view_id, "view-id-1");
+    EXPECT_EQ(viewCtx->view_name, "HomePage");
 }
 
 TEST_F(ProfilerRumContextTest, ClearViewWithNullViewId) {
@@ -101,8 +101,7 @@ TEST_F(ProfilerRumContextTest, ClearViewWithNullViewId) {
     clearCtx.view_name = nullptr;
     EXPECT_TRUE(_profiler->UpdateRumContext(&clearCtx));
 
-    RumViewContext viewCtx;
-    EXPECT_FALSE(_profiler->GetCurrentViewContext(viewCtx));
+    EXPECT_EQ(_profiler->GetCurrentViewContext(), nullptr);
 }
 
 TEST_F(ProfilerRumContextTest, ClearViewWithEmptyViewId) {
@@ -122,8 +121,7 @@ TEST_F(ProfilerRumContextTest, ClearViewWithEmptyViewId) {
     clearCtx.view_name = "";
     EXPECT_TRUE(_profiler->UpdateRumContext(&clearCtx));
 
-    RumViewContext viewCtx;
-    EXPECT_FALSE(_profiler->GetCurrentViewContext(viewCtx));
+    EXPECT_EQ(_profiler->GetCurrentViewContext(), nullptr);
 }
 
 TEST_F(ProfilerRumContextTest, AppIdSetOnce) {
@@ -142,9 +140,9 @@ TEST_F(ProfilerRumContextTest, AppIdSetOnce) {
     ctx1b.view_name = "Page1b";
     EXPECT_TRUE(_profiler->UpdateRumContext(&ctx1b));
 
-    RumViewContext viewCtx;
-    EXPECT_TRUE(_profiler->GetCurrentViewContext(viewCtx));
-    EXPECT_EQ(viewCtx.view_id, "view-1b");
+    auto viewCtx = _profiler->GetCurrentViewContext();
+    ASSERT_NE(viewCtx, nullptr);
+    EXPECT_EQ(viewCtx->view_id, "view-1b");
 }
 
 TEST_F(ProfilerRumContextTest, DifferentAppIdRejected) {
@@ -163,15 +161,14 @@ TEST_F(ProfilerRumContextTest, DifferentAppIdRejected) {
     ctx2.view_name = "Page2";
     EXPECT_FALSE(_profiler->UpdateRumContext(&ctx2));
 
-    RumViewContext viewCtx;
-    EXPECT_TRUE(_profiler->GetCurrentViewContext(viewCtx));
-    EXPECT_EQ(viewCtx.view_id, "view-1");
-    EXPECT_EQ(viewCtx.view_name, "Page1");
+    auto viewCtx = _profiler->GetCurrentViewContext();
+    ASSERT_NE(viewCtx, nullptr);
+    EXPECT_EQ(viewCtx->view_id, "view-1");
+    EXPECT_EQ(viewCtx->view_name, "Page1");
 }
 
 TEST_F(ProfilerRumContextTest, NoActiveViewByDefault) {
-    RumViewContext viewCtx;
-    EXPECT_FALSE(_profiler->GetCurrentViewContext(viewCtx));
+    EXPECT_EQ(_profiler->GetCurrentViewContext(), nullptr);
 }
 
 TEST_F(ProfilerRumContextTest, ViewTransitionPattern) {
@@ -185,26 +182,27 @@ TEST_F(ProfilerRumContextTest, ViewTransitionPattern) {
     ctx.view_name = "HomePage";
     _profiler->UpdateRumContext(&ctx);
 
-    RumViewContext viewCtx;
-    EXPECT_TRUE(_profiler->GetCurrentViewContext(viewCtx));
-    EXPECT_EQ(viewCtx.view_id, "view-1");
+    auto viewCtx = _profiler->GetCurrentViewContext();
+    ASSERT_NE(viewCtx, nullptr);
+    EXPECT_EQ(viewCtx->view_id, "view-1");
 
     // Clear view (between views)
     ctx.view_id = nullptr;
     ctx.view_name = nullptr;
     _profiler->UpdateRumContext(&ctx);
-    EXPECT_FALSE(_profiler->GetCurrentViewContext(viewCtx));
+    EXPECT_EQ(_profiler->GetCurrentViewContext(), nullptr);
 
     // Set second view
     ctx.view_id = "view-2";
     ctx.view_name = "SettingsPage";
     _profiler->UpdateRumContext(&ctx);
-    EXPECT_TRUE(_profiler->GetCurrentViewContext(viewCtx));
-    EXPECT_EQ(viewCtx.view_id, "view-2");
-    EXPECT_EQ(viewCtx.view_name, "SettingsPage");
+    viewCtx = _profiler->GetCurrentViewContext();
+    ASSERT_NE(viewCtx, nullptr);
+    EXPECT_EQ(viewCtx->view_id, "view-2");
+    EXPECT_EQ(viewCtx->view_name, "SettingsPage");
 }
 
-TEST_F(ProfilerRumContextTest, ViewContextCopyIsIndependent) {
+TEST_F(ProfilerRumContextTest, ViewContextSnapshotIsIndependent) {
     RumContextValues ctx = {};
     ctx.application_id = "app-1";
     ctx.session_id = "session-1";
@@ -212,25 +210,31 @@ TEST_F(ProfilerRumContextTest, ViewContextCopyIsIndependent) {
     ctx.view_name = "HomePage";
     _profiler->UpdateRumContext(&ctx);
 
-    // Get a copy of the view context
-    RumViewContext snapshot;
-    EXPECT_TRUE(_profiler->GetCurrentViewContext(snapshot));
+    // Grab a snapshot (shared_ptr to immutable context)
+    auto snapshot = _profiler->GetCurrentViewContext();
+    ASSERT_NE(snapshot, nullptr);
 
     // Update to a new view
     ctx.view_id = "view-2";
     ctx.view_name = "SettingsPage";
     _profiler->UpdateRumContext(&ctx);
 
-    // The snapshot should still hold the old values
-    EXPECT_EQ(snapshot.view_id, "view-1");
-    EXPECT_EQ(snapshot.view_name, "HomePage");
+    // The snapshot still holds the old values (immutable, ref-counted)
+    EXPECT_EQ(snapshot->view_id, "view-1");
+    EXPECT_EQ(snapshot->view_name, "HomePage");
+
+    // The new snapshot has the updated values
+    auto current = _profiler->GetCurrentViewContext();
+    ASSERT_NE(current, nullptr);
+    EXPECT_EQ(current->view_id, "view-2");
+    EXPECT_EQ(current->view_name, "SettingsPage");
 }
 
 // ---------------------------------------------------------------------------
 // Sample RUM view context tests
 // ---------------------------------------------------------------------------
 
-TEST(SampleRumViewContextTests, DefaultSampleHasEmptyRumView) {
+TEST(SampleRumViewContextTests, DefaultSampleHasNullRumView) {
     HANDLE hThread;
     ::DuplicateHandle(::GetCurrentProcess(), ::GetCurrentThread(),
                       ::GetCurrentProcess(), &hThread, 0, FALSE, DUPLICATE_SAME_ACCESS);
@@ -238,9 +242,7 @@ TEST(SampleRumViewContextTests, DefaultSampleHasEmptyRumView) {
     uint64_t frames[] = {0x1000};
     Sample sample(std::chrono::nanoseconds(0), threadInfo, frames, 1);
 
-    const auto& rumView = sample.GetRumViewContext();
-    EXPECT_TRUE(rumView.view_id.empty());
-    EXPECT_TRUE(rumView.view_name.empty());
+    EXPECT_EQ(sample.GetRumViewContext(), nullptr);
 }
 
 TEST(SampleRumViewContextTests, SetAndGetRumViewContext) {
@@ -251,14 +253,13 @@ TEST(SampleRumViewContextTests, SetAndGetRumViewContext) {
     uint64_t frames[] = {0x1000};
     Sample sample(std::chrono::nanoseconds(0), threadInfo, frames, 1);
 
-    RumViewContext ctx;
-    ctx.view_id = "view-abc";
-    ctx.view_name = "TestPage";
-    sample.SetRumViewContext(std::move(ctx));
+    auto ctx = std::make_shared<const RumViewContext>(RumViewContext{"view-abc", "TestPage"});
+    sample.SetRumViewContext(ctx);
 
     const auto& rumView = sample.GetRumViewContext();
-    EXPECT_EQ(rumView.view_id, "view-abc");
-    EXPECT_EQ(rumView.view_name, "TestPage");
+    ASSERT_NE(rumView, nullptr);
+    EXPECT_EQ(rumView->view_id, "view-abc");
+    EXPECT_EQ(rumView->view_name, "TestPage");
 }
 
 // ---------------------------------------------------------------------------
@@ -297,11 +298,9 @@ protected:
         sample->AddValue(1, 1);
 
         if (viewId != nullptr) {
-            RumViewContext rumView;
-            rumView.view_id = viewId;
-            if (viewName != nullptr) {
-                rumView.view_name = viewName;
-            }
+            auto rumView = std::make_shared<const RumViewContext>(RumViewContext{
+                viewId,
+                (viewName != nullptr) ? viewName : ""});
             sample->SetRumViewContext(std::move(rumView));
         }
 

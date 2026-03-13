@@ -35,7 +35,7 @@ public :
     bool UpdateRumContext(const RumContextValues* pContext);
 
     // IRumViewContextProvider implementation
-    bool GetCurrentViewContext(RumViewContext& context) const override;
+    std::shared_ptr<const RumViewContext> GetCurrentViewContext() const override;
 
     // IRumRecordProvider implementation
     void ConsumeViewRecords(std::vector<RumViewRecord>& records) override;
@@ -85,10 +85,13 @@ private:
     // samples collector
     std::unique_ptr<SamplesCollector> _pSamplesCollector = nullptr;
 
-    // RUM view + session context (dynamic, protected by reader/writer lock)
-    mutable std::shared_mutex _rumContextMutex;
-    bool _hasActiveView{false};
-    RumViewContext _currentRumView;
+    // Current view snapshot: atomically swapped, readers get a ref-count bump (no lock, no string copy).
+    // nullptr means no active view.
+    std::shared_ptr<const RumViewContext> _currentView;
+
+    // Mutex serializing writers for view records, session tracking, and the atomic view swap.
+    // NOT acquired on the per-sample read path (GetCurrentViewContext uses atomic_load only).
+    mutable std::mutex _rumContextMutex;
 
     // RUM view timeline recording (protected by _rumContextMutex)
     std::vector<RumViewRecord> _completedViewRecords;
