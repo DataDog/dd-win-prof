@@ -2,6 +2,8 @@ add_executable(Runner
     Runner.cpp
     Helpers.cpp
     Spinner.cpp
+    Helpers.h
+    Spinner.h
 )
 
 target_link_libraries(Runner PRIVATE dd-win-prof)

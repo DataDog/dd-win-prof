@@ -2,6 +2,8 @@ add_executable(ObfSymbols
     ObfSymbols.cpp
     PdbParser.cpp
     ObfSymbols.rc
+    PdbParser.h
+    resource.h
 )
 
 # DIA_SDK_INCLUDE and DIA_SDK_LIB are discovered in the parent CMakeLists.txt.
