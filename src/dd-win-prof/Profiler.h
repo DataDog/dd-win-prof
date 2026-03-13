@@ -15,7 +15,7 @@
 #include "ThreadList.h"
 
 
-class Profiler : public IRumViewContextProvider, public IRumViewRecordProvider
+class Profiler : public IRumViewContextProvider, public IRumRecordProvider
 {
 public :
     Profiler();
@@ -37,8 +37,10 @@ public :
     // IRumViewContextProvider implementation
     bool GetCurrentViewContext(RumViewContext& context) const override;
 
-    // IRumViewRecordProvider implementation
+    // IRumRecordProvider implementation
     void ConsumeViewRecords(std::vector<RumViewRecord>& records) override;
+    void ConsumeSessionRecords(std::vector<RumSessionRecord>& records) override;
+    std::string GetCurrentSessionId() const override;
 
 public:
     static Configuration* GetConfiguration()
@@ -83,20 +85,25 @@ private:
     // samples collector
     std::unique_ptr<SamplesCollector> _pSamplesCollector = nullptr;
 
-    // RUM view context (dynamic, protected by reader/writer lock)
-    mutable std::shared_mutex _rumViewMutex;
+    // RUM view + session context (dynamic, protected by reader/writer lock)
+    mutable std::shared_mutex _rumContextMutex;
     bool _hasActiveView{false};
     RumViewContext _currentRumView;
 
-    // RUM view timeline recording (protected by _rumViewMutex)
+    // RUM view timeline recording (protected by _rumContextMutex)
     std::vector<RumViewRecord> _completedViewRecords;
     int64_t _pendingViewStartMs{0};
     bool _hasPendingView{false};
 
-    // RUM app-level IDs (write-once, buffered until exporter exists)
+    // RUM session tracking (protected by _rumContextMutex)
+    std::string _currentSessionId;
+    int64_t _sessionStartMs{0};
+    bool _hasPendingSession{false};
+    std::vector<RumSessionRecord> _completedSessionRecords;
+
+    // RUM app-level ID (write-once, buffered until exporter exists)
     std::mutex _rumAppMutex;
-    bool _rumAppIdsSet{false};
+    bool _rumAppIdSet{false};
     std::string _rumApplicationId;
-    std::string _rumSessionId;
 };
 

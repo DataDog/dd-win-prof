@@ -19,6 +19,12 @@ struct RumViewRecord {
     std::string view_name;
 };
 
+struct RumSessionRecord {
+    int64_t timestamp_ms{0};   // milliseconds since Unix epoch (session start)
+    int64_t duration_ms{0};    // session duration in milliseconds (0 if still ongoing)
+    std::string session_id;
+};
+
 class IRumViewContextProvider {
 public:
     virtual ~IRumViewContextProvider() = default;
@@ -28,11 +34,17 @@ public:
     virtual bool GetCurrentViewContext(RumViewContext& context) const = 0;
 };
 
-class IRumViewRecordProvider {
+class IRumRecordProvider {
 public:
-    virtual ~IRumViewRecordProvider() = default;
+    virtual ~IRumRecordProvider() = default;
 
     // Swaps the internal completed-view buffer into 'records'.
     // After the call, 'records' holds the accumulated entries and the internal buffer is empty.
     virtual void ConsumeViewRecords(std::vector<RumViewRecord>& records) = 0;
+
+    // Swaps the internal completed-session buffer into 'records'.
+    virtual void ConsumeSessionRecords(std::vector<RumSessionRecord>& records) = 0;
+
+    // Returns the currently active session_id (may be empty if no session set yet).
+    virtual std::string GetCurrentSessionId() const = 0;
 };

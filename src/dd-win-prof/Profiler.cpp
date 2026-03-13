@@ -65,12 +65,12 @@ bool Profiler::StartProfiling()
         return false;
     }
 
-    // Flush buffered RUM application-level IDs to the exporter
+    // Flush buffered RUM application ID to the exporter
     {
         std::lock_guard lock(_rumAppMutex);
-        if (_rumAppIdsSet)
+        if (_rumAppIdSet)
         {
-            _pProfileExporter->SetRumApplicationTags(_rumApplicationId, _rumSessionId);
+            _pProfileExporter->SetRumApplicationId(_rumApplicationId);
         }
     }
 
@@ -161,40 +161,57 @@ bool Profiler::UpdateRumContext(const RumContextValues* pContext)
         return false;
     }
 
-    // Application-level IDs: set once, buffered until exporter exists
+    // Application ID: write-once, buffered until exporter exists
     {
         std::lock_guard lock(_rumAppMutex);
         bool hasAppId = pContext->application_id != nullptr && pContext->application_id[0] != '\0';
-        bool hasSessionId = pContext->session_id != nullptr && pContext->session_id[0] != '\0';
 
-        if (hasAppId && hasSessionId)
+        if (hasAppId)
         {
-            if (_rumAppIdsSet)
+            if (_rumAppIdSet && _rumApplicationId != pContext->application_id)
             {
-                // Reject calls with different application/session IDs
-                if (_rumApplicationId != pContext->application_id ||
-                    _rumSessionId != pContext->session_id)
-                {
-                    return false;
-                }
+                return false;
             }
-            else
+
+            if (!_rumAppIdSet)
             {
                 _rumApplicationId = pContext->application_id;
-                _rumSessionId = pContext->session_id;
-                _rumAppIdsSet = true;
+                _rumAppIdSet = true;
 
                 if (_pProfileExporter != nullptr)
                 {
-                    _pProfileExporter->SetRumApplicationTags(_rumApplicationId, _rumSessionId);
+                    _pProfileExporter->SetRumApplicationId(_rumApplicationId);
                 }
             }
         }
     }
 
-    // View-level context: update under exclusive/writer lock
+    // Session + view context: update under exclusive/writer lock
     {
-        std::unique_lock lock(_rumViewMutex);
+        std::unique_lock lock(_rumContextMutex);
+
+        // Session tracking: complete previous session on change, start new one
+        bool hasSessionId = pContext->session_id != nullptr && pContext->session_id[0] != '\0';
+        if (hasSessionId && _currentSessionId != pContext->session_id)
+        {
+            if (_hasPendingSession)
+            {
+                auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count();
+                _completedSessionRecords.push_back({
+                    _sessionStartMs,
+                    nowMs - _sessionStartMs,
+                    std::move(_currentSessionId)
+                });
+            }
+
+            _currentSessionId = pContext->session_id;
+            _sessionStartMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            _hasPendingSession = true;
+        }
+
+        // View tracking
         if (pContext->view_id != nullptr && pContext->view_id[0] != '\0')
         {
             _currentRumView.view_id = pContext->view_id;
@@ -231,7 +248,7 @@ bool Profiler::UpdateRumContext(const RumContextValues* pContext)
 
 bool Profiler::GetCurrentViewContext(RumViewContext& context) const
 {
-    std::shared_lock lock(_rumViewMutex);
+    std::shared_lock lock(_rumContextMutex);
     if (!_hasActiveView)
     {
         return false;
@@ -242,6 +259,18 @@ bool Profiler::GetCurrentViewContext(RumViewContext& context) const
 
 void Profiler::ConsumeViewRecords(std::vector<RumViewRecord>& records)
 {
-    std::unique_lock lock(_rumViewMutex);
+    std::unique_lock lock(_rumContextMutex);
     _completedViewRecords.swap(records);
+}
+
+void Profiler::ConsumeSessionRecords(std::vector<RumSessionRecord>& records)
+{
+    std::unique_lock lock(_rumContextMutex);
+    _completedSessionRecords.swap(records);
+}
+
+std::string Profiler::GetCurrentSessionId() const
+{
+    std::shared_lock lock(_rumContextMutex);
+    return _currentSessionId;
 }

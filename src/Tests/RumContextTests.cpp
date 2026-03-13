@@ -126,8 +126,7 @@ TEST_F(ProfilerRumContextTest, ClearViewWithEmptyViewId) {
     EXPECT_FALSE(_profiler->GetCurrentViewContext(viewCtx));
 }
 
-TEST_F(ProfilerRumContextTest, AppIdsSetOnce) {
-    // Set app IDs with first call
+TEST_F(ProfilerRumContextTest, AppIdSetOnce) {
     RumContextValues ctx1 = {};
     ctx1.application_id = "app-1";
     ctx1.session_id = "session-1";
@@ -135,10 +134,10 @@ TEST_F(ProfilerRumContextTest, AppIdsSetOnce) {
     ctx1.view_name = "Page1";
     EXPECT_TRUE(_profiler->UpdateRumContext(&ctx1));
 
-    // Second call with same app IDs should succeed
+    // Same app_id with different session_id should succeed (session is mutable)
     RumContextValues ctx1b = {};
     ctx1b.application_id = "app-1";
-    ctx1b.session_id = "session-1";
+    ctx1b.session_id = "session-2";
     ctx1b.view_id = "view-1b";
     ctx1b.view_name = "Page1b";
     EXPECT_TRUE(_profiler->UpdateRumContext(&ctx1b));
@@ -148,8 +147,7 @@ TEST_F(ProfilerRumContextTest, AppIdsSetOnce) {
     EXPECT_EQ(viewCtx.view_id, "view-1b");
 }
 
-TEST_F(ProfilerRumContextTest, DifferentAppIdsRejected) {
-    // Set app IDs with first call
+TEST_F(ProfilerRumContextTest, DifferentAppIdRejected) {
     RumContextValues ctx1 = {};
     ctx1.application_id = "app-1";
     ctx1.session_id = "session-1";
@@ -157,36 +155,18 @@ TEST_F(ProfilerRumContextTest, DifferentAppIdsRejected) {
     ctx1.view_name = "Page1";
     EXPECT_TRUE(_profiler->UpdateRumContext(&ctx1));
 
-    // Second call with different app IDs should be rejected
+    // Different application_id should be rejected (view unchanged)
     RumContextValues ctx2 = {};
     ctx2.application_id = "app-2";
-    ctx2.session_id = "session-2";
+    ctx2.session_id = "session-1";
     ctx2.view_id = "view-2";
     ctx2.view_name = "Page2";
     EXPECT_FALSE(_profiler->UpdateRumContext(&ctx2));
 
-    // View should still hold the first values (rejected call had no effect)
     RumViewContext viewCtx;
     EXPECT_TRUE(_profiler->GetCurrentViewContext(viewCtx));
     EXPECT_EQ(viewCtx.view_id, "view-1");
     EXPECT_EQ(viewCtx.view_name, "Page1");
-}
-
-TEST_F(ProfilerRumContextTest, DifferentSessionIdOnlyRejected) {
-    RumContextValues ctx1 = {};
-    ctx1.application_id = "app-1";
-    ctx1.session_id = "session-1";
-    ctx1.view_id = "view-1";
-    ctx1.view_name = "Page1";
-    EXPECT_TRUE(_profiler->UpdateRumContext(&ctx1));
-
-    // Same app ID but different session ID should be rejected
-    RumContextValues ctx2 = {};
-    ctx2.application_id = "app-1";
-    ctx2.session_id = "session-OTHER";
-    ctx2.view_id = "view-2";
-    ctx2.view_name = "Page2";
-    EXPECT_FALSE(_profiler->UpdateRumContext(&ctx2));
 }
 
 TEST_F(ProfilerRumContextTest, NoActiveViewByDefault) {
@@ -333,13 +313,11 @@ protected:
     std::unique_ptr<ProfileExporter> exporter;
 };
 
-TEST_F(ProfileExporterRumTests, SetRumApplicationTags) {
+TEST_F(ProfileExporterRumTests, SetRumApplicationId) {
     ASSERT_TRUE(exporter->Initialize());
 
-    exporter->SetRumApplicationTags("app-id-123", "session-id-456");
+    exporter->SetRumApplicationId("app-id-123");
 
-    // Export a sample; the tags should be included in the export.
-    // Since export is disabled, this mainly verifies no crash.
     EXPECT_TRUE(exporter->Add(CreateTestSample()));
     EXPECT_TRUE(exporter->Export());
 }
@@ -371,7 +349,7 @@ TEST_F(ProfileExporterRumTests, MixedSamplesWithAndWithoutRum) {
 
 TEST_F(ProfileExporterRumTests, MultipleExportsWithRumTags) {
     ASSERT_TRUE(exporter->Initialize());
-    exporter->SetRumApplicationTags("app-id", "session-id");
+    exporter->SetRumApplicationId("app-id");
 
     for (int i = 0; i < 3; i++) {
         std::string viewId = "view-" + std::to_string(i);
@@ -532,47 +510,63 @@ TEST_F(ProfilerRumContextTest, ViewTransitionsProduceMultipleRecords) {
 // JSON serialization tests
 // ---------------------------------------------------------------------------
 
-TEST(ViewRecordJsonTests, EmptyRecordsProducesEmptyArray) {
-    std::vector<RumViewRecord> records;
-    auto json = ProfileExporter::SerializeViewRecordsToJson(records);
-    EXPECT_EQ(json, "[]");
+TEST(RumRecordJsonTests, EmptyBothProducesEmptyJson) {
+    std::vector<RumViewRecord> views;
+    std::vector<RumSessionRecord> sessions;
+    auto json = ProfileExporter::SerializeRumRecordsToJson(views, sessions);
+    EXPECT_EQ(json, "{\"views\":[],\"sessions\":[]}");
 }
 
-TEST(ViewRecordJsonTests, SingleRecord) {
-    std::vector<RumViewRecord> records = {
+TEST(RumRecordJsonTests, ViewsOnlyJson) {
+    std::vector<RumViewRecord> views = {
         {1773058873970, 2000, "view-1", "HomePage"}
     };
-    auto json = ProfileExporter::SerializeViewRecordsToJson(records);
+    std::vector<RumSessionRecord> sessions;
+    auto json = ProfileExporter::SerializeRumRecordsToJson(views, sessions);
     EXPECT_EQ(json,
-        "[{\"startClocks\":{\"relative\":0,\"timeStamp\":1773058873970}"
+        "{\"views\":[{\"startClocks\":{\"relative\":0,\"timeStamp\":1773058873970}"
         ",\"duration\":2000"
         ",\"viewId\":\"view-1\""
-        ",\"viewName\":\"HomePage\"}]");
+        ",\"viewName\":\"HomePage\"}]"
+        ",\"sessions\":[]}");
 }
 
-TEST(ViewRecordJsonTests, MultipleRecords) {
-    std::vector<RumViewRecord> records = {
+TEST(RumRecordJsonTests, SessionsOnlyJson) {
+    std::vector<RumViewRecord> views;
+    std::vector<RumSessionRecord> sessions = {
+        {1773058870000, 5000, "session-1"}
+    };
+    auto json = ProfileExporter::SerializeRumRecordsToJson(views, sessions);
+    EXPECT_EQ(json,
+        "{\"views\":[]"
+        ",\"sessions\":[{\"startClocks\":{\"relative\":0,\"timeStamp\":1773058870000}"
+        ",\"duration\":5000"
+        ",\"sessionId\":\"session-1\"}]}");
+}
+
+TEST(RumRecordJsonTests, MixedViewsAndSessionsJson) {
+    std::vector<RumViewRecord> views = {
         {1773058873970, 2000, "view-1", "HomePage"},
         {1773058876000, 1500, "view-2", "Settings"}
     };
-    auto json = ProfileExporter::SerializeViewRecordsToJson(records);
+    std::vector<RumSessionRecord> sessions = {
+        {1773058870000, 8000, "session-1"}
+    };
+    auto json = ProfileExporter::SerializeRumRecordsToJson(views, sessions);
 
-    // Should contain both entries separated by comma
-    EXPECT_NE(json.find("\"timeStamp\":1773058873970"), std::string::npos);
-    EXPECT_NE(json.find("\"timeStamp\":1773058876000"), std::string::npos);
-    EXPECT_NE(json.find("\"duration\":2000"), std::string::npos);
-    EXPECT_NE(json.find("\"duration\":1500"), std::string::npos);
     EXPECT_NE(json.find("\"viewId\":\"view-1\""), std::string::npos);
     EXPECT_NE(json.find("\"viewId\":\"view-2\""), std::string::npos);
-    EXPECT_EQ(json.front(), '[');
-    EXPECT_EQ(json.back(), ']');
+    EXPECT_NE(json.find("\"sessionId\":\"session-1\""), std::string::npos);
+    EXPECT_EQ(json.front(), '{');
+    EXPECT_EQ(json.back(), '}');
 }
 
-TEST(ViewRecordJsonTests, ZeroDuration) {
-    std::vector<RumViewRecord> records = {
+TEST(RumRecordJsonTests, ZeroDuration) {
+    std::vector<RumViewRecord> views = {
         {1773058873970, 0, "view-1", "Quick"}
     };
-    auto json = ProfileExporter::SerializeViewRecordsToJson(records);
+    std::vector<RumSessionRecord> sessions;
+    auto json = ProfileExporter::SerializeRumRecordsToJson(views, sessions);
     EXPECT_NE(json.find("\"duration\":0"), std::string::npos);
 }
 
@@ -615,4 +609,136 @@ TEST(EscapeJsonStringTests, EmptyString) {
     std::ostringstream ss;
     ProfileExporter::EscapeJsonString(ss, "");
     EXPECT_EQ(ss.str(), "");
+}
+
+// ---------------------------------------------------------------------------
+// RumSessionRecord struct tests
+// ---------------------------------------------------------------------------
+
+TEST(RumSessionRecordTests, DefaultConstruction) {
+    RumSessionRecord record;
+    EXPECT_EQ(record.timestamp_ms, 0);
+    EXPECT_EQ(record.duration_ms, 0);
+    EXPECT_TRUE(record.session_id.empty());
+}
+
+TEST(RumSessionRecordTests, ValueInitialization) {
+    RumSessionRecord record{1773058870000, 5000, "session-abc"};
+    EXPECT_EQ(record.timestamp_ms, 1773058870000);
+    EXPECT_EQ(record.duration_ms, 5000);
+    EXPECT_EQ(record.session_id, "session-abc");
+}
+
+// ---------------------------------------------------------------------------
+// Profiler session tracking tests
+// ---------------------------------------------------------------------------
+
+TEST_F(ProfilerRumContextTest, SessionIdCanChange) {
+    RumContextValues ctx = {};
+    ctx.application_id = "app-1";
+    ctx.session_id = "S1";
+    ctx.view_id = "view-1";
+    ctx.view_name = "Page1";
+    EXPECT_TRUE(_profiler->UpdateRumContext(&ctx));
+    EXPECT_EQ(_profiler->GetCurrentSessionId(), "S1");
+
+    ctx.session_id = "S2";
+    ctx.view_id = "view-2";
+    ctx.view_name = "Page2";
+    EXPECT_TRUE(_profiler->UpdateRumContext(&ctx));
+    EXPECT_EQ(_profiler->GetCurrentSessionId(), "S2");
+}
+
+TEST_F(ProfilerRumContextTest, SessionIdChangeCompletesRecord) {
+    RumContextValues ctx = {};
+    ctx.application_id = "app-1";
+    ctx.session_id = "S1";
+    ctx.view_id = "view-1";
+    ctx.view_name = "Page1";
+
+    auto beforeMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+
+    _profiler->UpdateRumContext(&ctx);
+    ::Sleep(50);
+
+    ctx.session_id = "S2";
+    _profiler->UpdateRumContext(&ctx);
+
+    std::vector<RumSessionRecord> records;
+    _profiler->ConsumeSessionRecords(records);
+    ASSERT_EQ(records.size(), 1u);
+    EXPECT_EQ(records[0].session_id, "S1");
+    EXPECT_GE(records[0].timestamp_ms, beforeMs);
+    EXPECT_GE(records[0].duration_ms, 40);
+}
+
+TEST_F(ProfilerRumContextTest, MultipleSessionTransitions) {
+    RumContextValues ctx = {};
+    ctx.application_id = "app-1";
+    ctx.view_id = "view-1";
+    ctx.view_name = "Page1";
+
+    ctx.session_id = "S1";
+    _profiler->UpdateRumContext(&ctx);
+    ::Sleep(20);
+
+    ctx.session_id = "S2";
+    _profiler->UpdateRumContext(&ctx);
+    ::Sleep(20);
+
+    ctx.session_id = "S3";
+    _profiler->UpdateRumContext(&ctx);
+
+    std::vector<RumSessionRecord> records;
+    _profiler->ConsumeSessionRecords(records);
+    ASSERT_EQ(records.size(), 2u);
+    EXPECT_EQ(records[0].session_id, "S1");
+    EXPECT_GT(records[0].duration_ms, 0);
+    EXPECT_EQ(records[1].session_id, "S2");
+    EXPECT_GT(records[1].duration_ms, 0);
+    EXPECT_EQ(_profiler->GetCurrentSessionId(), "S3");
+}
+
+TEST_F(ProfilerRumContextTest, ConsumeSessionRecordsEmptyByDefault) {
+    std::vector<RumSessionRecord> records;
+    _profiler->ConsumeSessionRecords(records);
+    EXPECT_TRUE(records.empty());
+}
+
+TEST_F(ProfilerRumContextTest, ConsumeSessionRecordsSwapsBuffer) {
+    RumContextValues ctx = {};
+    ctx.application_id = "app-1";
+    ctx.session_id = "S1";
+    ctx.view_id = "view-1";
+    ctx.view_name = "Page1";
+    _profiler->UpdateRumContext(&ctx);
+
+    ctx.session_id = "S2";
+    _profiler->UpdateRumContext(&ctx);
+
+    std::vector<RumSessionRecord> records;
+    _profiler->ConsumeSessionRecords(records);
+    ASSERT_EQ(records.size(), 1u);
+
+    std::vector<RumSessionRecord> records2;
+    _profiler->ConsumeSessionRecords(records2);
+    EXPECT_TRUE(records2.empty());
+}
+
+TEST_F(ProfilerRumContextTest, SameSessionIdDoesNotCreateRecord) {
+    RumContextValues ctx = {};
+    ctx.application_id = "app-1";
+    ctx.session_id = "S1";
+    ctx.view_id = "view-1";
+    ctx.view_name = "Page1";
+    _profiler->UpdateRumContext(&ctx);
+
+    ctx.view_id = "view-2";
+    ctx.view_name = "Page2";
+    _profiler->UpdateRumContext(&ctx);
+
+    std::vector<RumSessionRecord> records;
+    _profiler->ConsumeSessionRecords(records);
+    EXPECT_TRUE(records.empty());
 }

@@ -6,6 +6,7 @@
 #include "LibDatadogHelper.h"
 #include "OsSpecificApi.h"
 #include "Uuid.h"
+#include <algorithm>
 #include <iostream>
 #include <chrono>
 #include <fstream>
@@ -25,7 +26,7 @@ using namespace dd_win_prof;
 using namespace OsSpecificApi;
 
 ProfileExporter::ProfileExporter(Configuration* pConfiguration, std::span<const SampleValueType> sampleTypeDefinitions,
-                                 IRumViewRecordProvider* pRumViewRecordProvider)
+                                 IRumRecordProvider* pRumRecordProvider)
     :
     _pConfiguration(pConfiguration),
     _sampleTypeDefinitions{ sampleTypeDefinitions.begin(), sampleTypeDefinitions.end() },
@@ -38,7 +39,7 @@ ProfileExporter::ProfileExporter(Configuration* pConfiguration, std::span<const 
     _exporter(nullptr),
     _agentMode(true),
     _consecutiveErrors(0),
-    _pRumViewRecordProvider(pRumViewRecordProvider)
+    _pRumRecordProvider(pRumRecordProvider)
 {
     _runtimeId = ComputeRuntimeId();
 
@@ -240,15 +241,32 @@ bool ProfileExporter::Export(bool lastCall)
         return false;
     }
 
-    // Consume RUM view records and serialize to JSON
-    std::string viewRecordsJson;
-    if (_pRumViewRecordProvider != nullptr)
+    // Consume RUM view and session records, build session ID list for tag
+    std::string rumRecordsJson;
+    std::vector<std::string> allSessionIds;
+    if (_pRumRecordProvider != nullptr)
     {
-        _pRumViewRecordProvider->ConsumeViewRecords(_viewRecordsBuffer);
-        if (!_viewRecordsBuffer.empty())
+        _pRumRecordProvider->ConsumeViewRecords(_viewRecordsBuffer);
+        _pRumRecordProvider->ConsumeSessionRecords(_sessionRecordsBuffer);
+        std::string currentSessionId = _pRumRecordProvider->GetCurrentSessionId();
+
+        for (const auto& rec : _sessionRecordsBuffer)
         {
-            viewRecordsJson = SerializeViewRecordsToJson(_viewRecordsBuffer);
+            allSessionIds.push_back(rec.session_id);
+        }
+        if (!currentSessionId.empty())
+        {
+            if (std::find(allSessionIds.begin(), allSessionIds.end(), currentSessionId) == allSessionIds.end())
+            {
+                allSessionIds.push_back(currentSessionId);
+            }
+        }
+
+        if (!_viewRecordsBuffer.empty() || !_sessionRecordsBuffer.empty())
+        {
+            rumRecordsJson = SerializeRumRecordsToJson(_viewRecordsBuffer, _sessionRecordsBuffer);
             _viewRecordsBuffer.clear();
+            _sessionRecordsBuffer.clear();
         }
     }
 
@@ -258,13 +276,13 @@ bool ProfileExporter::Export(bool lastCall)
             Log::Warn("Failed to write debug pprof file (continuing with export)");
         }
 
-        if (!viewRecordsJson.empty())
+        if (!rumRecordsJson.empty())
         {
             auto time_t_now = std::chrono::system_clock::to_time_t(currentTime);
             ddog_Timespec ts = { static_cast<int64_t>(time_t_now), 0 };
-            if (!WriteViewRecordsFile(viewRecordsJson, ts))
+            if (!WriteRumRecordsFile(rumRecordsJson, ts))
             {
-                Log::Warn("Failed to write RUM view records file (continuing with export)");
+                Log::Warn("Failed to write RUM records file (continuing with export)");
             }
         }
     }
@@ -272,7 +290,7 @@ bool ProfileExporter::Export(bool lastCall)
     // Export profile to backend if enabled
     bool exportSuccess = true;
     if (_exportEnabled && _exporter.inner) {
-        exportSuccess = ExportProfile(encodedProfile, _currentExportId, viewRecordsJson);
+        exportSuccess = ExportProfile(encodedProfile, _currentExportId, rumRecordsJson, allSessionIds);
         if (!exportSuccess) {
             Log::Error("Failed to export profile to backend");
             // Continue with cleanup even if export failed
@@ -863,10 +881,9 @@ ddog_prof_LabelSetId ProfileExporter::CreateLabelSet(const SampleLabels& labels,
     return labelsetResult.ok;
 }
 
-void ProfileExporter::SetRumApplicationTags(const std::string& applicationId, const std::string& sessionId)
+void ProfileExporter::SetRumApplicationId(const std::string& applicationId)
 {
     _rumApplicationId = applicationId;
-    _rumSessionId = sessionId;
 }
 
 uint32_t ProfileExporter::GetCurrentProcessId()
@@ -902,7 +919,7 @@ bool ProfileExporter::WritePprofFile(const ddog_prof_EncodedProfile* encodedProf
     return success;
 }
 
-bool ProfileExporter::WriteViewRecordsFile(const std::string& json, const ddog_Timespec& startTime)
+bool ProfileExporter::WriteRumRecordsFile(const std::string& json, const ddog_Timespec& startTime)
 {
     if (json.empty() || _debugPprofPrefix.empty())
     {
@@ -915,7 +932,7 @@ bool ProfileExporter::WriteViewRecordsFile(const std::string& json, const ddog_T
     std::tm tm_storage;
     if (gmtime_s(&tm_storage, &startTime.seconds) != 0)
     {
-        Log::Debug("Failed to convert timestamp: cannot write view records to disk");
+        Log::Debug("Failed to convert timestamp: cannot write RUM records to disk");
         return false;
     }
 
@@ -924,23 +941,23 @@ bool ProfileExporter::WriteViewRecordsFile(const std::string& json, const ddog_T
     char filename[MAX_PATH];
     std::snprintf(filename, std::size(filename), "%s%s.rum-views.json", _debugPprofPrefix.c_str(), time_start);
 
-    Log::Debug("Writing RUM view records to file ", filename);
+    Log::Debug("Writing RUM records to file ", filename);
 
     std::ofstream ofs(filename, std::ios::binary);
     if (!ofs)
     {
-        Log::Error("Failed to create RUM view records file: '", filename, "'");
+        Log::Error("Failed to create RUM records file: '", filename, "'");
         return false;
     }
 
     ofs.write(json.data(), json.size());
     if (!ofs)
     {
-        Log::Error("Failed to write RUM view records to file: '", filename, "'");
+        Log::Error("Failed to write RUM records to file: '", filename, "'");
         return false;
     }
 
-    Log::Info("Successfully wrote RUM view records to ", filename);
+    Log::Info("Successfully wrote RUM records to ", filename);
     return true;
 }
 
@@ -1034,23 +1051,36 @@ void ProfileExporter::EscapeJsonString(std::ostream& out, const std::string& s)
     }
 }
 
-std::string ProfileExporter::SerializeViewRecordsToJson(const std::vector<RumViewRecord>& records)
+std::string ProfileExporter::SerializeRumRecordsToJson(
+    const std::vector<RumViewRecord>& viewRecords,
+    const std::vector<RumSessionRecord>& sessionRecords)
 {
     std::ostringstream ss;
-    ss << '[';
-    for (size_t i = 0; i < records.size(); ++i)
+    ss << "{\"views\":[";
+    for (size_t i = 0; i < viewRecords.size(); ++i)
     {
         if (i > 0) ss << ',';
         ss << "{\"startClocks\":{\"relative\":0,\"timeStamp\":"
-           << records[i].timestamp_ms
-           << "},\"duration\":" << records[i].duration_ms
+           << viewRecords[i].timestamp_ms
+           << "},\"duration\":" << viewRecords[i].duration_ms
            << ",\"viewId\":\"";
-        EscapeJsonString(ss, records[i].view_id);
+        EscapeJsonString(ss, viewRecords[i].view_id);
         ss << "\",\"viewName\":\"";
-        EscapeJsonString(ss, records[i].view_name);
+        EscapeJsonString(ss, viewRecords[i].view_name);
         ss << "\"}";
     }
-    ss << ']';
+    ss << "],\"sessions\":[";
+    for (size_t i = 0; i < sessionRecords.size(); ++i)
+    {
+        if (i > 0) ss << ',';
+        ss << "{\"startClocks\":{\"relative\":0,\"timeStamp\":"
+           << sessionRecords[i].timestamp_ms
+           << "},\"duration\":" << sessionRecords[i].duration_ms
+           << ",\"sessionId\":\"";
+        EscapeJsonString(ss, sessionRecords[i].session_id);
+        ss << "\"}";
+    }
+    ss << "]}";
     return ss.str();
 }
 
@@ -1211,7 +1241,8 @@ bool ProfileExporter::CreateExporterEndpoint(ddog_prof_Endpoint& endpoint)
 }
 
 bool ProfileExporter::ExportProfile(const ddog_prof_EncodedProfile* encodedProfile, uint32_t profileSeq,
-                                    const std::string& viewRecordsJson)
+                                    const std::string& rumRecordsJson,
+                                    const std::vector<std::string>& allSessionIds)
 {
     if (!_exporter.inner || !encodedProfile) {
         _lastError = "Exporter not initialized or invalid profile";
@@ -1220,7 +1251,7 @@ bool ProfileExporter::ExportProfile(const ddog_prof_EncodedProfile* encodedProfi
 
     // Prepare additional tags (per-export metadata)
     ddog_Vec_Tag additionalTags = ddog_Vec_Tag_new();
-    if (!PrepareAdditionalTags(additionalTags, profileSeq)) {
+    if (!PrepareAdditionalTags(additionalTags, profileSeq, allSessionIds)) {
         ddog_Vec_Tag_drop(additionalTags);
         return false;
     }
@@ -1233,17 +1264,17 @@ bool ProfileExporter::ExportProfile(const ddog_prof_EncodedProfile* encodedProfi
         return false;
     }
 
-    // Prepare optional RUM view records file attachment
-    ddog_prof_Exporter_File viewFile;
+    // Prepare optional RUM records file attachment
+    ddog_prof_Exporter_File rumFile;
     ddog_prof_Exporter_Slice_File filesToCompress = ddog_prof_Exporter_Slice_File_empty();
-    if (!viewRecordsJson.empty())
+    if (!rumRecordsJson.empty())
     {
-        viewFile.name = to_CharSlice("rum-views.json");
-        viewFile.file = {
-            reinterpret_cast<const uint8_t*>(viewRecordsJson.data()),
-            viewRecordsJson.size()
+        rumFile.name = to_CharSlice("rum-views.json");
+        rumFile.file = {
+            reinterpret_cast<const uint8_t*>(rumRecordsJson.data()),
+            rumRecordsJson.size()
         };
-        filesToCompress = { &viewFile, 1 };
+        filesToCompress = { &rumFile, 1 };
     }
 
     // Build request - time information is now embedded in the EncodedProfile
@@ -1309,7 +1340,8 @@ bool ProfileExporter::ExportProfile(const ddog_prof_EncodedProfile* encodedProfi
     return responseOk;
 }
 
-bool ProfileExporter::PrepareAdditionalTags(ddog_Vec_Tag& tags, uint32_t profileSeq)
+bool ProfileExporter::PrepareAdditionalTags(ddog_Vec_Tag& tags, uint32_t profileSeq,
+                                             const std::vector<std::string>& allSessionIds)
 {
     // Add profile sequence number
     if (!AddSingleTag(tags, TAG_PROFILE_SEQ, std::to_string(profileSeq))) {
@@ -1321,14 +1353,21 @@ bool ProfileExporter::PrepareAdditionalTags(ddog_Vec_Tag& tags, uint32_t profile
         return false;
     }
 
-    // Add RUM application-level tags (set once via SetRumApplicationTags)
+    // Add RUM application ID tag (set once via SetRumApplicationId)
     if (!_rumApplicationId.empty()) {
         if (!AddSingleTag(tags, TAG_RUM_APPLICATION_ID, _rumApplicationId)) {
             return false;
         }
     }
-    if (!_rumSessionId.empty()) {
-        if (!AddSingleTag(tags, TAG_RUM_SESSION_ID, _rumSessionId)) {
+
+    // Add RUM session ID tag (comma-separated list of all sessions since last export)
+    if (!allSessionIds.empty()) {
+        std::string sessionIdList;
+        for (size_t i = 0; i < allSessionIds.size(); ++i) {
+            if (i > 0) sessionIdList += ',';
+            sessionIdList += allSessionIds[i];
+        }
+        if (!AddSingleTag(tags, TAG_RUM_SESSION_ID, sessionIdList)) {
             return false;
         }
     }

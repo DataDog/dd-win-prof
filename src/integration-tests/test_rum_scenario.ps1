@@ -19,7 +19,7 @@
 param(
     [ValidateSet("Debug", "Release", "Auto")]
     [string]$Config = "Auto",
-    [int]$Iterations = 2
+    [int]$Iterations = 3
 )
 
 $ErrorActionPreference = "Stop"
@@ -135,7 +135,10 @@ $expectedViews = @(
 $allSamples = @()
 
 foreach ($pprofFile in $pprofFiles) {
-    $jsonOutput = & py -3 (Join-Path $scriptDir "pprof_utils.py") labels $pprofFile.FullName 2>$null
+    $jsonOutput = & {
+        $ErrorActionPreference = 'SilentlyContinue'
+        & py -3 (Join-Path $scriptDir "pprof_utils.py") labels $pprofFile.FullName 2>$null
+    }
     if ($LASTEXITCODE -ne 0) {
         Write-Host "  WARN: Failed to parse $($pprofFile.Name)" -ForegroundColor Yellow
         continue
@@ -163,14 +166,22 @@ Assert ($noViewSamples.Count -gt 0) `
 
 # -- Validate .rum-views.json content ------------------------------------------
 
+$rumSessionId2 = "99999999-2222-3333-4444-555555555555"
+
 $jsonFiles = Get-ChildItem -Path $pprofDir -Filter "*.rum-views.json" -ErrorAction SilentlyContinue
 Assert ($jsonFiles.Count -gt 0) "At least one .rum-views.json file was written ($($jsonFiles.Count) found)"
 
 $allViewEntries = @()
+$allSessionEntries = @()
 
 foreach ($jsonFile in $jsonFiles) {
-    $entries = Get-Content $jsonFile.FullName -Raw | ConvertFrom-Json
-    $allViewEntries += $entries
+    $rumData = Get-Content $jsonFile.FullName -Raw | ConvertFrom-Json
+    if ($null -ne $rumData.views) {
+        $allViewEntries += $rumData.views
+    }
+    if ($null -ne $rumData.sessions) {
+        $allSessionEntries += $rumData.sessions
+    }
 }
 
 $expectedViewCount = 3 * $Iterations
@@ -198,6 +209,33 @@ foreach ($vp in $expectedViewPairs) {
     }
     Assert ($matching.Count -ge $Iterations) `
         "Found $($matching.Count) entries for viewId=$($vp.ViewId), viewName=$($vp.ViewName) (expected >= $Iterations)"
+}
+
+# -- Validate session records --------------------------------------------------
+
+Assert ($allSessionEntries.Count -gt 0) `
+    "At least one session record found ($($allSessionEntries.Count) total)"
+
+$s1Records = $allSessionEntries | Where-Object { $_.sessionId -eq $rumSessionId }
+Assert ($s1Records.Count -ge $Iterations) `
+    "Session S1 ($rumSessionId) has completed records ($($s1Records.Count) found, expected >= $Iterations)"
+
+foreach ($s1 in $s1Records) {
+    Assert ($s1.duration -gt 0) `
+        "Session S1 record has positive duration (got $($s1.duration))"
+    Assert ($s1.startClocks.timeStamp -gt 0) `
+        "Session S1 record has positive timestamp (got $($s1.startClocks.timeStamp))"
+}
+
+$s2Records = $allSessionEntries | Where-Object { $_.sessionId -eq $rumSessionId2 }
+Assert ($s2Records.Count -ge 2) `
+    "Session S2 ($rumSessionId2) has at least 2 completed records ($($s2Records.Count) found)"
+
+foreach ($s2 in $s2Records) {
+    Assert ($s2.duration -gt 0) `
+        "Session S2 record has positive duration (got $($s2.duration))"
+    Assert ($s2.startClocks.timeStamp -gt 0) `
+        "Session S2 record has positive timestamp (got $($s2.startClocks.timeStamp))"
 }
 
 # -- Summary ------------------------------------------------------------------

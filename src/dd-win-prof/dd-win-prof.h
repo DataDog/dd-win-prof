@@ -51,7 +51,7 @@ typedef struct _ProfilerConfig
 typedef struct _RumContextValues
 {
     const char* application_id;  // UUID string, set once per process lifetime
-    const char* session_id;      // UUID string, set once per process lifetime
+    const char* session_id;      // UUID string, can change on session rotation
     const char* view_id;         // nullptr or "" to clear current view
     const char* view_name;       // human-readable name, e.g. "HomePage"
 } RumContextValues;
@@ -65,7 +65,11 @@ extern "C" {
     DD_WIN_PROF_API void StopProfiler();
 
     // Update RUM context. Safe to call from any thread.
-    // On first call with non-empty application_id/session_id, stores them as profile-level tags.
+    // On first call with non-empty application_id, stores it as a profile-level tag
+    // (subsequent calls with a different application_id are rejected).
+    // On every call with non-empty session_id, updates the current session. Session
+    // transitions are tracked with timestamps; the profile-level rum.session_id tag
+    // lists all session_ids since the last export.
     // On every call, updates the view-level context (view_id/view_name).
     // Pass nullptr/empty view_id to clear the current view (signals "between views").
     DD_WIN_PROF_API bool UpdateRumContext(const RumContextValues* pContext);
