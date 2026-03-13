@@ -16,14 +16,16 @@
 [CmdletBinding()]
 param(
     [ValidateSet("Debug", "Release", "Auto")]
-    [string]$Config    = "Auto",
-    [int]$Scenario     = 1,
-    [int]$Iterations   = 3,
-    [string]$Name      = "local-debug-runner",
-    [string]$Env       = "local",
-    [string]$Version   = "0.0.0",
-    [string]$Tags      = "",
-    [string]$OutputRoot = "",
+    [string]$Config       = "Auto",
+    [int]$Scenario        = 1,
+    [int]$Iterations      = 3,
+    [string]$Name         = "local-debug-runner",
+    [string]$Env          = "local",
+    [string]$Version      = "0.0.0",
+    [string]$Tags         = "",
+    [string]$OutputRoot   = "",
+    [string]$RumAppId     = "",
+    [string]$RumSessionId = "",
     [switch]$Symbolize
 )
 
@@ -59,8 +61,10 @@ $args = @(
     "--pprofdir",   $pprofDir
 )
 
-if ($Tags)      { $args += "--tags", $Tags }
-if ($Symbolize) { $args += "--symbolize" }
+if ($Tags)         { $args += "--tags",           $Tags }
+if ($RumAppId)     { $args += "--rum-app-id",     $RumAppId }
+if ($RumSessionId) { $args += "--rum-session-id", $RumSessionId }
+if ($Symbolize)    { $args += "--symbolize" }
 
 Write-Host "Running (local debug): $runner $($args -join ' ')" -ForegroundColor Yellow
 & $runner @args

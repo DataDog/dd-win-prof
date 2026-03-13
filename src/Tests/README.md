@@ -36,3 +36,8 @@ build\src\Tests\Debug\Tests.exe
 | `SymbolicationTests.cpp` | Call stack symbolization and function name resolution |
 | `DynamicModuleTests.cpp` | Dynamically loaded module handling |
 | `UuidTests.cpp` | UUID generation and formatting |
+| `RumContextTests.cpp` | RUM context structs, `Profiler` RUM state management, `Sample` view context, `ProfileExporter` RUM tags/labels |
+
+## Integration Tests
+
+For end-to-end tests that run the Runner executable and validate pprof file content, see [`src/integration-tests/README.md`](../integration-tests/README.md).

@@ -4,6 +4,7 @@ add_executable(Tests
     DynamicModuleTests.cpp
     PprofAggregatorTests.cpp
     ProfileExporterTests.cpp
+    RumContextTests.cpp
     SymbolicationTests.cpp
     UuidTests.cpp
     pch.h
@@ -13,15 +14,23 @@ add_executable(Tests
     # against dd-win-prof.dll) so that unit tests can exercise internal
     # implementation details.
     ../dd-win-prof/Configuration.cpp
+    ../dd-win-prof/CpuTimeProvider.cpp
     ../dd-win-prof/OsSpecificApi.cpp
     ../dd-win-prof/OsSysTools.cpp
     ../dd-win-prof/PprofAggregator.cpp
+    ../dd-win-prof/Profiler.cpp
     ../dd-win-prof/ProfileExporter.cpp
     ../dd-win-prof/Sample.cpp
+    ../dd-win-prof/SamplesCollector.cpp
+    ../dd-win-prof/SampleValueTypeProvider.cpp
+    ../dd-win-prof/StackFrameCollector.cpp
+    ../dd-win-prof/StackSamplerLoop.cpp
     ../dd-win-prof/Symbolication.cpp
     ../dd-win-prof/TagsHelper.cpp
     ../dd-win-prof/ThreadInfo.cpp
+    ../dd-win-prof/ThreadList.cpp
     ../dd-win-prof/Uuid.cpp
+    ../dd-win-prof/WalltimeProvider.cpp
 )
 
 # Tests has its own pch.h (includes gtest/gtest.h and framework.h).

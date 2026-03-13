@@ -20,14 +20,16 @@ param(
     [string]$ApiKey,
 
     [ValidateSet("Debug", "Release", "Auto")]
-    [string]$Config    = "Auto",
-    [int]$Scenario     = 1,
-    [int]$Iterations   = 3,
-    [string]$Name      = "",
-    [string]$Env       = "",
-    [string]$Version   = "",
-    [string]$Tags      = "",
-    [string]$PprofDir  = "",
+    [string]$Config       = "Auto",
+    [int]$Scenario        = 1,
+    [int]$Iterations      = 3,
+    [string]$Name         = "",
+    [string]$Env          = "",
+    [string]$Version      = "",
+    [string]$Tags         = "",
+    [string]$PprofDir     = "",
+    [string]$RumAppId     = "",
+    [string]$RumSessionId = "",
     [switch]$Symbolize
 )
 
@@ -46,12 +48,14 @@ $args = @(
     "--apikey",     $ApiKey
 )
 
-if ($Name)       { $args += "--name",     $Name }
-if ($Env)        { $args += "--env",      $Env }
-if ($Version)    { $args += "--version",  $Version }
-if ($Tags)       { $args += "--tags",     $Tags }
-if ($PprofDir)   { $args += "--pprofdir", $PprofDir }
-if ($Symbolize)  { $args += "--symbolize" }
+if ($Name)         { $args += "--name",           $Name }
+if ($Env)          { $args += "--env",            $Env }
+if ($Version)      { $args += "--version",        $Version }
+if ($Tags)         { $args += "--tags",           $Tags }
+if ($PprofDir)     { $args += "--pprofdir",       $PprofDir }
+if ($RumAppId)     { $args += "--rum-app-id",     $RumAppId }
+if ($RumSessionId) { $args += "--rum-session-id", $RumSessionId }
+if ($Symbolize)    { $args += "--symbolize" }
 
 Write-Host "Running (noenvvars): $runner $($args -join ' ')" -ForegroundColor Yellow
 & $runner @args

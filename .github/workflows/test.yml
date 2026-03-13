@@ -33,6 +33,21 @@ jobs:
     - name: Run tests
       run: build/src/Tests/${{ matrix.configuration }}/Tests.exe
 
+    - name: Setup Python
+      if: matrix.configuration == 'Release'
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+
+    - name: Install Python dependencies
+      if: matrix.configuration == 'Release'
+      run: pip install -r src/integration-tests/requirements.txt
+
+    - name: Run integration tests
+      if: matrix.configuration == 'Release'
+      run: pwsh src/integration-tests/test_rum_scenario.ps1 -Config Release
+      shell: pwsh
+
     - name: Upload build artifacts
       if: matrix.configuration == 'Release'
       uses: actions/upload-artifact@v4

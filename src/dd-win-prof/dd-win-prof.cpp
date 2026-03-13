@@ -74,4 +74,14 @@ DD_WIN_PROF_API void StopProfiler()
     profiler->StopProfiling();
 }
 
+DD_WIN_PROF_API bool UpdateRumContext(const RumContextValues* pContext)
+{
+    auto profiler = Profiler::GetInstance();
+    if (profiler == nullptr)
+    {
+        return false;
+    }
+    return profiler->UpdateRumContext(pContext);
+}
+
 }

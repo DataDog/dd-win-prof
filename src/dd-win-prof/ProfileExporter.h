@@ -5,6 +5,7 @@
 
 #include "pch.h"
 #include "Configuration.h"
+#include "RumContext.h"
 #include "Sample.h"
 #include "PprofAggregator.h"
 #include "Symbolication.h"
@@ -21,7 +22,8 @@
 class ProfileExporter
 {
 public:
-    ProfileExporter(Configuration* pConfiguration, std::span<const SampleValueType> sampleTypeDefinitions);
+    ProfileExporter(Configuration* pConfiguration, std::span<const SampleValueType> sampleTypeDefinitions,
+                    IRumRecordProvider* pRumRecordProvider = nullptr);
     ~ProfileExporter();
     bool Initialize();
     bool Add(std::shared_ptr<Sample> const& sample);
@@ -31,6 +33,16 @@ public:
     // Check if properly initialized
     bool IsInitialized() const { return _initialized; }
     const std::string& GetLastError() const { return _lastError; }
+
+    // RUM application ID tag (set once by Profiler, emitted per-export)
+    void SetRumApplicationId(const std::string& applicationId);
+
+    // JSON serialization for RUM records (public so unit tests can exercise them directly)
+    // Note: public because needed for unit testing, but not intended for external use.
+    static std::string SerializeRumRecordsToJson(
+        const std::vector<RumViewRecord>& viewRecords,
+        const std::vector<RumSessionRecord>& sessionRecords);
+    static void EscapeJsonString(std::ostream& out, const std::string& s);
 
     // Configuration methods for debug file writing
     // These methods allow enabling/disabling writing of pprof files to disk for debugging purposes.
@@ -54,8 +66,11 @@ public:
     bool InitializeExporter();
     bool CreateExporterEndpoint(ddog_prof_Endpoint& endpoint);
     bool BuildExportUrl();
-    bool ExportProfile(const ddog_prof_EncodedProfile* encodedProfile, uint32_t profileSeq);
-    bool PrepareAdditionalTags(ddog_Vec_Tag& tags, uint32_t profileSeq);
+    bool ExportProfile(const ddog_prof_EncodedProfile* encodedProfile, uint32_t profileSeq,
+                       const std::string& rumRecordsJson = {},
+                       const std::vector<std::string>& allSessionIds = {});
+    bool PrepareAdditionalTags(ddog_Vec_Tag& tags, uint32_t profileSeq,
+                               const std::vector<std::string>& allSessionIds = {});
     bool CheckExportResponse(uint16_t responseCode);
     void CleanupExporter();
 
@@ -71,14 +86,16 @@ private:
         ddog_prof_StringId processIdValueId;
         ddog_prof_StringId threadIdKeyId;  // String ID for thread_id key (used to create numeric labels per thread)
         ddog_prof_StringId threadNameKeyId;  // String ID for thread_name key
-        // Add more label IDs as needed
+        ddog_prof_StringId rumViewIdKeyId;       // String ID for "rum.view_id" key
+        ddog_prof_StringId traceEndpointKeyId;   // String ID for "trace endpoint" key
     };
 
     bool InternSampleLabels(SampleLabels& labels);
-    ddog_prof_LabelSetId CreateLabelSet(const SampleLabels& labels, std::shared_ptr<ThreadInfo> threadInfo);  // Updated to take threadInfo
+    ddog_prof_LabelSetId CreateLabelSet(const SampleLabels& labels, std::shared_ptr<ThreadInfo> threadInfo, const RumViewContext& rumView);
 
     // Debug file writing methods
     bool WritePprofFile(const ddog_prof_EncodedProfile* encodedProfile);
+    bool WriteRumRecordsFile(const std::string& json, const ddog_Timespec& startTime);
     bool CreatePprofFile(const ddog_Timespec& startTime, int* fd);
     bool WriteProfileToFile(const ddog_prof_EncodedProfile* encodedProfile, int fd);
 
@@ -104,6 +121,10 @@ private:
     static constexpr const char* TAG_GPU_CHIP_PREFIX = "gpu_chip_";
     static constexpr const char* TAG_GPU_RAM_PREFIX = "gpu_ram_";
 
+    // RUM tags (per-export)
+    static constexpr const char* TAG_RUM_APPLICATION_ID = "rum.application_id";
+    static constexpr const char* TAG_RUM_SESSION_ID = "rum.session_id";
+
     // TODO: how to define metrics? With tags? With separate json file?
     static constexpr const char* TAG_RAM_SIZE = "ram_size";
     static constexpr const char* TAG_RAM_AVAIL = "ram_available";
@@ -111,8 +132,10 @@ private:
 
     // Label key constants (for per-sample labels)
     static constexpr const char* LABEL_PROCESS_ID = "process_id";
-    static constexpr const char* LABEL_THREAD_ID = "thread id";  // New label constant for thread ID
-    static constexpr const char* LABEL_THREAD_NAME = "thread_name";  // New label constant for thread name if any
+    static constexpr const char* LABEL_THREAD_ID = "thread id";
+    static constexpr const char* LABEL_THREAD_NAME = "thread_name";
+    static constexpr const char* LABEL_RUM_VIEW_ID = "rum.view_id";
+    static constexpr const char* LABEL_TRACE_ENDPOINT = "trace endpoint";
 
     // Cache management
     void ClearCaches();
@@ -176,5 +199,13 @@ private:
 
     // Interned sample labels (reused across samples)
     SampleLabels _sampleLabels;
+
+    // RUM application ID (set once, emitted as profile tag per-export)
+    std::string _rumApplicationId;
+
+    // RUM record provider and reusable swap buffers
+    IRumRecordProvider* _pRumRecordProvider;
+    std::vector<RumViewRecord> _viewRecordsBuffer;
+    std::vector<RumSessionRecord> _sessionRecordsBuffer;
 };
 
