@@ -7,7 +7,7 @@ Unlike the unit tests in `src/Tests/` (C++ / Google Test), these tests exercise 
 ## Prerequisites
 
 - **Runner.exe** built (Debug or Release) -- see [`src/Runner/README.md`](../Runner/README.md)
-- **Python 3.9+** with pip, accessible via the `py -3` launcher (Windows) or `python`
+- **Python 3.9+** with pip, accessible via `python` or `py -3` (Windows launcher)
 
 ### Python dependencies
 
@@ -26,36 +26,49 @@ Install all at once:
 Or manually:
 
 ```powershell
-py -3 -m pip install -r requirements.txt
+pip install -r requirements.txt
 ```
 
 ## Running the tests
 
-From `src\integration-tests\`:
+### Local test (no API key required)
+
+Validates local output only: pprof files, RUM labels, view/session JSON records.
+Uses a dummy URL so no network access or API key is needed. **This is what CI runs.**
 
 ```powershell
 .\test_rum_scenario.ps1
+.\test_rum_scenario.ps1 -Config Release
+.\test_rum_scenario.ps1 -Iterations 3
 ```
-
-### Options
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `-Config` | `Auto` | Build config: `Debug`, `Release`, or `Auto` (tries Debug first) |
-| `-Iterations` | `2` | Number of Runner iterations (more iterations = more samples) |
+| `-Iterations` | `3` | Number of Runner iterations (more iterations = more samples) |
 
-### Examples
+### Send test (API key required)
+
+Validates everything in the local test **plus** that the profile was successfully sent to the backend (HTTP 200). Requires a real Datadog agent URL and API key.
 
 ```powershell
-.\test_rum_scenario.ps1 -Config Release
-.\test_rum_scenario.ps1 -Iterations 3
+.\test_rum_scenario_send.ps1 -Url http://localhost:8126 -ApiKey <your-key>
+.\test_rum_scenario_send.ps1 -Url http://localhost:8126 -ApiKey <your-key> -Config Release
 ```
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `-Url` | *(required)* | Datadog agent or intake URL |
+| `-ApiKey` | *(required)* | Datadog API key |
+| `-Config` | `Auto` | Build config: `Debug`, `Release`, or `Auto` |
+| `-Iterations` | `3` | Number of Runner iterations |
 
 ## Test inventory
 
 | Script | Scenario | What it validates |
 |--------|----------|-------------------|
-| `test_rum_scenario.ps1` | Runner scenario 5 (RUM view transitions) | Log contains successful export messages; pprof samples carry expected `rum.view_id` / `trace endpoint` labels for each view; samples without RUM labels exist during the "no active view" gap; `.rum-views.json` files contain the expected view entries with valid `startClocks`, `duration`, `viewId`, and `viewName` fields |
+| `test_rum_scenario.ps1` | Runner scenario 5 (local) | Log messages; pprof samples carry expected `rum.view_id` / `trace endpoint` labels; samples without RUM labels exist during "no active view" gaps; `.rum-views.json` files contain view and session records with valid timestamps and durations |
+| `test_rum_scenario_send.ps1` | Runner scenario 5 (with send) | Everything above **plus** successful profile upload to the backend (HTTP 200, no send errors) |
 
 ## Utilities
 
@@ -64,7 +77,7 @@ From `src\integration-tests\`:
 Python helper for reading LZ4-compressed pprof files.
 
 ```
-py -3 pprof_utils.py labels <file.lz4.pprof>
+python pprof_utils.py labels <file.lz4.pprof>
 ```
 
 Outputs a JSON array of samples with their resolved string labels:
@@ -82,10 +95,12 @@ On first run it auto-generates `profile_pb2.py` from `profile.proto` using `grpc
 
 ```
 src/integration-tests/
-  install-dependencies.ps1   # One-step Python dependency installer
-  requirements.txt           # Python packages: lz4, protobuf, grpcio-tools
-  profile.proto              # Google pprof protobuf definition
-  pprof_utils.py             # LZ4 decompress + protobuf parse + JSON output
-  test_rum_scenario.ps1      # RUM scenario 5 integration test
-  README.md                  # This file
+  rum_test_helpers.ps1         # Shared helpers (Assert, Find-Python, Show-TestSummary)
+  install-dependencies.ps1     # One-step Python dependency installer
+  requirements.txt             # Python packages: lz4, protobuf, grpcio-tools
+  profile.proto                # Google pprof protobuf definition
+  pprof_utils.py               # LZ4 decompress + protobuf parse + JSON output
+  test_rum_scenario.ps1        # RUM scenario 5 integration test (local, no API key)
+  test_rum_scenario_send.ps1   # RUM scenario 5 integration test (with backend send)
+  README.md                    # This file
 ```

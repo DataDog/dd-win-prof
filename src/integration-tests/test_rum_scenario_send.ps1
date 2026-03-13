@@ -1,24 +1,21 @@
-# Integration test for Runner scenario 5 (RUM context view transitions).
-# Does NOT require an API key or network access -- validates local pprof/JSON output only.
+# Integration test for Runner scenario 5 with backend upload validation.
+# Requires a real API key and Datadog agent URL.
 #
-# Validates:
-#   1. Runner exits cleanly
-#   2. Profiler log contains successful pprof write messages
-#   3. Pprof file(s) contain expected per-sample RUM labels
-#   4. JSON file(s) contain expected view and session records
-#
-# Prerequisites:
-#   - Runner.exe built (Debug or Release)
-#   - Python 3 with lz4, protobuf, grpcio-tools installed
-#     (run: pip install -r requirements.txt)
+# Validates everything in test_rum_scenario.ps1 PLUS:
+#   - Profile was successfully sent to the backend (HTTP 200 in logs)
 #
 # Usage:
-#   .\test_rum_scenario.ps1
-#   .\test_rum_scenario.ps1 -Config Release
-#   .\test_rum_scenario.ps1 -Iterations 3
+#   .\test_rum_scenario_send.ps1 -Url http://localhost:8126 -ApiKey <key>
+#   .\test_rum_scenario_send.ps1 -Url http://localhost:8126 -ApiKey <key> -Config Release
 
 [CmdletBinding()]
 param(
+    [Parameter(Mandatory)]
+    [string]$Url,
+
+    [Parameter(Mandatory)]
+    [string]$ApiKey,
+
     [ValidateSet("Debug", "Release", "Auto")]
     [string]$Config = "Auto",
     [int]$Iterations = 3
@@ -32,7 +29,7 @@ $runnerDir = Join-Path $scriptDir "..\Runner"
 
 # -- Check prerequisites ------------------------------------------------------
 
-Write-Host "`n=== RUM Scenario 5 Integration Test (local) ===" -ForegroundColor Cyan
+Write-Host "`n=== RUM Scenario 5 Integration Test (with send) ===" -ForegroundColor Cyan
 Write-Host ""
 
 $pythonCmd = Find-Python
@@ -42,7 +39,7 @@ $runner = Find-Runner -ScriptDir $runnerDir -Config $Config
 
 # -- Setup temp directories ----------------------------------------------------
 
-$testRoot = Join-Path $env:TEMP "dd-rum-integration-test-$(Get-Date -Format 'yyyyMMddHHmmss')"
+$testRoot = Join-Path $env:TEMP "dd-rum-integration-test-send-$(Get-Date -Format 'yyyyMMddHHmmss')"
 $pprofDir = Join-Path $testRoot "pprof"
 $logDir   = Join-Path $testRoot "logs"
 
@@ -64,8 +61,8 @@ $runnerArgs = @(
     "--scenario",       5,
     "--iterations",     $Iterations,
     "--noenvvars",
-    "--url",            "https://localhost:0/no-upload",
-    "--apikey",         "integration-test-key",
+    "--url",            $Url,
+    "--apikey",         $ApiKey,
     "--pprofdir",       $pprofDir,
     "--rum-app-id",     $rumAppId,
     "--rum-session-id", $rumSessionId
@@ -97,6 +94,13 @@ if ($logFiles.Count -gt 0) {
 
     $lastExportMatch = $logContent | Select-String "Export last profile #"
     Assert ($null -ne $lastExportMatch) "Log contains 'Export last profile #' (final export ran)"
+
+    # Send validation: check that the profile was accepted by the backend (2xx)
+    $sendSuccessMatch = $logContent | Select-String "Successfully sent profile, HTTP 2\d{2}"
+    Assert ($null -ne $sendSuccessMatch) "Log contains successful profile send (HTTP 2xx)"
+
+    $sendErrorMatch = $logContent | Select-String "Send profile failed"
+    Assert ($null -eq $sendErrorMatch) "No 'Send profile failed' errors in log"
 }
 
 # -- Validate pprof content ----------------------------------------------------
