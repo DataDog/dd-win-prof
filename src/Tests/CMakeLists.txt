@@ -6,10 +6,12 @@ add_executable(Tests
     ProfileExporterTests.cpp
     SymbolicationTests.cpp
     UuidTests.cpp
+    pch.h
+    targetver.h
 
     # These source files are compiled directly into Tests (rather than linking
     # against dd-win-prof.dll) so that unit tests can exercise internal
-    # implementation details. They match the file list in Tests.vcxproj.
+    # implementation details.
     ../dd-win-prof/Configuration.cpp
     ../dd-win-prof/OsSpecificApi.cpp
     ../dd-win-prof/OsSysTools.cpp

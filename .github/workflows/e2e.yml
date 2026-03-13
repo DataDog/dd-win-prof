@@ -50,7 +50,7 @@ jobs:
     - name: Run Vulkan e2e test (headless)
       run: |
         cd e2e-tests
-        .\vulcan_quickstart.ps1 -EnableProfiler -CI -Verbose -ProfilerDllDir ..\profiler-bin\src\dd-win-prof\x64\Release -RepoRef "${{ env.VULKAN_REF }}" 2>&1
+        .\vulcan_quickstart.ps1 -EnableProfiler -CI -Verbose -ProfilerDllDir ..\profiler-bin\src\reference -RepoRef "${{ env.VULKAN_REF }}" 2>&1
       shell: pwsh
       timeout-minutes: 30
 

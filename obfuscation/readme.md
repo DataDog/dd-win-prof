@@ -1,114 +1,74 @@
-# Symbols Solution Build Instructions
+# Obfuscation Tools Build Instructions
 
-This solution contains the ObfSymbols project which extracts and obfuscate symbols from PDB files.
+This directory contains the ObfSymbols project which extracts and obfuscates symbols from PDB files.
 
-## Solution Structure
+## Structure
 
 ```
-Symbols/
-├── Symbols.slnx              # Visual Studio solution file
+obfuscation/
+├── CMakeLists.txt            # CMake build configuration
 ├── build.ps1                 # PowerShell build script
 ├── build.bat                 # Batch build script
 ├── test.ps1                  # PowerShell test script
-├── BUILD_INSTRUCTIONS.md     # This file
-├── ObfSymbols/              # Main project folder
-│   ├── ObfSymbols.cpp       # Source code
-│   ├── ObfSymbols.vcxproj   # Project file
-│   └── x64/                 # Build outputs
-│       ├── Debug/
-│       └── Release/
-└── TestSymbols/             # Test project folder
-    ├── TestSymbols.cpp      # Test source with various symbols
-    ├── TestSymbols.vcxproj  # Test project file
-    └── x64/                 # Test outputs
-        ├── Debug/
-        └── Release/
+├── ObfSymbols/               # Main project
+│   ├── ObfSymbols.cpp
+│   └── CMakeLists.txt
+├── TestSymbols/              # Test executable
+│   ├── TestSymbols.cpp
+│   └── CMakeLists.txt
+└── TestSymbolsDll/           # Test DLL (used by ObfSymbols tests)
+    ├── TestSymbolsDll.cpp
+    └── CMakeLists.txt
 ```
 
-## Build Scripts
+## Building
 
-### 1. PowerShell Script: `build.ps1` (Recommended)
+### With build scripts
 
-**Basic Usage:**
 ```powershell
-.\build.ps1
-```
-
-**Advanced Usage:**
-```powershell
-# Build Debug x64 (default)
+# Build Debug (default)
 .\build.ps1
 
-# Build Release x64
+# Build Release
 .\build.ps1 Release
 
-# Build Debug x86
-.\build.ps1 Debug x86
-
-# Build Release x86
-.\build.ps1 Release x86
-
-# Clean rebuild (forces recompilation)
-.\build.ps1 Debug x64 -Clean
+# Clean rebuild
 .\build.ps1 Release -Clean
 ```
 
-### 2. Batch Script: `build.bat`
-
-**Basic Usage:**
+Or with the batch script:
 ```cmd
-build.bat
-```
-
-**Advanced Usage:**
-```cmd
-REM Build Debug x64 (default)
-build.bat
-
-REM Build Release x64
 build.bat Release
-
-REM Build Debug x86
-build.bat Debug x86
-
-REM Build Release x86
-build.bat Release x86
-
-REM Clean rebuild
-build.bat Debug x64 clean
-build.bat Release x64 clean
+build.bat Release clean
 ```
 
-## Quick Reference
+### With CMake directly
 
-| Command | Configuration | Platform | Action |
-|---------|--------------|----------|--------|
-| `.\build.ps1` | Debug | x64 | Incremental build |
-| `.\build.ps1 Release` | Release | x64 | Incremental build |
-| `.\build.ps1 -Clean` | Debug | x64 | Full rebuild |
-| `.\build.ps1 Release -Clean` | Release | x64 | Full rebuild |
+From the repository root:
+```powershell
+cmake -G "Visual Studio 17 2022" -A x64 -B build -DDD_WIN_PROF_BUILD_OBFUSCATION=ON
+cmake --build build --config Release --target ObfSymbols
+```
 
 ## Output Locations
 
 After building, the executable will be located at:
-- **Debug x64**: `ObfSymbols\x64\Debug\ObfSymbols.exe`
-- **Release x64**: `ObfSymbols\x64\Release\ObfSymbols.exe`
-- **Debug x86**: `ObfSymbols\Debug\ObfSymbols.exe`
-- **Release x86**: `ObfSymbols\Release\ObfSymbols.exe`
+- **Debug**: `build\obfuscation\ObfSymbols\Debug\ObfSymbols.exe`
+- **Release**: `build\obfuscation\ObfSymbols\Release\ObfSymbols.exe`
 
 ## Running the Application
 
 ```cmd
-.\ObfSymbols\x64\Debug\ObfSymbols.exe --pdb <path_to_pdb_file> --out <output_file> [--obf <obfuscated_output_file>]
+build\obfuscation\ObfSymbols\Debug\ObfSymbols.exe --pdb <path_to_pdb_file> --out <output_file> [--obf <obfuscated_output_file>]
 ```
 
 **Example:**
 ```cmd
 # Generate both symbol file and obfuscated file (auto-generated name)
-.\ObfSymbols\x64\Debug\ObfSymbols.exe --pdb MyApp.pdb --out symbols.sym
+build\obfuscation\ObfSymbols\Debug\ObfSymbols.exe --pdb MyApp.pdb --out symbols.sym
 
 # Specify custom obfuscated file name
-.\ObfSymbols\x64\Debug\ObfSymbols.exe --pdb MyApp.pdb --out symbols.sym --obf obfuscated.sym
+build\obfuscation\ObfSymbols\Debug\ObfSymbols.exe --pdb MyApp.pdb --out symbols.sym --obf obfuscated.sym
 ```
 
 **Output Files:**
@@ -174,14 +134,14 @@ A comprehensive test script is provided to validate ObfSymbols functionality:
 
 **Advanced Usage:**
 ```powershell
-# Test Debug x64 (default)
+# Test Debug (default)
 .\test.ps1
 
-# Test Release x64
+# Test Release
 .\test.ps1 Release
 
-# Test Debug x86
-.\test.ps1 Debug x86
+# Test with custom build directory
+.\test.ps1 Release -BuildDir ..\out
 ```
 
 **What it tests:**
@@ -207,18 +167,17 @@ ALL TESTS PASSED! ✓
 
 ## Using Visual Studio
 
-You can also open the solution in Visual Studio 2022:
-1. Open `Symbols.slnx` in Visual Studio 2022
-2. Select the desired configuration (Debug/Release) and platform (x64/x86)
-3. Build → Build Solution (or press Ctrl+Shift+B)
+From the repository root, generate and open the VS solution:
+```powershell
+.\scripts\generate-vs.ps1
+```
+
+Then build from the IDE (Build → Build Solution or Ctrl+Shift+B). Make sure to enable `DD_WIN_PROF_BUILD_OBFUSCATION` in the CMake configure step if you need obfuscation tools.
 
 ## Requirements
 
 - **Visual Studio 2022** (Professional, Community, or Enterprise)
-- **Platform Toolset**: v143 (Visual Studio 2022)
+- **CMake 3.21** or later
 - **C++ Standard**: C++20
 - **Windows SDK**: 10.0 or higher
 - **DIA SDK**: Included with Visual Studio 2022 (used for all PDB operations)
-  - Headers: `$(VSInstallDir)DIA SDK\include`
-  - Libraries: `$(VSInstallDir)DIA SDK\lib\amd64`
-  - Runtime: `msdia140.dll` (automatically loaded from Visual Studio installation)
