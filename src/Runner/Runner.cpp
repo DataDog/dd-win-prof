@@ -337,45 +337,34 @@ void RunWaitingThreads()
 
 
 // Scenario 5: RUM context view transitions
-void SetView(const std::string& appId, const std::string& sessionId,
-             const char* viewId, const char* viewName)
-{
-    RumContextValues ctx = {};
-    ctx.application_id = appId.c_str();
-    ctx.session_id = sessionId.c_str();
-    ctx.view_id = viewId;
-    ctx.view_name = viewName;
-    UpdateRumContext(&ctx);
-}
-
-void ClearView(const std::string& appId, const std::string& sessionId)
-{
-    SetView(appId, sessionId, nullptr, nullptr);
-}
-
 void RunRumScenario(const std::string& appId, const std::string& sessionId)
 {
     static const std::string sessionId2 = "99999999-2222-3333-4444-555555555555";
 
-    SetView(appId, sessionId, "11111111-1111-1111-1111-111111111111", "HomePage");
+    // App ID is set once at the start
+    SetRumApplicationId(appId.c_str());
+    SetRumSession(sessionId.c_str());
+
+    SetRumView("11111111-1111-1111-1111-111111111111", "HomePage");
     std::cout << "View 1: HomePage, session S1 (spinning 2s)..." << std::endl;
     Spin(2000);
 
-    ClearView(appId, sessionId);
-    SetView(appId, sessionId, "22222222-2222-2222-2222-222222222222", "SettingsPage");
+    SetRumView(nullptr, nullptr);
+    SetRumView("22222222-2222-2222-2222-222222222222", "SettingsPage");
     std::cout << "View 2: SettingsPage, session S1 (spinning 2s)..." << std::endl;
     Spin(2000);
 
-    ClearView(appId, sessionId);
+    SetRumView(nullptr, nullptr);
     std::cout << "No active view, session S1 (spinning 1s)..." << std::endl;
     Spin(1000);
 
     // Session rotation: switch from S1 to S2
-    SetView(appId, sessionId2, "33333333-3333-3333-3333-333333333333", "ProfilePage");
+    SetRumSession(sessionId2.c_str());
+    SetRumView("33333333-3333-3333-3333-333333333333", "ProfilePage");
     std::cout << "View 3: ProfilePage, session S2 (spinning 2s)..." << std::endl;
     Spin(2000);
 
-    ClearView(appId, sessionId2);
+    SetRumView(nullptr, nullptr);
 }
 
 

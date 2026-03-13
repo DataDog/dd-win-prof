@@ -74,14 +74,36 @@ DD_WIN_PROF_API void StopProfiler()
     profiler->StopProfiling();
 }
 
+DD_WIN_PROF_API bool SetRumApplicationId(const char* applicationId)
+{
+    auto profiler = Profiler::GetInstance();
+    if (profiler == nullptr) return false;
+    return profiler->SetRumApplicationId(applicationId);
+}
+
+DD_WIN_PROF_API bool SetRumSession(const char* sessionId)
+{
+    auto profiler = Profiler::GetInstance();
+    if (profiler == nullptr) return false;
+    return profiler->SetRumSession(sessionId);
+}
+
+DD_WIN_PROF_API bool SetRumView(const char* viewId, const char* viewName)
+{
+    auto profiler = Profiler::GetInstance();
+    if (profiler == nullptr) return false;
+    return profiler->SetRumView(viewId, viewName);
+}
+
 DD_WIN_PROF_API bool UpdateRumContext(const RumContextValues* pContext)
 {
     auto profiler = Profiler::GetInstance();
-    if (profiler == nullptr)
-    {
-        return false;
-    }
-    return profiler->UpdateRumContext(pContext);
+    if (profiler == nullptr || pContext == nullptr) return false;
+
+    if (!profiler->SetRumApplicationId(pContext->application_id)) return false;
+    profiler->SetRumSession(pContext->session_id);
+    profiler->SetRumView(pContext->view_id, pContext->view_name);
+    return true;
 }
 
 }

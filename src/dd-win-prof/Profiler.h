@@ -31,7 +31,14 @@ public :
     size_t GetThreadCount() const { return _pThreadList ? _pThreadList->Count() : 0; }
     bool IsAutoStartEnabled() const { return _pConfiguration->IsProfilerAutoStartEnabled(); }
 
-    // RUM context management (called from the C API, thread-safe)
+    // RUM context management (called from the C API, thread-safe).
+    // Split by change frequency: app ID is write-once, sessions rotate rarely,
+    // views change on every page navigation.
+    bool SetRumApplicationId(const char* applicationId);
+    bool SetRumSession(const char* sessionId);
+    bool SetRumView(const char* viewId, const char* viewName);
+
+    // Legacy combined API -- delegates to the three methods above.
     bool UpdateRumContext(const RumContextValues* pContext);
 
     // IRumViewContextProvider implementation

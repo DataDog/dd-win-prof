@@ -154,6 +154,104 @@ void Profiler::RemoveCurrentThread()
     _pThreadList->RemoveThread(tid);
 }
 
+bool Profiler::SetRumApplicationId(const char* applicationId)
+{
+    bool hasAppId = applicationId != nullptr && applicationId[0] != '\0';
+    if (!hasAppId)
+    {
+        return true;
+    }
+
+    std::lock_guard lock(_rumAppMutex);
+
+    if (_rumAppIdSet && _rumApplicationId != applicationId)
+    {
+        return false;
+    }
+
+    if (!_rumAppIdSet)
+    {
+        _rumApplicationId = applicationId;
+        _rumAppIdSet = true;
+
+        if (_pProfileExporter != nullptr)
+        {
+            _pProfileExporter->SetRumApplicationId(_rumApplicationId);
+        }
+    }
+
+    return true;
+}
+
+bool Profiler::SetRumSession(const char* sessionId)
+{
+    bool hasSessionId = sessionId != nullptr && sessionId[0] != '\0';
+    if (!hasSessionId)
+    {
+        return true;
+    }
+
+    std::unique_lock lock(_rumContextMutex);
+
+    if (_currentSessionId != sessionId)
+    {
+        if (_hasPendingSession)
+        {
+            auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            _completedSessionRecords.push_back({
+                _sessionStartMs,
+                nowMs - _sessionStartMs,
+                std::move(_currentSessionId)
+            });
+        }
+
+        _currentSessionId = sessionId;
+        _sessionStartMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        _hasPendingSession = true;
+    }
+
+    return true;
+}
+
+bool Profiler::SetRumView(const char* viewId, const char* viewName)
+{
+    std::unique_lock lock(_rumContextMutex);
+
+    if (viewId != nullptr && viewId[0] != '\0')
+    {
+        _currentRumView.view_id = viewId;
+        _currentRumView.view_name = (viewName != nullptr) ? viewName : "";
+        _hasActiveView = true;
+
+        _pendingViewStartMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        _hasPendingView = true;
+    }
+    else
+    {
+        if (_hasPendingView)
+        {
+            auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            _completedViewRecords.push_back({
+                _pendingViewStartMs,
+                nowMs - _pendingViewStartMs,
+                std::move(_currentRumView.view_id),
+                std::move(_currentRumView.view_name)
+            });
+            _hasPendingView = false;
+        }
+
+        _currentRumView.view_id.clear();
+        _currentRumView.view_name.clear();
+        _hasActiveView = false;
+    }
+
+    return true;
+}
+
 bool Profiler::UpdateRumContext(const RumContextValues* pContext)
 {
     if (pContext == nullptr)
@@ -161,88 +259,12 @@ bool Profiler::UpdateRumContext(const RumContextValues* pContext)
         return false;
     }
 
-    // Application ID: write-once, buffered until exporter exists
+    if (!SetRumApplicationId(pContext->application_id))
     {
-        std::lock_guard lock(_rumAppMutex);
-        bool hasAppId = pContext->application_id != nullptr && pContext->application_id[0] != '\0';
-
-        if (hasAppId)
-        {
-            if (_rumAppIdSet && _rumApplicationId != pContext->application_id)
-            {
-                return false;
-            }
-
-            if (!_rumAppIdSet)
-            {
-                _rumApplicationId = pContext->application_id;
-                _rumAppIdSet = true;
-
-                if (_pProfileExporter != nullptr)
-                {
-                    _pProfileExporter->SetRumApplicationId(_rumApplicationId);
-                }
-            }
-        }
+        return false;
     }
-
-    // Session + view context: update under exclusive/writer lock
-    {
-        std::unique_lock lock(_rumContextMutex);
-
-        // Session tracking: complete previous session on change, start new one
-        bool hasSessionId = pContext->session_id != nullptr && pContext->session_id[0] != '\0';
-        if (hasSessionId && _currentSessionId != pContext->session_id)
-        {
-            if (_hasPendingSession)
-            {
-                auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::system_clock::now().time_since_epoch()).count();
-                _completedSessionRecords.push_back({
-                    _sessionStartMs,
-                    nowMs - _sessionStartMs,
-                    std::move(_currentSessionId)
-                });
-            }
-
-            _currentSessionId = pContext->session_id;
-            _sessionStartMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::system_clock::now().time_since_epoch()).count();
-            _hasPendingSession = true;
-        }
-
-        // View tracking
-        if (pContext->view_id != nullptr && pContext->view_id[0] != '\0')
-        {
-            _currentRumView.view_id = pContext->view_id;
-            _currentRumView.view_name = (pContext->view_name != nullptr) ? pContext->view_name : "";
-            _hasActiveView = true;
-
-            _pendingViewStartMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::system_clock::now().time_since_epoch()).count();
-            _hasPendingView = true;
-        }
-        else
-        {
-            if (_hasPendingView)
-            {
-                auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::system_clock::now().time_since_epoch()).count();
-                _completedViewRecords.push_back({
-                    _pendingViewStartMs,
-                    nowMs - _pendingViewStartMs,
-                    std::move(_currentRumView.view_id),
-                    std::move(_currentRumView.view_name)
-                });
-                _hasPendingView = false;
-            }
-
-            _currentRumView.view_id.clear();
-            _currentRumView.view_name.clear();
-            _hasActiveView = false;
-        }
-    }
-
+    SetRumSession(pContext->session_id);
+    SetRumView(pContext->view_id, pContext->view_name);
     return true;
 }
 

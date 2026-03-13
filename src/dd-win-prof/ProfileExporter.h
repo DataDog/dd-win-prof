@@ -200,7 +200,8 @@ private:
     // Interned sample labels (reused across samples)
     SampleLabels _sampleLabels;
 
-    // RUM application ID (set once, emitted as profile tag per-export)
+    // RUM application ID (set once from C API thread, read from export thread)
+    std::mutex _rumAppIdMutex;
     std::string _rumApplicationId;
 
     // RUM record provider and reusable swap buffers

@@ -46,8 +46,7 @@ typedef struct _ProfilerConfig
 } ProfilerConfig;
 
 
-// RUM (Real User Monitoring) context values.
-// Passed by dd-sdk-cpp to correlate profiling data with user sessions/views.
+// RUM (Real User Monitoring) context values (legacy combined struct).
 typedef struct _RumContextValues
 {
     const char* application_id;  // UUID string, set once per process lifetime
@@ -58,31 +57,23 @@ typedef struct _RumContextValues
 
 extern "C" {
     DD_WIN_PROF_API bool SetupProfiler(ProfilerConfig* pSettings);
-    // Start profiling manually (returns false if already started or explicitly disabled)
     DD_WIN_PROF_API bool StartProfiler();
-
-    // Stop profiling manually (safe to call even if not started)
     DD_WIN_PROF_API void StopProfiler();
 
-    // Update RUM context. Safe to call from any thread.
-    // On first call with non-empty application_id, stores it as a profile-level tag
-    // (subsequent calls with a different application_id are rejected).
-    // On every call with non-empty session_id, updates the current session. Session
-    // transitions are tracked with timestamps; the profile-level rum.session_id tag
-    // lists all session_ids since the last export.
-    // On every call, updates the view-level context (view_id/view_name).
-    // Pass nullptr/empty view_id to clear the current view (signals "between views").
-    DD_WIN_PROF_API bool UpdateRumContext(const RumContextValues* pContext);
+    // --- RUM context (split by change frequency) ---
 
-    // Environment Variables (independent controls):
-    // DD_PROFILING_ENABLED: Controls whether profiler CAN be started
-    //   - false/0: Blocks all profiling (security override)
-    //   - true/1 or not set: Allows profiling
-    //
-    // Test setting ONLY
-    // Zero-code profiling: Use ProfilerInjector.exe to inject the DLL with auto-start
-    // DD_PROFILING_AUTO_START: Controls whether profiler auto-starts when DLL loads
-    //   - true/1: Auto-start when DLL is injected/loaded
-    //   - false/0 or not set: Manual control only
-    //
+    // Set the RUM application ID. Write-once: the first non-empty value wins;
+    // subsequent calls with a *different* ID return false.
+    DD_WIN_PROF_API bool SetRumApplicationId(const char* applicationId);
+
+    // Set/rotate the RUM session. When the session ID changes, the previous
+    // session is completed with a timestamp and duration.
+    DD_WIN_PROF_API bool SetRumSession(const char* sessionId);
+
+    // Set or clear the active view. Pass nullptr or "" to signal "between views";
+    // this completes the current view record with a duration.
+    DD_WIN_PROF_API bool SetRumView(const char* viewId, const char* viewName);
+
+    // Legacy combined API -- calls the three functions above in order.
+    DD_WIN_PROF_API bool UpdateRumContext(const RumContextValues* pContext);
 }
