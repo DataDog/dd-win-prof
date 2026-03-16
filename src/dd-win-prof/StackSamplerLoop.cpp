@@ -187,7 +187,7 @@ void StackSamplerLoop::CpuProfilingIteration()
 
 void StackSamplerLoop::WalltimeProfilingIteration()
 {
-    uint32_t managedThreadsCount = _pThreadList->Count();
+    uint32_t managedThreadsCount = static_cast<uint32_t>(_pThreadList->Count());
     uint32_t sampledThreadsCount = (std::min)(managedThreadsCount, _walltimeThreadsThreshold);
 
     uint32_t i = 0;
