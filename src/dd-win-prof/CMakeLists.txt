@@ -39,6 +39,7 @@ add_library(dd-win-prof SHARED
     Profiler.h
     ProfileExporter.h
     ProfilingConstants.h
+    RumContext.h
     resource.h
     Sample.h
     SamplesCollector.h

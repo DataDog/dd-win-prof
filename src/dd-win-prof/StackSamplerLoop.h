@@ -7,6 +7,7 @@
 
 #include "Configuration.h"
 #include "CpuTimeProvider.h"
+#include "RumContext.h"
 #include "StackFrameCollector.h"
 #include "ThreadList.h"
 #include "ProfilingConstants.h"
@@ -29,7 +30,8 @@ public:
         Configuration* pConfiguration,
         ThreadList* pThreadList,
         CpuTimeProvider* pCpuTimeProvider,
-        WallTimeProvider* pWallTimeProvider
+        WallTimeProvider* pWallTimeProvider,
+        IRumViewContextProvider* pRumViewContextProvider = nullptr
         );
     ~StackSamplerLoop();
 
@@ -69,5 +71,6 @@ private:
     StackFrameCollector _stackFrameCollector;
     CpuTimeProvider* _pCpuTimeProvider;
     WallTimeProvider* _pWallTimeProvider;
+    IRumViewContextProvider* _pRumViewContextProvider;
 };
 

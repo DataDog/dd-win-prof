@@ -4,6 +4,7 @@
 #pragma once
 #include "pch.h"
 
+#include "RumContext.h"
 #include "ThreadInfo.h"
 #include "SampleValueType.h"
 
@@ -31,10 +32,14 @@ public:
     inline std::span<const int64_t> GetValues() { return _values; }
     inline std::shared_ptr<ThreadInfo> GetThreadInfo() { return _threadInfo; }
 
+    void SetRumViewContext(RumViewContext&& ctx) { _rumViewContext = std::move(ctx); }
+    const RumViewContext& GetRumViewContext() const { return _rumViewContext; }
+
 private:
     std::chrono::nanoseconds _timestamp;
     std::vector<uint64_t> _callstack;
     std::vector<int64_t> _values;
     std::shared_ptr<ThreadInfo> _threadInfo;
+    RumViewContext _rumViewContext;
 };
 

@@ -323,6 +323,8 @@ paket-files/
 # Python Tools for Visual Studio (PTVS)
 __pycache__/
 *.pyc
+# Protobuf generated Python files
+*_pb2.py
 # vscode
 .vscode/
 # Benchmark results

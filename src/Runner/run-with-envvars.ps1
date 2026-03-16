@@ -8,18 +8,21 @@
 #   .\run-with-envvars.ps1 -Config Release
 #   .\run-with-envvars.ps1 -Name dd-win-prof -Env staging -Version 1.0
 #   .\run-with-envvars.ps1 -PprofDir C:\temp\pprof -Name dd-win-prof
+#   .\run-with-envvars.ps1 -Scenario 5 -RumAppId <uuid> -RumSessionId <uuid> -PprofDir C:\temp\rum
 
 [CmdletBinding()]
 param(
     [ValidateSet("Debug", "Release", "Auto")]
-    [string]$Config    = "Auto",
-    [int]$Scenario     = 1,
-    [int]$Iterations   = 3,
-    [string]$Name      = "",
-    [string]$Env       = "",
-    [string]$Version   = "",
-    [string]$Tags      = "",
-    [string]$PprofDir  = "",
+    [string]$Config       = "Auto",
+    [int]$Scenario        = 1,
+    [int]$Iterations      = 3,
+    [string]$Name         = "",
+    [string]$Env          = "",
+    [string]$Version      = "",
+    [string]$Tags         = "",
+    [string]$PprofDir     = "",
+    [string]$RumAppId     = "",
+    [string]$RumSessionId = "",
     [switch]$Symbolize
 )
 
@@ -32,12 +35,14 @@ $runner = Find-Runner -ScriptDir $scriptDir -Config $Config
 
 $args = @("--scenario", $Scenario, "--iterations", $Iterations)
 
-if ($Name)      { $args += "--name",     $Name }
-if ($Env)       { $args += "--env",      $Env }
-if ($Version)   { $args += "--version",  $Version }
-if ($Tags)      { $args += "--tags",     $Tags }
-if ($PprofDir)  { $args += "--pprofdir", $PprofDir }
-if ($Symbolize) { $args += "--symbolize" }
+if ($Name)         { $args += "--name",           $Name }
+if ($Env)          { $args += "--env",            $Env }
+if ($Version)      { $args += "--version",        $Version }
+if ($Tags)         { $args += "--tags",           $Tags }
+if ($PprofDir)     { $args += "--pprofdir",       $PprofDir }
+if ($RumAppId)     { $args += "--rum-app-id",     $RumAppId }
+if ($RumSessionId) { $args += "--rum-session-id", $RumSessionId }
+if ($Symbolize)    { $args += "--symbolize" }
 
 Write-Host "Running: $runner $($args -join ' ')" -ForegroundColor Cyan
 & $runner @args

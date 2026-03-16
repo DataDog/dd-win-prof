@@ -7,13 +7,15 @@
 
 #include "Configuration.h"
 #include "CpuTimeProvider.h"
+#include "dd-win-prof.h"
 #include "ProfileExporter.h"
+#include "RumContext.h"
 #include "SamplesCollector.h"
 #include "StackSamplerLoop.h"
 #include "ThreadList.h"
 
 
-class Profiler
+class Profiler : public IRumViewContextProvider, public IRumRecordProvider
 {
 public :
     Profiler();
@@ -28,6 +30,17 @@ public :
     bool IsStarted() const { return _isStarted; }
     size_t GetThreadCount() const { return _pThreadList ? _pThreadList->Count() : 0; }
     bool IsAutoStartEnabled() const { return _pConfiguration->IsProfilerAutoStartEnabled(); }
+
+    // RUM context management (called from the C API, thread-safe)
+    bool UpdateRumContext(const RumContextValues* pContext);
+
+    // IRumViewContextProvider implementation
+    bool GetCurrentViewContext(RumViewContext& context) const override;
+
+    // IRumRecordProvider implementation
+    void ConsumeViewRecords(std::vector<RumViewRecord>& records) override;
+    void ConsumeSessionRecords(std::vector<RumSessionRecord>& records) override;
+    std::string GetCurrentSessionId() const override;
 
 public:
     static Configuration* GetConfiguration()
@@ -71,5 +84,26 @@ private:
 
     // samples collector
     std::unique_ptr<SamplesCollector> _pSamplesCollector = nullptr;
+
+    // RUM view + session context (dynamic, protected by reader/writer lock)
+    mutable std::shared_mutex _rumContextMutex;
+    bool _hasActiveView{false};
+    RumViewContext _currentRumView;
+
+    // RUM view timeline recording (protected by _rumContextMutex)
+    std::vector<RumViewRecord> _completedViewRecords;
+    int64_t _pendingViewStartMs{0};
+    bool _hasPendingView{false};
+
+    // RUM session tracking (protected by _rumContextMutex)
+    std::string _currentSessionId;
+    int64_t _sessionStartMs{0};
+    bool _hasPendingSession{false};
+    std::vector<RumSessionRecord> _completedSessionRecords;
+
+    // RUM app-level ID (write-once, buffered until exporter exists)
+    std::mutex _rumAppMutex;
+    bool _rumAppIdSet{false};
+    std::string _rumApplicationId;
 };
 

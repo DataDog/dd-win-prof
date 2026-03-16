@@ -236,6 +236,20 @@ build\src\Runner\Debug\Runner.exe
 
 See [`src/Runner/README.md`](src/Runner/README.md) for full CLI reference and examples.
 
+### Optional: Run Integration Tests
+
+Integration tests exercise the full profiling pipeline (Runner execution, pprof output, log validation). They require **Python 3.9+** with a few packages.
+
+```powershell
+# Install Python dependencies (one-time)
+src\integration-tests\install-dependencies.ps1
+
+# Run the RUM context integration test
+src\integration-tests\test_rum_scenario.ps1
+```
+
+See [`src/integration-tests/README.md`](src/integration-tests/README.md) for details.
+
 ### Automated Build
 
 For reference, see the complete automated build process in [`.github/workflows/test.yml`](.github/workflows/test.yml).
