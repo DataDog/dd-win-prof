@@ -337,45 +337,53 @@ void RunWaitingThreads()
 
 
 // Scenario 5: RUM context view transitions
-void SetView(const std::string& appId, const std::string& sessionId,
-             const char* viewId, const char* viewName)
+void SetSession(const std::string& appId, const std::string& sessionId)
 {
-    RumContextValues ctx = {};
+    RumSessionContext ctx = {};
     ctx.application_id = appId.c_str();
     ctx.session_id = sessionId.c_str();
-    ctx.view_id = viewId;
-    ctx.view_name = viewName;
-    UpdateRumContext(&ctx);
+    SetRumSession(&ctx);
 }
 
-void ClearView(const std::string& appId, const std::string& sessionId)
+void SetView(const char* viewId, const char* viewName)
 {
-    SetView(appId, sessionId, nullptr, nullptr);
+    RumViewValues ctx = {};
+    ctx.view_id = viewId;
+    ctx.view_name = viewName;
+    SetRumView(&ctx);
+}
+
+void ClearView()
+{
+    SetRumView(nullptr);
 }
 
 void RunRumScenario(const std::string& appId, const std::string& sessionId)
 {
     static const std::string sessionId2 = "99999999-2222-3333-4444-555555555555";
 
-    SetView(appId, sessionId, "11111111-1111-1111-1111-111111111111", "HomePage");
+    SetSession(appId, sessionId);
+
+    SetView("11111111-1111-1111-1111-111111111111", "HomePage");
     std::cout << "View 1: HomePage, session S1 (spinning 2s)..." << std::endl;
     Spin(2000);
 
-    ClearView(appId, sessionId);
-    SetView(appId, sessionId, "22222222-2222-2222-2222-222222222222", "SettingsPage");
+    ClearView();
+    SetView("22222222-2222-2222-2222-222222222222", "SettingsPage");
     std::cout << "View 2: SettingsPage, session S1 (spinning 2s)..." << std::endl;
     Spin(2000);
 
-    ClearView(appId, sessionId);
+    ClearView();
     std::cout << "No active view, session S1 (spinning 1s)..." << std::endl;
     Spin(1000);
 
     // Session rotation: switch from S1 to S2
-    SetView(appId, sessionId2, "33333333-3333-3333-3333-333333333333", "ProfilePage");
+    SetSession(appId, sessionId2);
+    SetView("33333333-3333-3333-3333-333333333333", "ProfilePage");
     std::cout << "View 3: ProfilePage, session S2 (spinning 2s)..." << std::endl;
     Spin(2000);
 
-    ClearView(appId, sessionId2);
+    ClearView();
 }
 
 

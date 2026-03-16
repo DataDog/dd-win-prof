@@ -65,18 +65,20 @@ protected:
     std::unique_ptr<Profiler> _profiler;
 };
 
-TEST_F(ProfilerRumContextTest, UpdateRumContextReturnsfalseOnNull) {
-    EXPECT_FALSE(_profiler->UpdateRumContext(nullptr));
+TEST_F(ProfilerRumContextTest, SetRumSessionReturnsFalseOnNull) {
+    EXPECT_FALSE(_profiler->SetRumSession(nullptr));
 }
 
 TEST_F(ProfilerRumContextTest, SetViewContextAndReadBack) {
-    RumContextValues ctx = {};
-    ctx.application_id = "app-id-1";
-    ctx.session_id = "session-id-1";
-    ctx.view_id = "view-id-1";
-    ctx.view_name = "HomePage";
+    RumSessionContext sessionCtx = {};
+    sessionCtx.application_id = "app-id-1";
+    sessionCtx.session_id = "session-id-1";
+    EXPECT_TRUE(_profiler->SetRumSession(&sessionCtx));
 
-    EXPECT_TRUE(_profiler->UpdateRumContext(&ctx));
+    RumViewValues viewVals = {};
+    viewVals.view_id = "view-id-1";
+    viewVals.view_name = "HomePage";
+    _profiler->SetRumView(&viewVals);
 
     RumViewContext viewCtx;
     EXPECT_TRUE(_profiler->GetCurrentViewContext(viewCtx));
@@ -85,62 +87,70 @@ TEST_F(ProfilerRumContextTest, SetViewContextAndReadBack) {
 }
 
 TEST_F(ProfilerRumContextTest, ClearViewWithNullViewId) {
-    // Set a view first
-    RumContextValues ctx = {};
-    ctx.application_id = "app-id-1";
-    ctx.session_id = "session-id-1";
-    ctx.view_id = "view-id-1";
-    ctx.view_name = "HomePage";
-    _profiler->UpdateRumContext(&ctx);
+    // Set a session and view first
+    RumSessionContext sessionCtx = {};
+    sessionCtx.application_id = "app-id-1";
+    sessionCtx.session_id = "session-id-1";
+    _profiler->SetRumSession(&sessionCtx);
+
+    RumViewValues viewVals = {};
+    viewVals.view_id = "view-id-1";
+    viewVals.view_name = "HomePage";
+    _profiler->SetRumView(&viewVals);
 
     // Clear view by passing null view_id
-    RumContextValues clearCtx = {};
-    clearCtx.application_id = "app-id-1";
-    clearCtx.session_id = "session-id-1";
-    clearCtx.view_id = nullptr;
-    clearCtx.view_name = nullptr;
-    EXPECT_TRUE(_profiler->UpdateRumContext(&clearCtx));
+    RumViewValues clearVals = {};
+    clearVals.view_id = nullptr;
+    clearVals.view_name = nullptr;
+    _profiler->SetRumView(&clearVals);
 
     RumViewContext viewCtx;
     EXPECT_FALSE(_profiler->GetCurrentViewContext(viewCtx));
 }
 
 TEST_F(ProfilerRumContextTest, ClearViewWithEmptyViewId) {
-    // Set a view first
-    RumContextValues ctx = {};
-    ctx.application_id = "app-id-1";
-    ctx.session_id = "session-id-1";
-    ctx.view_id = "view-id-1";
-    ctx.view_name = "HomePage";
-    _profiler->UpdateRumContext(&ctx);
+    // Set a session and view first
+    RumSessionContext sessionCtx = {};
+    sessionCtx.application_id = "app-id-1";
+    sessionCtx.session_id = "session-id-1";
+    _profiler->SetRumSession(&sessionCtx);
+
+    RumViewValues viewVals = {};
+    viewVals.view_id = "view-id-1";
+    viewVals.view_name = "HomePage";
+    _profiler->SetRumView(&viewVals);
 
     // Clear view by passing empty view_id
-    RumContextValues clearCtx = {};
-    clearCtx.application_id = "app-id-1";
-    clearCtx.session_id = "session-id-1";
-    clearCtx.view_id = "";
-    clearCtx.view_name = "";
-    EXPECT_TRUE(_profiler->UpdateRumContext(&clearCtx));
+    RumViewValues clearVals = {};
+    clearVals.view_id = "";
+    clearVals.view_name = "";
+    _profiler->SetRumView(&clearVals);
 
     RumViewContext viewCtx;
     EXPECT_FALSE(_profiler->GetCurrentViewContext(viewCtx));
 }
 
 TEST_F(ProfilerRumContextTest, AppIdSetOnce) {
-    RumContextValues ctx1 = {};
-    ctx1.application_id = "app-1";
-    ctx1.session_id = "session-1";
-    ctx1.view_id = "view-1";
-    ctx1.view_name = "Page1";
-    EXPECT_TRUE(_profiler->UpdateRumContext(&ctx1));
+    RumSessionContext sessionCtx1 = {};
+    sessionCtx1.application_id = "app-1";
+    sessionCtx1.session_id = "session-1";
+    EXPECT_TRUE(_profiler->SetRumSession(&sessionCtx1));
+
+    RumViewValues viewVals1 = {};
+    viewVals1.view_id = "view-1";
+    viewVals1.view_name = "Page1";
+    _profiler->SetRumView(&viewVals1);
 
     // Same app_id with different session_id should succeed (session is mutable)
-    RumContextValues ctx1b = {};
-    ctx1b.application_id = "app-1";
-    ctx1b.session_id = "session-2";
-    ctx1b.view_id = "view-1b";
-    ctx1b.view_name = "Page1b";
-    EXPECT_TRUE(_profiler->UpdateRumContext(&ctx1b));
+    RumSessionContext sessionCtx1b = {};
+    sessionCtx1b.application_id = "app-1";
+    sessionCtx1b.session_id = "session-2";
+    EXPECT_TRUE(_profiler->SetRumSession(&sessionCtx1b));
+
+    RumViewValues viewVals1b = {};
+    viewVals1b.view_id = "view-1b";
+    viewVals1b.view_name = "Page1b";
+    _profiler->SetRumView(&viewVals1b);
 
     RumViewContext viewCtx;
     EXPECT_TRUE(_profiler->GetCurrentViewContext(viewCtx));
@@ -148,20 +158,21 @@ TEST_F(ProfilerRumContextTest, AppIdSetOnce) {
 }
 
 TEST_F(ProfilerRumContextTest, DifferentAppIdRejected) {
-    RumContextValues ctx1 = {};
-    ctx1.application_id = "app-1";
-    ctx1.session_id = "session-1";
-    ctx1.view_id = "view-1";
-    ctx1.view_name = "Page1";
-    EXPECT_TRUE(_profiler->UpdateRumContext(&ctx1));
+    RumSessionContext sessionCtx1 = {};
+    sessionCtx1.application_id = "app-1";
+    sessionCtx1.session_id = "session-1";
+    EXPECT_TRUE(_profiler->SetRumSession(&sessionCtx1));
+
+    RumViewValues viewVals1 = {};
+    viewVals1.view_id = "view-1";
+    viewVals1.view_name = "Page1";
+    _profiler->SetRumView(&viewVals1);
 
     // Different application_id should be rejected (view unchanged)
-    RumContextValues ctx2 = {};
-    ctx2.application_id = "app-2";
-    ctx2.session_id = "session-1";
-    ctx2.view_id = "view-2";
-    ctx2.view_name = "Page2";
-    EXPECT_FALSE(_profiler->UpdateRumContext(&ctx2));
+    RumSessionContext sessionCtx2 = {};
+    sessionCtx2.application_id = "app-2";
+    sessionCtx2.session_id = "session-1";
+    EXPECT_FALSE(_profiler->SetRumSession(&sessionCtx2));
 
     RumViewContext viewCtx;
     EXPECT_TRUE(_profiler->GetCurrentViewContext(viewCtx));
@@ -176,50 +187,55 @@ TEST_F(ProfilerRumContextTest, NoActiveViewByDefault) {
 
 TEST_F(ProfilerRumContextTest, ViewTransitionPattern) {
     // Simulates the real callback pattern: set view -> clear -> set new view
-    RumContextValues ctx = {};
-    ctx.application_id = "app-1";
-    ctx.session_id = "session-1";
+    RumSessionContext sessionCtx = {};
+    sessionCtx.application_id = "app-1";
+    sessionCtx.session_id = "session-1";
+    _profiler->SetRumSession(&sessionCtx);
 
     // Set first view
-    ctx.view_id = "view-1";
-    ctx.view_name = "HomePage";
-    _profiler->UpdateRumContext(&ctx);
+    RumViewValues viewVals = {};
+    viewVals.view_id = "view-1";
+    viewVals.view_name = "HomePage";
+    _profiler->SetRumView(&viewVals);
 
     RumViewContext viewCtx;
     EXPECT_TRUE(_profiler->GetCurrentViewContext(viewCtx));
     EXPECT_EQ(viewCtx.view_id, "view-1");
 
     // Clear view (between views)
-    ctx.view_id = nullptr;
-    ctx.view_name = nullptr;
-    _profiler->UpdateRumContext(&ctx);
+    viewVals.view_id = nullptr;
+    viewVals.view_name = nullptr;
+    _profiler->SetRumView(&viewVals);
     EXPECT_FALSE(_profiler->GetCurrentViewContext(viewCtx));
 
     // Set second view
-    ctx.view_id = "view-2";
-    ctx.view_name = "SettingsPage";
-    _profiler->UpdateRumContext(&ctx);
+    viewVals.view_id = "view-2";
+    viewVals.view_name = "SettingsPage";
+    _profiler->SetRumView(&viewVals);
     EXPECT_TRUE(_profiler->GetCurrentViewContext(viewCtx));
     EXPECT_EQ(viewCtx.view_id, "view-2");
     EXPECT_EQ(viewCtx.view_name, "SettingsPage");
 }
 
 TEST_F(ProfilerRumContextTest, ViewContextCopyIsIndependent) {
-    RumContextValues ctx = {};
-    ctx.application_id = "app-1";
-    ctx.session_id = "session-1";
-    ctx.view_id = "view-1";
-    ctx.view_name = "HomePage";
-    _profiler->UpdateRumContext(&ctx);
+    RumSessionContext sessionCtx = {};
+    sessionCtx.application_id = "app-1";
+    sessionCtx.session_id = "session-1";
+    _profiler->SetRumSession(&sessionCtx);
+
+    RumViewValues viewVals = {};
+    viewVals.view_id = "view-1";
+    viewVals.view_name = "HomePage";
+    _profiler->SetRumView(&viewVals);
 
     // Get a copy of the view context
     RumViewContext snapshot;
     EXPECT_TRUE(_profiler->GetCurrentViewContext(snapshot));
 
     // Update to a new view
-    ctx.view_id = "view-2";
-    ctx.view_name = "SettingsPage";
-    _profiler->UpdateRumContext(&ctx);
+    viewVals.view_id = "view-2";
+    viewVals.view_name = "SettingsPage";
+    _profiler->SetRumView(&viewVals);
 
     // The snapshot should still hold the old values
     EXPECT_EQ(snapshot.view_id, "view-1");
@@ -390,22 +406,25 @@ TEST_F(ProfilerRumContextTest, ConsumeViewRecordsEmptyByDefault) {
 }
 
 TEST_F(ProfilerRumContextTest, SetAndClearViewProducesOneRecord) {
-    RumContextValues ctx = {};
-    ctx.application_id = "app-1";
-    ctx.session_id = "session-1";
-    ctx.view_id = "view-1";
-    ctx.view_name = "HomePage";
+    RumSessionContext sessionCtx = {};
+    sessionCtx.application_id = "app-1";
+    sessionCtx.session_id = "session-1";
+    _profiler->SetRumSession(&sessionCtx);
+
+    RumViewValues viewVals = {};
+    viewVals.view_id = "view-1";
+    viewVals.view_name = "HomePage";
 
     auto beforeMs = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
 
-    _profiler->UpdateRumContext(&ctx);
+    _profiler->SetRumView(&viewVals);
     ::Sleep(50);
 
     // Clear the view
-    ctx.view_id = "";
-    ctx.view_name = "";
-    _profiler->UpdateRumContext(&ctx);
+    viewVals.view_id = "";
+    viewVals.view_name = "";
+    _profiler->SetRumView(&viewVals);
 
     auto afterMs = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
@@ -422,16 +441,19 @@ TEST_F(ProfilerRumContextTest, SetAndClearViewProducesOneRecord) {
 }
 
 TEST_F(ProfilerRumContextTest, ConsumeSwapsBufferSecondCallEmpty) {
-    RumContextValues ctx = {};
-    ctx.application_id = "app-1";
-    ctx.session_id = "session-1";
-    ctx.view_id = "view-1";
-    ctx.view_name = "Page1";
-    _profiler->UpdateRumContext(&ctx);
+    RumSessionContext sessionCtx = {};
+    sessionCtx.application_id = "app-1";
+    sessionCtx.session_id = "session-1";
+    _profiler->SetRumSession(&sessionCtx);
 
-    ctx.view_id = "";
-    ctx.view_name = "";
-    _profiler->UpdateRumContext(&ctx);
+    RumViewValues viewVals = {};
+    viewVals.view_id = "view-1";
+    viewVals.view_name = "Page1";
+    _profiler->SetRumView(&viewVals);
+
+    viewVals.view_id = "";
+    viewVals.view_name = "";
+    _profiler->SetRumView(&viewVals);
 
     std::vector<RumViewRecord> records;
     _profiler->ConsumeViewRecords(records);
@@ -443,12 +465,15 @@ TEST_F(ProfilerRumContextTest, ConsumeSwapsBufferSecondCallEmpty) {
 }
 
 TEST_F(ProfilerRumContextTest, PendingViewProducesNoRecord) {
-    RumContextValues ctx = {};
-    ctx.application_id = "app-1";
-    ctx.session_id = "session-1";
-    ctx.view_id = "view-1";
-    ctx.view_name = "Page1";
-    _profiler->UpdateRumContext(&ctx);
+    RumSessionContext sessionCtx = {};
+    sessionCtx.application_id = "app-1";
+    sessionCtx.session_id = "session-1";
+    _profiler->SetRumSession(&sessionCtx);
+
+    RumViewValues viewVals = {};
+    viewVals.view_id = "view-1";
+    viewVals.view_name = "Page1";
+    _profiler->SetRumView(&viewVals);
 
     std::vector<RumViewRecord> records;
     _profiler->ConsumeViewRecords(records);
@@ -456,12 +481,15 @@ TEST_F(ProfilerRumContextTest, PendingViewProducesNoRecord) {
 }
 
 TEST_F(ProfilerRumContextTest, ClearWithoutSetProducesNoRecord) {
-    RumContextValues ctx = {};
-    ctx.application_id = "app-1";
-    ctx.session_id = "session-1";
-    ctx.view_id = "";
-    ctx.view_name = "";
-    _profiler->UpdateRumContext(&ctx);
+    RumSessionContext sessionCtx = {};
+    sessionCtx.application_id = "app-1";
+    sessionCtx.session_id = "session-1";
+    _profiler->SetRumSession(&sessionCtx);
+
+    RumViewValues viewVals = {};
+    viewVals.view_id = "";
+    viewVals.view_name = "";
+    _profiler->SetRumView(&viewVals);
 
     std::vector<RumViewRecord> records;
     _profiler->ConsumeViewRecords(records);
@@ -469,31 +497,34 @@ TEST_F(ProfilerRumContextTest, ClearWithoutSetProducesNoRecord) {
 }
 
 TEST_F(ProfilerRumContextTest, ViewTransitionsProduceMultipleRecords) {
-    RumContextValues ctx = {};
-    ctx.application_id = "app-1";
-    ctx.session_id = "session-1";
+    RumSessionContext sessionCtx = {};
+    sessionCtx.application_id = "app-1";
+    sessionCtx.session_id = "session-1";
+    _profiler->SetRumSession(&sessionCtx);
+
+    RumViewValues viewVals = {};
 
     // View 1
-    ctx.view_id = "view-1";
-    ctx.view_name = "Page1";
-    _profiler->UpdateRumContext(&ctx);
+    viewVals.view_id = "view-1";
+    viewVals.view_name = "Page1";
+    _profiler->SetRumView(&viewVals);
     ::Sleep(20);
 
     // Clear view 1
-    ctx.view_id = "";
-    ctx.view_name = "";
-    _profiler->UpdateRumContext(&ctx);
+    viewVals.view_id = "";
+    viewVals.view_name = "";
+    _profiler->SetRumView(&viewVals);
 
     // View 2
-    ctx.view_id = "view-2";
-    ctx.view_name = "Page2";
-    _profiler->UpdateRumContext(&ctx);
+    viewVals.view_id = "view-2";
+    viewVals.view_name = "Page2";
+    _profiler->SetRumView(&viewVals);
     ::Sleep(20);
 
     // Clear view 2
-    ctx.view_id = "";
-    ctx.view_name = "";
-    _profiler->UpdateRumContext(&ctx);
+    viewVals.view_id = "";
+    viewVals.view_name = "";
+    _profiler->SetRumView(&viewVals);
 
     std::vector<RumViewRecord> records;
     _profiler->ConsumeViewRecords(records);
@@ -634,36 +665,30 @@ TEST(RumSessionRecordTests, ValueInitialization) {
 // ---------------------------------------------------------------------------
 
 TEST_F(ProfilerRumContextTest, SessionIdCanChange) {
-    RumContextValues ctx = {};
-    ctx.application_id = "app-1";
-    ctx.session_id = "S1";
-    ctx.view_id = "view-1";
-    ctx.view_name = "Page1";
-    EXPECT_TRUE(_profiler->UpdateRumContext(&ctx));
+    RumSessionContext sessionCtx = {};
+    sessionCtx.application_id = "app-1";
+    sessionCtx.session_id = "S1";
+    EXPECT_TRUE(_profiler->SetRumSession(&sessionCtx));
     EXPECT_EQ(_profiler->GetCurrentSessionId(), "S1");
 
-    ctx.session_id = "S2";
-    ctx.view_id = "view-2";
-    ctx.view_name = "Page2";
-    EXPECT_TRUE(_profiler->UpdateRumContext(&ctx));
+    sessionCtx.session_id = "S2";
+    EXPECT_TRUE(_profiler->SetRumSession(&sessionCtx));
     EXPECT_EQ(_profiler->GetCurrentSessionId(), "S2");
 }
 
 TEST_F(ProfilerRumContextTest, SessionIdChangeCompletesRecord) {
-    RumContextValues ctx = {};
-    ctx.application_id = "app-1";
-    ctx.session_id = "S1";
-    ctx.view_id = "view-1";
-    ctx.view_name = "Page1";
+    RumSessionContext sessionCtx = {};
+    sessionCtx.application_id = "app-1";
+    sessionCtx.session_id = "S1";
 
     auto beforeMs = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
 
-    _profiler->UpdateRumContext(&ctx);
+    _profiler->SetRumSession(&sessionCtx);
     ::Sleep(50);
 
-    ctx.session_id = "S2";
-    _profiler->UpdateRumContext(&ctx);
+    sessionCtx.session_id = "S2";
+    _profiler->SetRumSession(&sessionCtx);
 
     std::vector<RumSessionRecord> records;
     _profiler->ConsumeSessionRecords(records);
@@ -674,21 +699,19 @@ TEST_F(ProfilerRumContextTest, SessionIdChangeCompletesRecord) {
 }
 
 TEST_F(ProfilerRumContextTest, MultipleSessionTransitions) {
-    RumContextValues ctx = {};
-    ctx.application_id = "app-1";
-    ctx.view_id = "view-1";
-    ctx.view_name = "Page1";
+    RumSessionContext sessionCtx = {};
+    sessionCtx.application_id = "app-1";
 
-    ctx.session_id = "S1";
-    _profiler->UpdateRumContext(&ctx);
+    sessionCtx.session_id = "S1";
+    _profiler->SetRumSession(&sessionCtx);
     ::Sleep(20);
 
-    ctx.session_id = "S2";
-    _profiler->UpdateRumContext(&ctx);
+    sessionCtx.session_id = "S2";
+    _profiler->SetRumSession(&sessionCtx);
     ::Sleep(20);
 
-    ctx.session_id = "S3";
-    _profiler->UpdateRumContext(&ctx);
+    sessionCtx.session_id = "S3";
+    _profiler->SetRumSession(&sessionCtx);
 
     std::vector<RumSessionRecord> records;
     _profiler->ConsumeSessionRecords(records);
@@ -707,15 +730,13 @@ TEST_F(ProfilerRumContextTest, ConsumeSessionRecordsEmptyByDefault) {
 }
 
 TEST_F(ProfilerRumContextTest, ConsumeSessionRecordsSwapsBuffer) {
-    RumContextValues ctx = {};
-    ctx.application_id = "app-1";
-    ctx.session_id = "S1";
-    ctx.view_id = "view-1";
-    ctx.view_name = "Page1";
-    _profiler->UpdateRumContext(&ctx);
+    RumSessionContext sessionCtx = {};
+    sessionCtx.application_id = "app-1";
+    sessionCtx.session_id = "S1";
+    _profiler->SetRumSession(&sessionCtx);
 
-    ctx.session_id = "S2";
-    _profiler->UpdateRumContext(&ctx);
+    sessionCtx.session_id = "S2";
+    _profiler->SetRumSession(&sessionCtx);
 
     std::vector<RumSessionRecord> records;
     _profiler->ConsumeSessionRecords(records);
@@ -727,16 +748,13 @@ TEST_F(ProfilerRumContextTest, ConsumeSessionRecordsSwapsBuffer) {
 }
 
 TEST_F(ProfilerRumContextTest, SameSessionIdDoesNotCreateRecord) {
-    RumContextValues ctx = {};
-    ctx.application_id = "app-1";
-    ctx.session_id = "S1";
-    ctx.view_id = "view-1";
-    ctx.view_name = "Page1";
-    _profiler->UpdateRumContext(&ctx);
+    RumSessionContext sessionCtx = {};
+    sessionCtx.application_id = "app-1";
+    sessionCtx.session_id = "S1";
+    _profiler->SetRumSession(&sessionCtx);
 
-    ctx.view_id = "view-2";
-    ctx.view_name = "Page2";
-    _profiler->UpdateRumContext(&ctx);
+    // Calling SetRumSession again with the same session_id should not create a record
+    _profiler->SetRumSession(&sessionCtx);
 
     std::vector<RumSessionRecord> records;
     _profiler->ConsumeSessionRecords(records);

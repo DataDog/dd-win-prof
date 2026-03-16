@@ -32,7 +32,9 @@ public :
     bool IsAutoStartEnabled() const { return _pConfiguration->IsProfilerAutoStartEnabled(); }
 
     // RUM context management (called from the C API, thread-safe)
-    bool UpdateRumContext(const RumContextValues* pContext);
+    bool SetRumSession(const RumSessionContext* pContext);
+    void SetRumView(const RumViewValues* pContext);
+    void ClearRumContext();
 
     // IRumViewContextProvider implementation
     bool GetCurrentViewContext(RumViewContext& context) const override;
