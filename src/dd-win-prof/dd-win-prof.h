@@ -65,7 +65,7 @@ typedef struct _RumViewValues
 } RumViewValues;
 
 extern "C" {
-    DD_WIN_PROF_API bool SetupProfiler(ProfilerConfig* pSettings);
+    DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig* pSettings);
 
     // Start profiling manually (returns false if already started or explicitly disabled)
     DD_WIN_PROF_API bool StartProfiler();

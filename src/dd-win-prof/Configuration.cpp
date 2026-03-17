@@ -587,7 +587,7 @@ T Configuration::GetEnvironmentValue(char const* name, T const& defaultValue)
     return result;
 }
 
-bool InitializeConfiguration(Configuration* pConfig, ProfilerConfig* pSettings)
+bool InitializeConfiguration(Configuration* pConfig, const ProfilerConfig* pSettings)
 {
     // if noEnvVars is set, we ignore all environment variables and use only the values provided in the ProfilerConfig struct (or defaults if not set in the struct)
     if (pSettings->noEnvVars)

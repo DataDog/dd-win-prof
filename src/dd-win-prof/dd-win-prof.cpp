@@ -8,7 +8,7 @@
 
 extern "C" {
 
-DD_WIN_PROF_API bool SetupProfiler(ProfilerConfig* pSettings)
+DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig* pSettings)
 {
     if (pSettings == nullptr)
     {
