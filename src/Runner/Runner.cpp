@@ -353,31 +353,6 @@ void ClearView(const std::string& appId, const std::string& sessionId)
     SetView(appId, sessionId, nullptr, nullptr);
 }
 
-//void RunRumScenario(const std::string& appId, const std::string& sessionId)
-//{
-//    static const std::string sessionId2 = "99999999-2222-3333-4444-555555555555";
-//
-//    SetView(appId, sessionId, "11111111-1111-1111-1111-111111111111", "HomePage");
-//    std::cout << "View 1: HomePage, session S1 (spinning 2s)..." << std::endl;
-//    Spin(2000);
-//
-//    ClearView(appId, sessionId);
-//    SetView(appId, sessionId, "22222222-2222-2222-2222-222222222222", "SettingsPage");
-//    std::cout << "View 2: SettingsPage, session S1 (spinning 2s)..." << std::endl;
-//    Spin(2000);
-//
-//    ClearView(appId, sessionId);
-//    std::cout << "No active view, session S1 (spinning 1s)..." << std::endl;
-//    Spin(1000);
-//
-//    // Session rotation: switch from S1 to S2
-//    SetView(appId, sessionId2, "33333333-3333-3333-3333-333333333333", "ProfilePage");
-//    std::cout << "View 3: ProfilePage, session S2 (spinning 2s)..." << std::endl;
-//    Spin(2000);
-//
-//    ClearView(appId, sessionId2);
-//}
-
 // Per-view function chains: each view produces a distinct call stack.
 // __declspec(noinline) prevents MSVC from collapsing them during optimization.
 
