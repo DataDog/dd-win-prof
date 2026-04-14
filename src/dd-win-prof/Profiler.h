@@ -15,7 +15,7 @@
 #include "ThreadList.h"
 
 
-class Profiler : public IRumViewContextProvider, public IRumRecordProvider
+class Profiler : public IRumViewContextProvider, public IRumRecordProvider, public IViewVitalsAccumulator
 {
 public :
     Profiler();
@@ -41,6 +41,9 @@ public :
     void ConsumeViewRecords(std::vector<RumViewRecord>& records) override;
     void ConsumeSessionRecords(std::vector<RumSessionRecord>& records) override;
     std::string GetCurrentSessionId() const override;
+
+    // IViewVitalsAccumulator implementation (lock-free, called from sampler hot path)
+    void AccumulateViewVitals(int64_t waitTimeNs, int64_t cpuTimeNs) override;
 
 public:
     static Configuration* GetConfiguration()
@@ -94,6 +97,11 @@ private:
     std::vector<RumViewRecord> _completedViewRecords;
     int64_t _pendingViewStartMs{0};
     bool _hasPendingView{false};
+
+    // Per-view vitals accumulators (written lock-free from sampler thread via fetch_add,
+    // read and reset under _rumContextMutex exclusive lock on view completion)
+    std::atomic<int64_t> _pendingViewCpuTimeNs{0};
+    std::atomic<int64_t> _pendingViewWaitTimeNs{0};
 
     // RUM session tracking (protected by _rumContextMutex)
     std::string _currentSessionId;

@@ -49,6 +49,7 @@ bool Profiler::StartProfiling()
         _pThreadList.get(),
         _pCpuTimeProvider.get(),
         _pCpuWallTimeProvider.get(),
+        this,
         this);
 
     // get the values definition from the different providers...
@@ -221,6 +222,9 @@ bool Profiler::UpdateRumContext(const RumContextValues* pContext)
             _pendingViewStartMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
             _hasPendingView = true;
+
+            _pendingViewCpuTimeNs.store(0, std::memory_order_relaxed);
+            _pendingViewWaitTimeNs.store(0, std::memory_order_relaxed);
         }
         else
         {
@@ -228,11 +232,18 @@ bool Profiler::UpdateRumContext(const RumContextValues* pContext)
             {
                 auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::system_clock::now().time_since_epoch()).count();
+                auto cpuNs = _pendingViewCpuTimeNs.load(std::memory_order_relaxed);
+                auto waitNs = _pendingViewWaitTimeNs.load(std::memory_order_relaxed);
+                _pendingViewCpuTimeNs.store(0, std::memory_order_relaxed);
+                _pendingViewWaitTimeNs.store(0, std::memory_order_relaxed);
+
                 _completedViewRecords.push_back({
                     _pendingViewStartMs,
                     nowMs - _pendingViewStartMs,
                     std::move(_currentRumView.view_id),
-                    std::move(_currentRumView.view_name)
+                    std::move(_currentRumView.view_name),
+                    cpuNs,
+                    waitNs
                 });
                 _hasPendingView = false;
             }
@@ -273,4 +284,10 @@ std::string Profiler::GetCurrentSessionId() const
 {
     std::shared_lock lock(_rumContextMutex);
     return _currentSessionId;
+}
+
+void Profiler::AccumulateViewVitals(int64_t waitTimeNs, int64_t cpuTimeNs)
+{
+    _pendingViewWaitTimeNs.fetch_add(waitTimeNs, std::memory_order_relaxed);
+    _pendingViewCpuTimeNs.fetch_add(cpuTimeNs, std::memory_order_relaxed);
 }

@@ -31,7 +31,8 @@ public:
         ThreadList* pThreadList,
         CpuTimeProvider* pCpuTimeProvider,
         WallTimeProvider* pWallTimeProvider,
-        IRumViewContextProvider* pRumViewContextProvider = nullptr
+        IRumViewContextProvider* pRumViewContextProvider = nullptr,
+        IViewVitalsAccumulator* pViewVitalsAccumulator = nullptr
         );
     ~StackSamplerLoop();
 
@@ -72,5 +73,6 @@ private:
     CpuTimeProvider* _pCpuTimeProvider;
     WallTimeProvider* _pWallTimeProvider;
     IRumViewContextProvider* _pRumViewContextProvider;
+    IViewVitalsAccumulator* _pViewVitalsAccumulator;
 };
 

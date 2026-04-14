@@ -17,6 +17,8 @@ struct RumViewRecord {
     int64_t duration_ms{0};   // view duration in milliseconds
     std::string view_id;
     std::string view_name;
+    int64_t cpu_time_ns{0};   // cumulative CPU time collected during this view (nanoseconds)
+    int64_t wait_time_ns{0};  // cumulative wait time collected during this view (nanoseconds)
 };
 
 struct RumSessionRecord {
@@ -32,6 +34,15 @@ public:
     // Returns true and fills 'context' with a copy of the current view if active.
     // Returns false if no view is currently active.
     virtual bool GetCurrentViewContext(RumViewContext& context) const = 0;
+};
+
+class IViewVitalsAccumulator {
+public:
+    virtual ~IViewVitalsAccumulator() = default;
+
+    // Called from the sampler hot path (lock-free).
+    // Adds wait and CPU time to the currently active view's running totals.
+    virtual void AccumulateViewVitals(int64_t waitTimeNs, int64_t cpuTimeNs) = 0;
 };
 
 class IRumRecordProvider {

@@ -170,7 +170,20 @@ foreach ($entry in $allViewEntries) {
         "startClocks.timeStamp > 0 for viewId=$($entry.viewId) (got $($entry.startClocks.timeStamp))"
     Assert ($entry.duration -gt 0) `
         "duration > 0 for viewId=$($entry.viewId) (got $($entry.duration))"
+    Assert ($null -ne $entry.vitals) `
+        "vitals object present for viewId=$($entry.viewId)"
+    if ($null -ne $entry.vitals) {
+        Assert ($entry.vitals.cpuTimeNs -ge 0) `
+            "vitals.cpuTimeNs >= 0 for viewId=$($entry.viewId) (got $($entry.vitals.cpuTimeNs))"
+        Assert ($entry.vitals.waitTimeNs -ge 0) `
+            "vitals.waitTimeNs >= 0 for viewId=$($entry.viewId) (got $($entry.vitals.waitTimeNs))"
+    }
 }
+
+# At least one view should have accumulated some CPU time (each view spins for 2s)
+$viewsWithCpu = $allViewEntries | Where-Object { $null -ne $_.vitals -and $_.vitals.cpuTimeNs -gt 0 }
+Assert ($viewsWithCpu.Count -gt 0) `
+    "At least one view has positive vitals.cpuTimeNs ($($viewsWithCpu.Count) found)"
 
 $expectedViewPairs = @(
     @{ ViewId = "11111111-1111-1111-1111-111111111111"; ViewName = "HomePage" },
