@@ -98,10 +98,10 @@ private:
     int64_t _pendingViewStartMs{0};
     bool _hasPendingView{false};
 
-    // Per-view vitals accumulators (written lock-free from sampler thread via fetch_add,
-    // read and reset under _rumContextMutex exclusive lock on view completion)
-    std::atomic<int64_t> _pendingViewCpuTimeNs{0};
-    std::atomic<int64_t> _pendingViewWaitTimeNs{0};
+    // Per-view vitals accumulators indexed by ViewVitalKind.
+    // Written lock-free from the sampler thread (fetch_add with relaxed ordering),
+    // read and reset under _rumContextMutex exclusive lock on view completion.
+    std::array<std::atomic<int64_t>, ViewVitalKindCount> _pendingVitalsNs{};
 
     // RUM session tracking (protected by _rumContextMutex)
     std::string _currentSessionId;

@@ -223,8 +223,8 @@ bool Profiler::UpdateRumContext(const RumContextValues* pContext)
                 std::chrono::system_clock::now().time_since_epoch()).count();
             _hasPendingView = true;
 
-            _pendingViewCpuTimeNs.store(0, std::memory_order_relaxed);
-            _pendingViewWaitTimeNs.store(0, std::memory_order_relaxed);
+            for (auto& a : _pendingVitalsNs)
+                a.store(0, std::memory_order_relaxed);
         }
         else
         {
@@ -232,19 +232,15 @@ bool Profiler::UpdateRumContext(const RumContextValues* pContext)
             {
                 auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::system_clock::now().time_since_epoch()).count();
-                auto cpuNs = _pendingViewCpuTimeNs.load(std::memory_order_relaxed);
-                auto waitNs = _pendingViewWaitTimeNs.load(std::memory_order_relaxed);
-                _pendingViewCpuTimeNs.store(0, std::memory_order_relaxed);
-                _pendingViewWaitTimeNs.store(0, std::memory_order_relaxed);
 
-                _completedViewRecords.push_back({
-                    _pendingViewStartMs,
-                    nowMs - _pendingViewStartMs,
-                    std::move(_currentRumView.view_id),
-                    std::move(_currentRumView.view_name),
-                    cpuNs,
-                    waitNs
-                });
+                RumViewRecord rec;
+                rec.timestamp_ms = _pendingViewStartMs;
+                rec.duration_ms  = nowMs - _pendingViewStartMs;
+                rec.view_id      = std::move(_currentRumView.view_id);
+                rec.view_name    = std::move(_currentRumView.view_name);
+                for (size_t i = 0; i < ViewVitalKindCount; ++i)
+                    rec.vitals_ns[i] = _pendingVitalsNs[i].exchange(0, std::memory_order_relaxed);
+                _completedViewRecords.push_back(std::move(rec));
                 _hasPendingView = false;
             }
 
@@ -288,15 +284,10 @@ std::string Profiler::GetCurrentSessionId() const
 
 bool Profiler::AccumulateViewVitals(ViewVitalKind kind, int64_t valueNs)
 {
-    switch (kind)
-    {
-    case ViewVitalKind::CpuTime:
-        _pendingViewCpuTimeNs.fetch_add(valueNs, std::memory_order_relaxed);
-        return true;
-    case ViewVitalKind::WaitTime:
-        _pendingViewWaitTimeNs.fetch_add(valueNs, std::memory_order_relaxed);
-        return true;
-    default:
+    auto idx = static_cast<size_t>(kind);
+    if (idx >= ViewVitalKindCount)
         return false;
-    }
+
+    _pendingVitalsNs[idx].fetch_add(valueNs, std::memory_order_relaxed);
+    return true;
 }

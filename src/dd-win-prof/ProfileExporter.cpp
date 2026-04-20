@@ -1056,9 +1056,9 @@ std::string ProfileExporter::SerializeRumRecordsToJson(
         ss << "\",\"viewName\":\"";
         EscapeJsonString(ss, viewRecords[i].view_name);
         ss << "\",\"vitals\":{\"cpuTimeNs\":"
-           << viewRecords[i].cpu_time_ns
+           << viewRecords[i].vitals_ns[static_cast<size_t>(ViewVitalKind::CpuTime)]
            << ",\"waitTimeNs\":"
-           << viewRecords[i].wait_time_ns
+           << viewRecords[i].vitals_ns[static_cast<size_t>(ViewVitalKind::WaitTime)]
            << "}}";
     }
     ss << "],\"sessions\":[";
