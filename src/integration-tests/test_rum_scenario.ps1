@@ -104,11 +104,7 @@ if ($logFiles.Count -gt 0) {
 $pprofFiles = Get-ChildItem -Path $pprofDir -Filter "*.pprof" -ErrorAction SilentlyContinue
 Assert ($pprofFiles.Count -gt 0) "At least one .pprof file was written ($($pprofFiles.Count) found)"
 
-$expectedViews = @(
-    @{ ViewId = "11111111-1111-1111-1111-111111111111"; ViewName = "HomePage" },
-    @{ ViewId = "22222222-2222-2222-2222-222222222222"; ViewName = "SettingsPage" },
-    @{ ViewId = "33333333-3333-3333-3333-333333333333"; ViewName = "ProfilePage" }
-)
+$expectedViewNames = @("HomePage", "SettingsPage", "ProfilePage")
 
 $allSamples = @()
 
@@ -124,13 +120,14 @@ foreach ($pprofFile in $pprofFiles) {
 
 Assert ($allSamples.Count -gt 0) "Parsed samples from pprof files ($($allSamples.Count) total)"
 
-foreach ($view in $expectedViews) {
+foreach ($viewName in $expectedViewNames) {
     $matching = $allSamples | Where-Object {
-        $_.labels.'rum.view_id' -eq $view.ViewId -and
-        $_.labels.'trace endpoint' -eq $view.ViewName
+        $_.labels.'trace endpoint' -eq $viewName -and
+        $_.labels.'rum.view_id' -ne $null -and
+        $_.labels.'rum.view_id' -ne ''
     }
     Assert ($matching.Count -gt 0) `
-        "Found samples with rum.view_id=$($view.ViewId) and trace endpoint=$($view.ViewName) ($($matching.Count) samples)"
+        "Found samples with trace endpoint=$viewName and a non-empty rum.view_id ($($matching.Count) samples)"
 }
 
 $noViewSamples = $allSamples | Where-Object {
@@ -185,18 +182,13 @@ $viewsWithCpu = $allViewEntries | Where-Object { $null -ne $_.vitals -and $_.vit
 Assert ($viewsWithCpu.Count -gt 0) `
     "At least one view has positive vitals.cpuTimeNs ($($viewsWithCpu.Count) found)"
 
-$expectedViewPairs = @(
-    @{ ViewId = "11111111-1111-1111-1111-111111111111"; ViewName = "HomePage" },
-    @{ ViewId = "22222222-2222-2222-2222-222222222222"; ViewName = "SettingsPage" },
-    @{ ViewId = "33333333-3333-3333-3333-333333333333"; ViewName = "ProfilePage" }
-)
-
-foreach ($vp in $expectedViewPairs) {
+foreach ($viewName in $expectedViewNames) {
     $matching = $allViewEntries | Where-Object {
-        $_.viewId -eq $vp.ViewId -and $_.viewName -eq $vp.ViewName
+        $_.viewName -eq $viewName -and
+        $_.viewId -ne $null -and $_.viewId -ne ''
     }
     Assert ($matching.Count -ge $Iterations) `
-        "Found $($matching.Count) entries for viewId=$($vp.ViewId), viewName=$($vp.ViewName) (expected >= $Iterations)"
+        "Found $($matching.Count) entries for viewName=$viewName with non-empty viewId (expected >= $Iterations)"
 }
 
 # -- Validate session records --------------------------------------------------

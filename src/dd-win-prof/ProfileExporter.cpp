@@ -241,26 +241,14 @@ bool ProfileExporter::Export(bool lastCall)
         return false;
     }
 
-    // Consume RUM view and session records, build session ID list for tag
+    // Consume RUM view and session records and serialize them to JSON.
+    // The same JSON is used for the local debug `.rum-views.json` file (if
+    // enabled) and is passed to libdatadog via `optional_internal_metadata_json`.
     std::string rumRecordsJson;
-    std::vector<std::string> allSessionIds;
     if (_pRumRecordProvider != nullptr)
     {
         _pRumRecordProvider->ConsumeViewRecords(_viewRecordsBuffer);
         _pRumRecordProvider->ConsumeSessionRecords(_sessionRecordsBuffer);
-        std::string currentSessionId = _pRumRecordProvider->GetCurrentSessionId();
-
-        for (const auto& rec : _sessionRecordsBuffer)
-        {
-            allSessionIds.push_back(rec.session_id);
-        }
-        if (!currentSessionId.empty())
-        {
-            if (std::find(allSessionIds.begin(), allSessionIds.end(), currentSessionId) == allSessionIds.end())
-            {
-                allSessionIds.push_back(currentSessionId);
-            }
-        }
 
         if (!_viewRecordsBuffer.empty() || !_sessionRecordsBuffer.empty())
         {
@@ -290,7 +278,7 @@ bool ProfileExporter::Export(bool lastCall)
     // Export profile to backend if enabled
     bool exportSuccess = true;
     if (_exportEnabled && _exporter.inner) {
-        exportSuccess = ExportProfile(encodedProfile, _currentExportId, rumRecordsJson, allSessionIds);
+        exportSuccess = ExportProfile(encodedProfile, _currentExportId, rumRecordsJson);
         if (!exportSuccess) {
             Log::Error("Failed to export profile to backend");
             // Continue with cleanup even if export failed
@@ -1245,8 +1233,7 @@ bool ProfileExporter::CreateExporterEndpoint(ddog_prof_Endpoint& endpoint)
 }
 
 bool ProfileExporter::ExportProfile(const ddog_prof_EncodedProfile* encodedProfile, uint32_t profileSeq,
-                                    const std::string& rumRecordsJson,
-                                    const std::vector<std::string>& allSessionIds)
+                                    const std::string& rumRecordsJson)
 {
     if (!_exporter.inner || !encodedProfile) {
         _lastError = "Exporter not initialized or invalid profile";
@@ -1255,7 +1242,7 @@ bool ProfileExporter::ExportProfile(const ddog_prof_EncodedProfile* encodedProfi
 
     // Prepare additional tags (per-export metadata)
     ddog_Vec_Tag additionalTags = ddog_Vec_Tag_new();
-    if (!PrepareAdditionalTags(additionalTags, profileSeq, allSessionIds)) {
+    if (!PrepareAdditionalTags(additionalTags, profileSeq)) {
         ddog_Vec_Tag_drop(additionalTags);
         return false;
     }
@@ -1268,27 +1255,26 @@ bool ProfileExporter::ExportProfile(const ddog_prof_EncodedProfile* encodedProfi
         return false;
     }
 
-    // Prepare optional RUM records file attachment
-    ddog_prof_Exporter_File rumFile;
-    ddog_prof_Exporter_Slice_File filesToCompress = ddog_prof_Exporter_Slice_File_empty();
+    // Pass the RUM records JSON through optional_internal_metadata_json.
+    // libdatadog embeds it in the `internal` field of the profile's event.json,
+    // so no separate file attachment is needed. The backing std::string must
+    // outlive the Request_build call; it's a function-scoped local.
+    ddog_CharSlice internalMetadataSlice{};
+    const ddog_CharSlice* internalMetadataPtr = nullptr;
     if (!rumRecordsJson.empty())
     {
-        rumFile.name = to_CharSlice("rum-views.json");
-        rumFile.file = {
-            reinterpret_cast<const uint8_t*>(rumRecordsJson.data()),
-            rumRecordsJson.size()
-        };
-        filesToCompress = { &rumFile, 1 };
+        internalMetadataSlice = to_CharSlice(rumRecordsJson);
+        internalMetadataPtr = &internalMetadataSlice;
     }
 
     // Build request - time information is now embedded in the EncodedProfile
     auto requestResult = ddog_prof_Exporter_Request_build(
         &_exporter,
         const_cast<ddog_prof_EncodedProfile*>(encodedProfile), // profile
-        filesToCompress,                        // files_to_compress_and_export
+        ddog_prof_Exporter_Slice_File_empty(), // files_to_compress_and_export
         ddog_prof_Exporter_Slice_File_empty(), // files_to_export_unmodified
         &additionalTags,                        // optional_additional_tags
-        nullptr,                                // optional_internal_metadata_json
+        internalMetadataPtr,                    // optional_internal_metadata_json
         nullptr                                 // optional_info_json
     );
 
@@ -1344,8 +1330,7 @@ bool ProfileExporter::ExportProfile(const ddog_prof_EncodedProfile* encodedProfi
     return responseOk;
 }
 
-bool ProfileExporter::PrepareAdditionalTags(ddog_Vec_Tag& tags, uint32_t profileSeq,
-                                             const std::vector<std::string>& allSessionIds)
+bool ProfileExporter::PrepareAdditionalTags(ddog_Vec_Tag& tags, uint32_t profileSeq)
 {
     // Add profile sequence number
     if (!AddSingleTag(tags, TAG_PROFILE_SEQ, std::to_string(profileSeq))) {
@@ -1364,17 +1349,9 @@ bool ProfileExporter::PrepareAdditionalTags(ddog_Vec_Tag& tags, uint32_t profile
         }
     }
 
-    // Add RUM session ID tag (comma-separated list of all sessions since last export)
-    if (!allSessionIds.empty()) {
-        std::string sessionIdList;
-        for (size_t i = 0; i < allSessionIds.size(); ++i) {
-            if (i > 0) sessionIdList += ',';
-            sessionIdList += allSessionIds[i];
-        }
-        if (!AddSingleTag(tags, TAG_RUM_SESSION_ID, sessionIdList)) {
-            return false;
-        }
-    }
+    // Note: RUM session IDs are no longer emitted as a tag. They are now
+    // embedded in the optional_internal_metadata_json payload under
+    // "rum_session_ids", alongside the per-view vitals.
 
     return true;
 }

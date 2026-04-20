@@ -760,8 +760,10 @@ TEST_F(ProfilerRumContextTest, VitalsAccumulateDuringActiveView) {
     ctx.view_name = "HomePage";
     _profiler->UpdateRumContext(&ctx);
 
-    _profiler->AccumulateViewVitals(1000, 2000);
-    _profiler->AccumulateViewVitals(500, 3000);
+    EXPECT_TRUE(_profiler->AccumulateViewVitals(ViewVitalKind::WaitTime, 1000));
+    EXPECT_TRUE(_profiler->AccumulateViewVitals(ViewVitalKind::CpuTime, 2000));
+    EXPECT_TRUE(_profiler->AccumulateViewVitals(ViewVitalKind::WaitTime, 500));
+    EXPECT_TRUE(_profiler->AccumulateViewVitals(ViewVitalKind::CpuTime, 3000));
 
     // End the view
     ctx.view_id = "";
@@ -784,7 +786,8 @@ TEST_F(ProfilerRumContextTest, VitalsResetOnViewEnd) {
     ctx.view_id = "view-1";
     ctx.view_name = "Page1";
     _profiler->UpdateRumContext(&ctx);
-    _profiler->AccumulateViewVitals(100, 200);
+    _profiler->AccumulateViewVitals(ViewVitalKind::WaitTime, 100);
+    _profiler->AccumulateViewVitals(ViewVitalKind::CpuTime, 200);
 
     ctx.view_id = "";
     ctx.view_name = "";
@@ -817,7 +820,8 @@ TEST_F(ProfilerRumContextTest, VitalsResetOnNewViewStart) {
     ctx.view_id = "view-1";
     ctx.view_name = "Page1";
     _profiler->UpdateRumContext(&ctx);
-    _profiler->AccumulateViewVitals(1000, 2000);
+    _profiler->AccumulateViewVitals(ViewVitalKind::WaitTime, 1000);
+    _profiler->AccumulateViewVitals(ViewVitalKind::CpuTime, 2000);
 
     // Switch directly to a new view (without clearing)
     ctx.view_id = "view-2";
@@ -825,7 +829,8 @@ TEST_F(ProfilerRumContextTest, VitalsResetOnNewViewStart) {
     _profiler->UpdateRumContext(&ctx);
 
     // Accumulate for the second view
-    _profiler->AccumulateViewVitals(300, 400);
+    _profiler->AccumulateViewVitals(ViewVitalKind::WaitTime, 300);
+    _profiler->AccumulateViewVitals(ViewVitalKind::CpuTime, 400);
 
     ctx.view_id = "";
     ctx.view_name = "";
@@ -837,6 +842,29 @@ TEST_F(ProfilerRumContextTest, VitalsResetOnNewViewStart) {
     EXPECT_EQ(records[0].view_id, "view-2");
     EXPECT_EQ(records[0].wait_time_ns, 300);
     EXPECT_EQ(records[0].cpu_time_ns, 400);
+}
+
+TEST_F(ProfilerRumContextTest, VitalsRejectOutOfRangeKind) {
+    RumContextValues ctx = {};
+    ctx.application_id = "app-1";
+    ctx.session_id = "session-1";
+    ctx.view_id = "view-1";
+    ctx.view_name = "Page1";
+    _profiler->UpdateRumContext(&ctx);
+
+    EXPECT_FALSE(_profiler->AccumulateViewVitals(ViewVitalKind::Unknown, 100));
+    EXPECT_FALSE(_profiler->AccumulateViewVitals(static_cast<ViewVitalKind>(255), 100));
+
+    // End view and verify nothing was accumulated from the rejected calls
+    ctx.view_id = "";
+    ctx.view_name = "";
+    _profiler->UpdateRumContext(&ctx);
+
+    std::vector<RumViewRecord> records;
+    _profiler->ConsumeViewRecords(records);
+    ASSERT_EQ(records.size(), 1u);
+    EXPECT_EQ(records[0].cpu_time_ns, 0);
+    EXPECT_EQ(records[0].wait_time_ns, 0);
 }
 
 TEST_F(ProfilerRumContextTest, VitalsZeroWhenNoAccumulation) {
@@ -891,3 +919,8 @@ TEST(RumRecordJsonTests, MultipleViewsWithDifferentVitals) {
     EXPECT_NE(json.find("\"vitals\":{\"cpuTimeNs\":100,\"waitTimeNs\":200}"), std::string::npos);
     EXPECT_NE(json.find("\"vitals\":{\"cpuTimeNs\":400,\"waitTimeNs\":500}"), std::string::npos);
 }
+
+// Note: the RUM records JSON built by SerializeRumRecordsToJson is also the
+// payload passed to libdatadog through optional_internal_metadata_json. The
+// tests above (RumRecordJsonTests) therefore double-cover that payload's
+// shape; no dedicated internal-metadata suite is needed.

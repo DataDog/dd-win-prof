@@ -298,7 +298,7 @@ void StackSamplerLoop::CollectOneThreadSample(std::shared_ptr<ThreadInfo>& pThre
 
             if (hasRumView && _pViewVitalsAccumulator != nullptr)
             {
-                _pViewVitalsAccumulator->AccumulateViewVitals(0, duration.count());
+                _pViewVitalsAccumulator->AccumulateViewVitals(ViewVitalKind::CpuTime, duration.count());
             }
         }
         else
@@ -335,7 +335,7 @@ void StackSamplerLoop::CollectOneThreadSample(std::shared_ptr<ThreadInfo>& pThre
 
             if (hasRumView && _pViewVitalsAccumulator != nullptr)
             {
-                _pViewVitalsAccumulator->AccumulateViewVitals(waitDuration.count(), 0);
+                _pViewVitalsAccumulator->AccumulateViewVitals(ViewVitalKind::WaitTime, waitDuration.count());
             }
         }
         else

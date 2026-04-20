@@ -43,7 +43,7 @@ public :
     std::string GetCurrentSessionId() const override;
 
     // IViewVitalsAccumulator implementation (lock-free, called from sampler hot path)
-    void AccumulateViewVitals(int64_t waitTimeNs, int64_t cpuTimeNs) override;
+    bool AccumulateViewVitals(ViewVitalKind kind, int64_t valueNs) override;
 
 public:
     static Configuration* GetConfiguration()

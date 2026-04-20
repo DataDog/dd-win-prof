@@ -286,8 +286,17 @@ std::string Profiler::GetCurrentSessionId() const
     return _currentSessionId;
 }
 
-void Profiler::AccumulateViewVitals(int64_t waitTimeNs, int64_t cpuTimeNs)
+bool Profiler::AccumulateViewVitals(ViewVitalKind kind, int64_t valueNs)
 {
-    _pendingViewWaitTimeNs.fetch_add(waitTimeNs, std::memory_order_relaxed);
-    _pendingViewCpuTimeNs.fetch_add(cpuTimeNs, std::memory_order_relaxed);
+    switch (kind)
+    {
+    case ViewVitalKind::CpuTime:
+        _pendingViewCpuTimeNs.fetch_add(valueNs, std::memory_order_relaxed);
+        return true;
+    case ViewVitalKind::WaitTime:
+        _pendingViewWaitTimeNs.fetch_add(valueNs, std::memory_order_relaxed);
+        return true;
+    default:
+        return false;
+    }
 }

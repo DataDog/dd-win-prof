@@ -36,13 +36,21 @@ public:
     virtual bool GetCurrentViewContext(RumViewContext& context) const = 0;
 };
 
+enum class ViewVitalKind : uint8_t
+{
+    CpuTime  = 0,
+    WaitTime = 1,
+    Unknown  // sentinel - must remain last
+};
+
 class IViewVitalsAccumulator {
 public:
     virtual ~IViewVitalsAccumulator() = default;
 
     // Called from the sampler hot path (lock-free).
-    // Adds wait and CPU time to the currently active view's running totals.
-    virtual void AccumulateViewVitals(int64_t waitTimeNs, int64_t cpuTimeNs) = 0;
+    // Adds 'valueNs' nanoseconds to the running total for 'kind' on the
+    // currently active view. Returns false if 'kind' is out of range.
+    virtual bool AccumulateViewVitals(ViewVitalKind kind, int64_t valueNs) = 0;
 };
 
 class IRumRecordProvider {
