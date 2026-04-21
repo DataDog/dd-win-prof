@@ -39,4 +39,5 @@ add_custom_command(
     VERBATIM
 )
 add_custom_target(Runner_runtime_deps DEPENDS "${_runner_runtime_deps_stamp}")
+add_dependencies(Runner_runtime_deps dd-win-prof)
 add_dependencies(Runner Runner_runtime_deps)
