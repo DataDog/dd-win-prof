@@ -101,7 +101,7 @@ private:
     // Per-view vitals accumulators indexed by ViewVitalKind.
     // Written lock-free from the sampler thread (fetch_add with relaxed ordering),
     // read and reset under _rumContextMutex exclusive lock on view completion.
-    std::array<std::atomic<int64_t>, ViewVitalKindCount> _pendingVitalsNs{};
+    std::array<std::atomic<int64_t>, MaxViewVitalKind> _pendingVitalsNs{};
 
     // RUM session tracking (protected by _rumContextMutex)
     std::string _currentSessionId;

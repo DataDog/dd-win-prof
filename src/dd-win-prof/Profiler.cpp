@@ -238,7 +238,7 @@ bool Profiler::UpdateRumContext(const RumContextValues* pContext)
                 rec.duration_ms  = nowMs - _pendingViewStartMs;
                 rec.view_id      = std::move(_currentRumView.view_id);
                 rec.view_name    = std::move(_currentRumView.view_name);
-                for (size_t i = 0; i < ViewVitalKindCount; ++i)
+                for (size_t i = 0; i < MaxViewVitalKind; ++i)
                     rec.vitals_ns[i] = _pendingVitalsNs[i].exchange(0, std::memory_order_relaxed);
                 _completedViewRecords.push_back(std::move(rec));
                 _hasPendingView = false;
@@ -285,7 +285,7 @@ std::string Profiler::GetCurrentSessionId() const
 bool Profiler::AccumulateViewVitals(ViewVitalKind kind, int64_t valueNs)
 {
     auto idx = static_cast<size_t>(kind);
-    if (idx >= ViewVitalKindCount)
+    if (idx >= MaxViewVitalKind)
         return false;
 
     _pendingVitalsNs[idx].fetch_add(valueNs, std::memory_order_relaxed);

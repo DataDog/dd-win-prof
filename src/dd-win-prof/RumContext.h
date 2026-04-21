@@ -20,14 +20,14 @@ enum class ViewVitalKind : uint8_t
     Unknown  // sentinel – must remain last
 };
 
-inline constexpr size_t ViewVitalKindCount = static_cast<size_t>(ViewVitalKind::Unknown);
+inline constexpr size_t MaxViewVitalKind = static_cast<size_t>(ViewVitalKind::Unknown);
 
 struct RumViewRecord {
     int64_t timestamp_ms{0};  // milliseconds since Unix epoch (view start)
     int64_t duration_ms{0};   // view duration in milliseconds
     std::string view_id;
     std::string view_name;
-    std::array<int64_t, ViewVitalKindCount> vitals_ns{};  // indexed by ViewVitalKind (nanoseconds)
+    std::array<int64_t, MaxViewVitalKind> vitals_ns{};  // indexed by ViewVitalKind (nanoseconds)
 };
 
 struct RumSessionRecord {

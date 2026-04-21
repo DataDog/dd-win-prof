@@ -385,7 +385,7 @@ TEST(RumViewRecordTests, DefaultConstruction) {
     EXPECT_EQ(record.duration_ms, 0);
     EXPECT_TRUE(record.view_id.empty());
     EXPECT_TRUE(record.view_name.empty());
-    for (size_t i = 0; i < ViewVitalKindCount; ++i)
+    for (size_t i = 0; i < MaxViewVitalKind; ++i)
         EXPECT_EQ(record.vitals_ns[i], 0);
 }
 
@@ -885,7 +885,7 @@ TEST_F(ProfilerRumContextTest, VitalsRejectOutOfRangeKind) {
     std::vector<RumViewRecord> records;
     _profiler->ConsumeViewRecords(records);
     ASSERT_EQ(records.size(), 1u);
-    for (size_t i = 0; i < ViewVitalKindCount; ++i)
+    for (size_t i = 0; i < MaxViewVitalKind; ++i)
         EXPECT_EQ(records[0].vitals_ns[i], 0);
 }
 
@@ -905,7 +905,7 @@ TEST_F(ProfilerRumContextTest, VitalsZeroWhenNoAccumulation) {
     std::vector<RumViewRecord> records;
     _profiler->ConsumeViewRecords(records);
     ASSERT_EQ(records.size(), 1u);
-    for (size_t i = 0; i < ViewVitalKindCount; ++i)
+    for (size_t i = 0; i < MaxViewVitalKind; ++i)
         EXPECT_EQ(records[0].vitals_ns[i], 0);
 }
 
