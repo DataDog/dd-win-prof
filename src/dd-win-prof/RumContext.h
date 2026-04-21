@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -12,11 +13,21 @@ struct RumViewContext {
     std::string view_name;
 };
 
+enum class ViewVitalKind : uint8_t
+{
+    CpuTime  = 0,
+    WaitTime = 1,
+    Unknown  // sentinel – must remain last
+};
+
+inline constexpr size_t MaxViewVitalKind = static_cast<size_t>(ViewVitalKind::Unknown);
+
 struct RumViewRecord {
     int64_t timestamp_ms{0};  // milliseconds since Unix epoch (view start)
     int64_t duration_ms{0};   // view duration in milliseconds
     std::string view_id;
     std::string view_name;
+    std::array<int64_t, MaxViewVitalKind> vitals_ns{};  // indexed by ViewVitalKind (nanoseconds)
 };
 
 struct RumSessionRecord {
@@ -32,6 +43,16 @@ public:
     // Returns true and fills 'context' with a copy of the current view if active.
     // Returns false if no view is currently active.
     virtual bool GetCurrentViewContext(RumViewContext& context) const = 0;
+};
+
+class IViewVitalsAccumulator {
+public:
+    virtual ~IViewVitalsAccumulator() = default;
+
+    // Called from the sampler hot path (lock-free).
+    // Adds 'valueNs' nanoseconds to the running total for 'kind' on the
+    // currently active view. Returns false if 'kind' is out of range.
+    virtual bool AccumulateViewVitals(ViewVitalKind kind, int64_t valueNs) = 0;
 };
 
 class IRumRecordProvider {

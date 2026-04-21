@@ -16,7 +16,8 @@ StackSamplerLoop::StackSamplerLoop(
     ThreadList* pThreadList,
     CpuTimeProvider* pCpuTimeProvider,
     WallTimeProvider* pWallTimeProvider,
-    IRumViewContextProvider* pRumViewContextProvider
+    IRumViewContextProvider* pRumViewContextProvider,
+    IViewVitalsAccumulator* pViewVitalsAccumulator
     )
     :
     _samplingPeriod(pConfiguration->CpuWallTimeSamplingPeriod()),
@@ -27,6 +28,7 @@ StackSamplerLoop::StackSamplerLoop(
     _pCpuTimeProvider(pCpuTimeProvider),
     _pWallTimeProvider(pWallTimeProvider),
     _pRumViewContextProvider(pRumViewContextProvider),
+    _pViewVitalsAccumulator(pViewVitalsAccumulator),
     _iteratorCpuTime(0),
     _iteratorWallTime(0),
     _pLoopThread(nullptr)
@@ -293,6 +295,11 @@ void StackSamplerLoop::CollectOneThreadSample(std::shared_ptr<ThreadInfo>& pThre
                 sample.SetRumViewContext(std::move(rumView));
             }
             _pCpuTimeProvider->Add(std::move(sample), duration);
+
+            if (hasRumView && _pViewVitalsAccumulator != nullptr)
+            {
+                _pViewVitalsAccumulator->AccumulateViewVitals(ViewVitalKind::CpuTime, duration.count());
+            }
         }
         else
         if (profilingType == PROFILING_TYPE::WallTime)
@@ -325,6 +332,11 @@ void StackSamplerLoop::CollectOneThreadSample(std::shared_ptr<ThreadInfo>& pThre
                 sample.SetRumViewContext(std::move(rumView));
             }
             _pWallTimeProvider->Add(std::move(sample), duration, waitDuration, waitingReason);
+
+            if (hasRumView && _pViewVitalsAccumulator != nullptr)
+            {
+                _pViewVitalsAccumulator->AccumulateViewVitals(ViewVitalKind::WaitTime, waitDuration.count());
+            }
         }
         else
         {

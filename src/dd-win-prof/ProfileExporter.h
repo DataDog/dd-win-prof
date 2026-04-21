@@ -37,8 +37,16 @@ public:
     // RUM application ID tag (set once by Profiler, emitted per-export)
     void SetRumApplicationId(const std::string& applicationId);
 
-    // JSON serialization for RUM records (public so unit tests can exercise them directly)
-    // Note: public because needed for unit testing, but not intended for external use.
+    // JSON serialization for RUM records.
+    //
+    // The resulting JSON is used two ways:
+    //   1. Optionally written locally as a `.rum-views.json` debug file when
+    //      pprof file writing is enabled.
+    //   2. Passed to libdatadog through the `optional_internal_metadata_json`
+    //      parameter of `ddog_prof_Exporter_Request_build`, where it ends up
+    //      embedded in the `internal` field of the profile's `event.json`.
+    //
+    // Public so unit tests can exercise it directly; not intended for external use.
     static std::string SerializeRumRecordsToJson(
         const std::vector<RumViewRecord>& viewRecords,
         const std::vector<RumSessionRecord>& sessionRecords);
@@ -67,10 +75,8 @@ public:
     bool CreateExporterEndpoint(ddog_prof_Endpoint& endpoint);
     bool BuildExportUrl();
     bool ExportProfile(const ddog_prof_EncodedProfile* encodedProfile, uint32_t profileSeq,
-                       const std::string& rumRecordsJson = {},
-                       const std::vector<std::string>& allSessionIds = {});
-    bool PrepareAdditionalTags(ddog_Vec_Tag& tags, uint32_t profileSeq,
-                               const std::vector<std::string>& allSessionIds = {});
+                       const std::string& rumRecordsJson = {});
+    bool PrepareAdditionalTags(ddog_Vec_Tag& tags, uint32_t profileSeq);
     bool CheckExportResponse(uint16_t responseCode);
     void CleanupExporter();
 
@@ -123,7 +129,8 @@ private:
 
     // RUM tags (per-export)
     static constexpr const char* TAG_RUM_APPLICATION_ID = "rum.application_id";
-    static constexpr const char* TAG_RUM_SESSION_ID = "rum.session_id";
+    // Session IDs are no longer emitted as a tag; they are carried in the
+    // internal metadata JSON payload (optional_internal_metadata_json).
 
     // TODO: how to define metrics? With tags? With separate json file?
     static constexpr const char* TAG_RAM_SIZE = "ram_size";

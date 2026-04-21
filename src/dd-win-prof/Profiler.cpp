@@ -49,6 +49,7 @@ bool Profiler::StartProfiling()
         _pThreadList.get(),
         _pCpuTimeProvider.get(),
         _pCpuWallTimeProvider.get(),
+        this,
         this);
 
     // get the values definition from the different providers...
@@ -221,6 +222,9 @@ bool Profiler::UpdateRumContext(const RumContextValues* pContext)
             _pendingViewStartMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
             _hasPendingView = true;
+
+            for (auto& a : _pendingVitalsNs)
+                a.store(0, std::memory_order_relaxed);
         }
         else
         {
@@ -228,12 +232,15 @@ bool Profiler::UpdateRumContext(const RumContextValues* pContext)
             {
                 auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::system_clock::now().time_since_epoch()).count();
-                _completedViewRecords.push_back({
-                    _pendingViewStartMs,
-                    nowMs - _pendingViewStartMs,
-                    std::move(_currentRumView.view_id),
-                    std::move(_currentRumView.view_name)
-                });
+
+                RumViewRecord rec;
+                rec.timestamp_ms = _pendingViewStartMs;
+                rec.duration_ms  = nowMs - _pendingViewStartMs;
+                rec.view_id      = std::move(_currentRumView.view_id);
+                rec.view_name    = std::move(_currentRumView.view_name);
+                for (size_t i = 0; i < MaxViewVitalKind; ++i)
+                    rec.vitals_ns[i] = _pendingVitalsNs[i].exchange(0, std::memory_order_relaxed);
+                _completedViewRecords.push_back(std::move(rec));
                 _hasPendingView = false;
             }
 
@@ -273,4 +280,14 @@ std::string Profiler::GetCurrentSessionId() const
 {
     std::shared_lock lock(_rumContextMutex);
     return _currentSessionId;
+}
+
+bool Profiler::AccumulateViewVitals(ViewVitalKind kind, int64_t valueNs)
+{
+    auto idx = static_cast<size_t>(kind);
+    if (idx >= MaxViewVitalKind)
+        return false;
+
+    _pendingVitalsNs[idx].fetch_add(valueNs, std::memory_order_relaxed);
+    return true;
 }

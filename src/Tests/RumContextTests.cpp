@@ -14,6 +14,22 @@
 #include <sstream>
 #include <thread>
 
+// Helper: build a RumViewRecord with optional per-vital values.
+static RumViewRecord MakeViewRecord(
+    int64_t timestampMs, int64_t durationMs,
+    std::string viewId, std::string viewName,
+    int64_t cpuTimeNs = 0, int64_t waitTimeNs = 0)
+{
+    RumViewRecord r;
+    r.timestamp_ms = timestampMs;
+    r.duration_ms  = durationMs;
+    r.view_id      = std::move(viewId);
+    r.view_name    = std::move(viewName);
+    r.vitals_ns[static_cast<size_t>(ViewVitalKind::CpuTime)]  = cpuTimeNs;
+    r.vitals_ns[static_cast<size_t>(ViewVitalKind::WaitTime)] = waitTimeNs;
+    return r;
+}
+
 // ---------------------------------------------------------------------------
 // RumViewContext struct tests
 // ---------------------------------------------------------------------------
@@ -369,14 +385,24 @@ TEST(RumViewRecordTests, DefaultConstruction) {
     EXPECT_EQ(record.duration_ms, 0);
     EXPECT_TRUE(record.view_id.empty());
     EXPECT_TRUE(record.view_name.empty());
+    for (size_t i = 0; i < MaxViewVitalKind; ++i)
+        EXPECT_EQ(record.vitals_ns[i], 0);
 }
 
 TEST(RumViewRecordTests, ValueInitialization) {
-    RumViewRecord record{1773058873970, 2000, "view-abc", "HomePage"};
+    RumViewRecord record;
+    record.timestamp_ms = 1773058873970;
+    record.duration_ms = 2000;
+    record.view_id = "view-abc";
+    record.view_name = "HomePage";
+    record.vitals_ns[static_cast<size_t>(ViewVitalKind::CpuTime)] = 500000;
+    record.vitals_ns[static_cast<size_t>(ViewVitalKind::WaitTime)] = 300000;
     EXPECT_EQ(record.timestamp_ms, 1773058873970);
     EXPECT_EQ(record.duration_ms, 2000);
     EXPECT_EQ(record.view_id, "view-abc");
     EXPECT_EQ(record.view_name, "HomePage");
+    EXPECT_EQ(record.vitals_ns[static_cast<size_t>(ViewVitalKind::CpuTime)], 500000);
+    EXPECT_EQ(record.vitals_ns[static_cast<size_t>(ViewVitalKind::WaitTime)], 300000);
 }
 
 // ---------------------------------------------------------------------------
@@ -519,7 +545,7 @@ TEST(RumRecordJsonTests, EmptyBothProducesEmptyJson) {
 
 TEST(RumRecordJsonTests, ViewsOnlyJson) {
     std::vector<RumViewRecord> views = {
-        {1773058873970, 2000, "view-1", "HomePage"}
+        MakeViewRecord(1773058873970, 2000, "view-1", "HomePage")
     };
     std::vector<RumSessionRecord> sessions;
     auto json = ProfileExporter::SerializeRumRecordsToJson(views, sessions);
@@ -527,7 +553,8 @@ TEST(RumRecordJsonTests, ViewsOnlyJson) {
         "{\"views\":[{\"startClocks\":{\"relative\":0,\"timeStamp\":1773058873970}"
         ",\"duration\":2000"
         ",\"viewId\":\"view-1\""
-        ",\"viewName\":\"HomePage\"}]"
+        ",\"viewName\":\"HomePage\""
+        ",\"vitals\":{\"cpuTimeNs\":0,\"waitTimeNs\":0}}]"
         ",\"sessions\":[]}");
 }
 
@@ -546,8 +573,8 @@ TEST(RumRecordJsonTests, SessionsOnlyJson) {
 
 TEST(RumRecordJsonTests, MixedViewsAndSessionsJson) {
     std::vector<RumViewRecord> views = {
-        {1773058873970, 2000, "view-1", "HomePage"},
-        {1773058876000, 1500, "view-2", "Settings"}
+        MakeViewRecord(1773058873970, 2000, "view-1", "HomePage"),
+        MakeViewRecord(1773058876000, 1500, "view-2", "Settings")
     };
     std::vector<RumSessionRecord> sessions = {
         {1773058870000, 8000, "session-1"}
@@ -563,7 +590,7 @@ TEST(RumRecordJsonTests, MixedViewsAndSessionsJson) {
 
 TEST(RumRecordJsonTests, ZeroDuration) {
     std::vector<RumViewRecord> views = {
-        {1773058873970, 0, "view-1", "Quick"}
+        MakeViewRecord(1773058873970, 0, "view-1", "Quick")
     };
     std::vector<RumSessionRecord> sessions;
     auto json = ProfileExporter::SerializeRumRecordsToJson(views, sessions);
@@ -742,3 +769,180 @@ TEST_F(ProfilerRumContextTest, SameSessionIdDoesNotCreateRecord) {
     _profiler->ConsumeSessionRecords(records);
     EXPECT_TRUE(records.empty());
 }
+
+// ---------------------------------------------------------------------------
+// View vitals accumulation tests
+// ---------------------------------------------------------------------------
+
+TEST_F(ProfilerRumContextTest, VitalsAccumulateDuringActiveView) {
+    RumContextValues ctx = {};
+    ctx.application_id = "app-1";
+    ctx.session_id = "session-1";
+    ctx.view_id = "view-1";
+    ctx.view_name = "HomePage";
+    _profiler->UpdateRumContext(&ctx);
+
+    EXPECT_TRUE(_profiler->AccumulateViewVitals(ViewVitalKind::WaitTime, 1000));
+    EXPECT_TRUE(_profiler->AccumulateViewVitals(ViewVitalKind::CpuTime, 2000));
+    EXPECT_TRUE(_profiler->AccumulateViewVitals(ViewVitalKind::WaitTime, 500));
+    EXPECT_TRUE(_profiler->AccumulateViewVitals(ViewVitalKind::CpuTime, 3000));
+
+    // End the view
+    ctx.view_id = "";
+    ctx.view_name = "";
+    _profiler->UpdateRumContext(&ctx);
+
+    std::vector<RumViewRecord> records;
+    _profiler->ConsumeViewRecords(records);
+    ASSERT_EQ(records.size(), 1u);
+    EXPECT_EQ(records[0].vitals_ns[static_cast<size_t>(ViewVitalKind::WaitTime)], 1500);
+    EXPECT_EQ(records[0].vitals_ns[static_cast<size_t>(ViewVitalKind::CpuTime)], 5000);
+}
+
+TEST_F(ProfilerRumContextTest, VitalsResetOnViewEnd) {
+    RumContextValues ctx = {};
+    ctx.application_id = "app-1";
+    ctx.session_id = "session-1";
+
+    // First view with some vitals
+    ctx.view_id = "view-1";
+    ctx.view_name = "Page1";
+    _profiler->UpdateRumContext(&ctx);
+    _profiler->AccumulateViewVitals(ViewVitalKind::WaitTime, 100);
+    _profiler->AccumulateViewVitals(ViewVitalKind::CpuTime, 200);
+
+    ctx.view_id = "";
+    ctx.view_name = "";
+    _profiler->UpdateRumContext(&ctx);
+
+    // Second view without any vitals
+    ctx.view_id = "view-2";
+    ctx.view_name = "Page2";
+    _profiler->UpdateRumContext(&ctx);
+
+    ctx.view_id = "";
+    ctx.view_name = "";
+    _profiler->UpdateRumContext(&ctx);
+
+    std::vector<RumViewRecord> records;
+    _profiler->ConsumeViewRecords(records);
+    ASSERT_EQ(records.size(), 2u);
+    EXPECT_EQ(records[0].vitals_ns[static_cast<size_t>(ViewVitalKind::WaitTime)], 100);
+    EXPECT_EQ(records[0].vitals_ns[static_cast<size_t>(ViewVitalKind::CpuTime)], 200);
+    EXPECT_EQ(records[1].vitals_ns[static_cast<size_t>(ViewVitalKind::WaitTime)], 0);
+    EXPECT_EQ(records[1].vitals_ns[static_cast<size_t>(ViewVitalKind::CpuTime)], 0);
+}
+
+TEST_F(ProfilerRumContextTest, VitalsResetOnNewViewStart) {
+    RumContextValues ctx = {};
+    ctx.application_id = "app-1";
+    ctx.session_id = "session-1";
+
+    // Start view and accumulate vitals
+    ctx.view_id = "view-1";
+    ctx.view_name = "Page1";
+    _profiler->UpdateRumContext(&ctx);
+    _profiler->AccumulateViewVitals(ViewVitalKind::WaitTime, 1000);
+    _profiler->AccumulateViewVitals(ViewVitalKind::CpuTime, 2000);
+
+    // Switch directly to a new view (without clearing)
+    ctx.view_id = "view-2";
+    ctx.view_name = "Page2";
+    _profiler->UpdateRumContext(&ctx);
+
+    // Accumulate for the second view
+    _profiler->AccumulateViewVitals(ViewVitalKind::WaitTime, 300);
+    _profiler->AccumulateViewVitals(ViewVitalKind::CpuTime, 400);
+
+    ctx.view_id = "";
+    ctx.view_name = "";
+    _profiler->UpdateRumContext(&ctx);
+
+    std::vector<RumViewRecord> records;
+    _profiler->ConsumeViewRecords(records);
+    ASSERT_EQ(records.size(), 1u);
+    EXPECT_EQ(records[0].view_id, "view-2");
+    EXPECT_EQ(records[0].vitals_ns[static_cast<size_t>(ViewVitalKind::WaitTime)], 300);
+    EXPECT_EQ(records[0].vitals_ns[static_cast<size_t>(ViewVitalKind::CpuTime)], 400);
+}
+
+TEST_F(ProfilerRumContextTest, VitalsRejectOutOfRangeKind) {
+    RumContextValues ctx = {};
+    ctx.application_id = "app-1";
+    ctx.session_id = "session-1";
+    ctx.view_id = "view-1";
+    ctx.view_name = "Page1";
+    _profiler->UpdateRumContext(&ctx);
+
+    EXPECT_FALSE(_profiler->AccumulateViewVitals(ViewVitalKind::Unknown, 100));
+    EXPECT_FALSE(_profiler->AccumulateViewVitals(static_cast<ViewVitalKind>(255), 100));
+
+    // End view and verify nothing was accumulated from the rejected calls
+    ctx.view_id = "";
+    ctx.view_name = "";
+    _profiler->UpdateRumContext(&ctx);
+
+    std::vector<RumViewRecord> records;
+    _profiler->ConsumeViewRecords(records);
+    ASSERT_EQ(records.size(), 1u);
+    for (size_t i = 0; i < MaxViewVitalKind; ++i)
+        EXPECT_EQ(records[0].vitals_ns[i], 0);
+}
+
+TEST_F(ProfilerRumContextTest, VitalsZeroWhenNoAccumulation) {
+    RumContextValues ctx = {};
+    ctx.application_id = "app-1";
+    ctx.session_id = "session-1";
+    ctx.view_id = "view-1";
+    ctx.view_name = "Page1";
+    _profiler->UpdateRumContext(&ctx);
+
+    // End the view without any AccumulateViewVitals calls
+    ctx.view_id = "";
+    ctx.view_name = "";
+    _profiler->UpdateRumContext(&ctx);
+
+    std::vector<RumViewRecord> records;
+    _profiler->ConsumeViewRecords(records);
+    ASSERT_EQ(records.size(), 1u);
+    for (size_t i = 0; i < MaxViewVitalKind; ++i)
+        EXPECT_EQ(records[0].vitals_ns[i], 0);
+}
+
+// ---------------------------------------------------------------------------
+// JSON vitals serialization tests
+// ---------------------------------------------------------------------------
+
+TEST(RumRecordJsonTests, VitalsInJson) {
+    std::vector<RumViewRecord> views = {
+        MakeViewRecord(1000, 500, "view-1", "Home", 123456789, 987654321)
+    };
+    std::vector<RumSessionRecord> sessions;
+    auto json = ProfileExporter::SerializeRumRecordsToJson(views, sessions);
+    EXPECT_NE(json.find("\"vitals\":{\"cpuTimeNs\":123456789,\"waitTimeNs\":987654321}"), std::string::npos);
+}
+
+TEST(RumRecordJsonTests, VitalsZeroInJson) {
+    std::vector<RumViewRecord> views = {
+        MakeViewRecord(1000, 500, "view-1", "Home")
+    };
+    std::vector<RumSessionRecord> sessions;
+    auto json = ProfileExporter::SerializeRumRecordsToJson(views, sessions);
+    EXPECT_NE(json.find("\"vitals\":{\"cpuTimeNs\":0,\"waitTimeNs\":0}"), std::string::npos);
+}
+
+TEST(RumRecordJsonTests, MultipleViewsWithDifferentVitals) {
+    std::vector<RumViewRecord> views = {
+        MakeViewRecord(1000, 500, "view-1", "Home", 100, 200),
+        MakeViewRecord(2000, 300, "view-2", "Settings", 400, 500)
+    };
+    std::vector<RumSessionRecord> sessions;
+    auto json = ProfileExporter::SerializeRumRecordsToJson(views, sessions);
+    EXPECT_NE(json.find("\"vitals\":{\"cpuTimeNs\":100,\"waitTimeNs\":200}"), std::string::npos);
+    EXPECT_NE(json.find("\"vitals\":{\"cpuTimeNs\":400,\"waitTimeNs\":500}"), std::string::npos);
+}
+
+// Note: the RUM records JSON built by SerializeRumRecordsToJson is also the
+// payload passed to libdatadog through optional_internal_metadata_json. The
+// tests above (RumRecordJsonTests) therefore double-cover that payload's
+// shape; no dedicated internal-metadata suite is needed.
