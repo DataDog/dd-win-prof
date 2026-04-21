@@ -378,18 +378,74 @@ void ClearView(const std::string& appId, const std::string& sessionId)
     UpdateRumContext(&ctx);
 }
 
+// Per-view function chains: each view produces a distinct call stack.
+// __declspec(noinline) prevents MSVC from collapsing them during optimization.
+
+// --- HomePage ---
+__declspec(noinline) void FetchRecommendations() { Spin(500); }
+__declspec(noinline) void RenderDashboard() { Spin(500); }
+__declspec(noinline) void ProcessNotifications() { Spin(500); }
+
+__declspec(noinline) void LoadHomeContent()
+{
+    FetchRecommendations();
+    RenderDashboard();
+}
+
+__declspec(noinline) void HomePageView()
+{
+    LoadHomeContent();
+    ProcessNotifications();
+}
+
+// --- SettingsPage ---
+__declspec(noinline) void ReadConfiguration() { Spin(600); }
+__declspec(noinline) void ValidateSettings() { Spin(600); }
+__declspec(noinline) void ApplyTheme() { Spin(600); }
+
+__declspec(noinline) void LoadSettings()
+{
+    ReadConfiguration();
+}
+
+__declspec(noinline) void SettingsPageView()
+{
+    LoadSettings();
+    ValidateSettings();
+    ApplyTheme();
+}
+
+// --- ProfilePage ---
+__declspec(noinline) void LoadAvatar() { Spin(400); }
+__declspec(noinline) void DecodeImage() { Spin(400); }
+__declspec(noinline) void ComputeStatistics() { Spin(400); }
+__declspec(noinline) void RenderTimeline() { Spin(400); }
+
+__declspec(noinline) void FetchUserProfile()
+{
+    LoadAvatar();
+    DecodeImage();
+}
+
+__declspec(noinline) void ProfilePageView()
+{
+    FetchUserProfile();
+    ComputeStatistics();
+    RenderTimeline();
+}
+
 void RunRumScenario(const std::string& appId, const std::string& sessionId)
 {
     static const std::string sessionId2 = "99999999-2222-3333-4444-555555555555";
 
     SetView(appId, sessionId, "HomePage");
-    std::cout << "View 1: HomePage, session S1 (spinning 2s)..." << std::endl;
-    Spin(2000);
+    std::cout << "View 1: HomePage, session S1..." << std::endl;
+    HomePageView();
 
     ClearView(appId, sessionId);
     SetView(appId, sessionId, "SettingsPage");
-    std::cout << "View 2: SettingsPage, session S1 (spinning 2s)..." << std::endl;
-    Spin(2000);
+    std::cout << "View 2: SettingsPage, session S1..." << std::endl;
+    SettingsPageView();
 
     ClearView(appId, sessionId);
     std::cout << "No active view, session S1 (spinning 1s)..." << std::endl;
@@ -397,8 +453,8 @@ void RunRumScenario(const std::string& appId, const std::string& sessionId)
 
     // Session rotation: switch from S1 to S2
     SetView(appId, sessionId2, "ProfilePage");
-    std::cout << "View 3: ProfilePage, session S2 (spinning 2s)..." << std::endl;
-    Spin(2000);
+    std::cout << "View 3: ProfilePage, session S2..." << std::endl;
+    ProfilePageView();
 
     ClearView(appId, sessionId2);
 }
