@@ -28,7 +28,7 @@ public :
     bool AddCurrentThread();
     void RemoveCurrentThread();
 
-    bool IsStarted() const { return _isStarted; }
+    bool IsStarted() const { return _isStarted.load(std::memory_order_relaxed); }
     size_t GetThreadCount() const { return _pThreadList ? _pThreadList->Count() : 0; }
     bool IsAutoStartEnabled() const { return _pConfiguration->IsProfilerAutoStartEnabled(); }
 
@@ -78,7 +78,7 @@ private:
     static Profiler* _this;
     static std::unique_ptr<Configuration> _pConfiguration;
 
-    bool _isStarted;
+    std::atomic<bool> _isStarted;
 
     std::unique_ptr<ThreadList> _pThreadList;
     std::unique_ptr<StackSamplerLoop> _pStackSamplerLoop;
@@ -114,8 +114,7 @@ private:
     int64_t _sessionStartMs{0};
     std::vector<RumSessionRecord> _completedSessionRecords;
 
-    // RUM app-level ID (write-once, buffered until exporter exists)
-    std::mutex _rumAppMutex;
+    // RUM app-level ID (write-once, buffered until exporter exists; protected by _rumContextMutex)
     std::string _rumApplicationId;
 };
 

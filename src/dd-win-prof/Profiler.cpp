@@ -70,7 +70,7 @@ bool Profiler::StartProfiling()
 
     // Flush buffered RUM application ID to the exporter
     {
-        std::lock_guard lock(_rumAppMutex);
+        std::shared_lock lock(_rumContextMutex);
         if (!_rumApplicationId.empty())
         {
             _pProfileExporter->SetRumApplicationId(_rumApplicationId);
@@ -211,40 +211,32 @@ bool Profiler::SetRumSession(const RumSessionContext* pContext)
         return false;
     }
 
+    std::unique_lock lock(_rumContextMutex);
+
     // Application ID: write-once, buffered until exporter exists
+    if (!_rumApplicationId.empty() && _rumApplicationId != pContext->application_id)
     {
-        std::lock_guard lock(_rumAppMutex);
+        return false;
+    }
 
-        // it is not allowed to change the application id
-        if (!_rumApplicationId.empty() && _rumApplicationId != pContext->application_id)
+    if (_rumApplicationId.empty())
+    {
+        _rumApplicationId = pContext->application_id;
+
+        if (_pProfileExporter != nullptr)
         {
-            return false;
-        }
-
-        if (_rumApplicationId.empty())
-        {
-            _rumApplicationId = pContext->application_id;
-
-            if (_pProfileExporter != nullptr)
-            {
-                _pProfileExporter->SetRumApplicationId(_rumApplicationId);
-            }
+            _pProfileExporter->SetRumApplicationId(_rumApplicationId);
         }
     }
 
-
     // Session tracking: complete previous session on change, start new one
+    if (_currentSessionId != pContext->session_id)
     {
-        std::unique_lock lock(_rumContextMutex);
+        CompleteCurrentSession();
 
-        if (_currentSessionId != pContext->session_id)
-        {
-            CompleteCurrentSession();
-
-            _currentSessionId = pContext->session_id;
-            _sessionStartMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::system_clock::now().time_since_epoch()).count();
-        }
+        _currentSessionId = pContext->session_id;
+        _sessionStartMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
     }
 
     return true;
@@ -307,19 +299,11 @@ bool Profiler::SetRumView(const RumViewValues* pContext)
 
 void Profiler::ClearRumContext()
 {
-    // Clear session and view state
-    {
-        std::unique_lock lock(_rumContextMutex);
+    std::unique_lock lock(_rumContextMutex);
 
-        CompleteCurrentSession();
-        CompleteCurrentView();
-    }
-
-    // Clear the application ID
-    {
-        std::lock_guard lock(_rumAppMutex);
-        _rumApplicationId.clear();
-    }
+    CompleteCurrentSession();
+    CompleteCurrentView();
+    _rumApplicationId.clear();
 }
 
 bool Profiler::EnterView(const char* viewName)
