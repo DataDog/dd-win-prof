@@ -8,6 +8,7 @@
 #include "Configuration.h"
 #include "CpuTimeProvider.h"
 #include "dd-win-prof.h"
+#include "dd-win-rum-private.h"
 #include "ProfileExporter.h"
 #include "RumContext.h"
 #include "SamplesCollector.h"
@@ -32,7 +33,11 @@ public :
     bool IsAutoStartEnabled() const { return _pConfiguration->IsProfilerAutoStartEnabled(); }
 
     // RUM context management (called from the C API, thread-safe)
-    bool UpdateRumContext(const RumContextValues* pContext);
+    bool EnterView(const char* viewName);
+    bool LeaveCurrentView();
+    bool SetRumSession(const RumSessionContext* pContext);
+    bool SetRumView(const RumViewValues* pContext);
+    void ClearRumContext();
 
     // IRumViewContextProvider implementation
     bool GetCurrentViewContext(RumViewContext& context) const override;
@@ -90,13 +95,14 @@ private:
 
     // RUM view + session context (dynamic, protected by reader/writer lock)
     mutable std::shared_mutex _rumContextMutex;
-    bool _hasActiveView{false};
     RumViewContext _currentRumView;
+
+    void CompleteCurrentView();     // caller must hold _rumContextMutex exclusive
+    void CompleteCurrentSession();  // caller must hold _rumContextMutex exclusive
 
     // RUM view timeline recording (protected by _rumContextMutex)
     std::vector<RumViewRecord> _completedViewRecords;
     int64_t _pendingViewStartMs{0};
-    bool _hasPendingView{false};
 
     // Per-view vitals accumulators indexed by ViewVitalKind.
     // Written lock-free from the sampler thread (fetch_add with relaxed ordering),
@@ -106,12 +112,10 @@ private:
     // RUM session tracking (protected by _rumContextMutex)
     std::string _currentSessionId;
     int64_t _sessionStartMs{0};
-    bool _hasPendingSession{false};
     std::vector<RumSessionRecord> _completedSessionRecords;
 
     // RUM app-level ID (write-once, buffered until exporter exists)
     std::mutex _rumAppMutex;
-    bool _rumAppIdSet{false};
     std::string _rumApplicationId;
 };
 

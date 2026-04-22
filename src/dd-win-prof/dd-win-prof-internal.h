@@ -10,4 +10,4 @@
 // When pSettings->noEnvVars is true, resets to defaults first so that
 // only the explicit struct fields take effect.
 // Returns false if mandatory fields are missing (url, apiKey when noEnvVars).
-bool InitializeConfiguration(Configuration* pConfig, ProfilerConfig* pSettings);
+bool InitializeConfiguration(Configuration* pConfig, const ProfilerConfig* pSettings);

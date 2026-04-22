@@ -46,33 +46,25 @@ typedef struct _ProfilerConfig
 } ProfilerConfig;
 
 
-// RUM (Real User Monitoring) context values.
-// Passed by dd-sdk-cpp to correlate profiling data with user sessions/views.
-typedef struct _RumContextValues
-{
-    const char* application_id;  // UUID string, set once per process lifetime
-    const char* session_id;      // UUID string, can change on session rotation
-    const char* view_id;         // nullptr or "" to clear current view
-    const char* view_name;       // human-readable name, e.g. "HomePage"
-} RumContextValues;
-
 extern "C" {
-    DD_WIN_PROF_API bool SetupProfiler(ProfilerConfig* pSettings);
+    DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig* pSettings);
+
     // Start profiling manually (returns false if already started or explicitly disabled)
     DD_WIN_PROF_API bool StartProfiler();
 
     // Stop profiling manually (safe to call even if not started)
     DD_WIN_PROF_API void StopProfiler();
 
-    // Update RUM context. Safe to call from any thread.
-    // On first call with non-empty application_id, stores it as a profile-level tag
-    // (subsequent calls with a different application_id are rejected).
-    // On every call with non-empty session_id, updates the current session. Session
-    // transitions are tracked with timestamps; the profile-level rum.session_id tag
-    // lists all session_ids since the last export.
-    // On every call, updates the view-level context (view_id/view_name).
-    // Pass nullptr/empty view_id to clear the current view (signals "between views").
-    DD_WIN_PROF_API bool UpdateRumContext(const RumContextValues* pContext);
+    // Enter a named view. Generates a unique view_id internally.
+    // Updates per-sample pprof labels: rum.view_id and trace endpoint (viewName).
+    // If a view is already active, it is completed first (record produced).
+    // Returns false if no session is active (a view requires an app+session).
+    DD_WIN_PROF_API bool EnterView(const char* viewName);
+
+    // Leave the current view (signals "between views").
+    // Completes the active view record. No-op if no view is active.
+    // Returns true if a view was active and is now cleared, false if no view was active.
+    DD_WIN_PROF_API bool LeaveCurrentView();
 
     // Environment Variables (independent controls):
     // DD_PROFILING_ENABLED: Controls whether profiler CAN be started
