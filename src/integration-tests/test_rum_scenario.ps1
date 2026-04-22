@@ -16,12 +16,14 @@
 #   .\test_rum_scenario.ps1
 #   .\test_rum_scenario.ps1 -Config Release
 #   .\test_rum_scenario.ps1 -Iterations 3
+#   .\test_rum_scenario.ps1 -KeepArtifacts
 
 [CmdletBinding()]
 param(
     [ValidateSet("Debug", "Release", "Auto")]
     [string]$Config = "Auto",
-    [int]$Iterations = 3
+    [int]$Iterations = 3,
+    [switch]$KeepArtifacts
 )
 
 $ErrorActionPreference = "Stop"
@@ -156,7 +158,7 @@ foreach ($jsonFile in $jsonFiles) {
     }
 }
 
-$expectedViewCount = 3 * $Iterations
+$expectedViewCount = 4 * $Iterations
 Assert ($allViewEntries.Count -eq $expectedViewCount) `
     "Total view entries = $expectedViewCount ($($allViewEntries.Count) found)"
 
@@ -222,10 +224,17 @@ foreach ($s2 in $s2Records) {
 
 $failCount = Show-TestSummary
 
-try {
-    Remove-Item -Recurse -Force $testRoot -ErrorAction SilentlyContinue
-} catch {
-    Write-Host "  WARN: Could not clean up $testRoot" -ForegroundColor Yellow
+if ($KeepArtifacts) {
+    Write-Host ""
+    Write-Host "Artifacts kept at:" -ForegroundColor Cyan
+    Write-Host "  Pprof : $pprofDir" -ForegroundColor Gray
+    Write-Host "  Logs  : $logDir"   -ForegroundColor Gray
+} else {
+    try {
+        Remove-Item -Recurse -Force $testRoot -ErrorAction SilentlyContinue
+    } catch {
+        Write-Host "  WARN: Could not clean up $testRoot" -ForegroundColor Yellow
+    }
 }
 
 exit $failCount
