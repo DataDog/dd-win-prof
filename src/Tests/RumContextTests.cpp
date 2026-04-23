@@ -82,8 +82,19 @@ protected:
     std::unique_ptr<Profiler> _profiler;
 };
 
-TEST_F(ProfilerRumContextTest, SetRumSessionReturnsFalseOnNull) {
-    EXPECT_FALSE(_profiler->SetRumSession(nullptr));
+TEST_F(ProfilerRumContextTest, SetRumSessionNullEndsSession) {
+    RumSessionContext sessionCtx = {};
+    sessionCtx.application_id = "app-1";
+    sessionCtx.session_id = "S1";
+    EXPECT_TRUE(_profiler->SetRumSession(&sessionCtx));
+
+    EXPECT_TRUE(_profiler->SetRumSession(nullptr));
+    EXPECT_TRUE(_profiler->GetCurrentSessionId().empty());
+}
+
+TEST_F(ProfilerRumContextTest, SetRumSessionNullWithNoSessionIsNoOp) {
+    EXPECT_TRUE(_profiler->SetRumSession(nullptr));
+    EXPECT_TRUE(_profiler->GetCurrentSessionId().empty());
 }
 
 TEST_F(ProfilerRumContextTest, SetRumSessionReturnsFalseOnEmptyAppId) {
@@ -1011,10 +1022,10 @@ TEST(RumRecordJsonTests, MultipleViewsWithDifferentVitals) {
 // shape; no dedicated internal-metadata suite is needed.
 
 // ---------------------------------------------------------------------------
-// ClearRumContext tests
+// SetRumSession(nullptr) end-session tests
 // ---------------------------------------------------------------------------
 
-TEST_F(ProfilerRumContextTest, ClearRumContextCompletesRecords) {
+TEST_F(ProfilerRumContextTest, NullSessionCompletesRecords) {
     RumSessionContext sessionCtx = {};
     sessionCtx.application_id = "app-1";
     sessionCtx.session_id = "S1";
@@ -1027,7 +1038,7 @@ TEST_F(ProfilerRumContextTest, ClearRumContextCompletesRecords) {
 
     ::Sleep(50);
 
-    _profiler->ClearRumContext();
+    _profiler->SetRumSession(nullptr);
 
     std::vector<RumViewRecord> viewRecords;
     _profiler->ConsumeViewRecords(viewRecords);
@@ -1040,34 +1051,37 @@ TEST_F(ProfilerRumContextTest, ClearRumContextCompletesRecords) {
     ASSERT_EQ(sessionRecords.size(), 1u);
     EXPECT_EQ(sessionRecords[0].session_id, "S1");
 
-    // Verify state is clean
     RumViewContext viewCtx;
     EXPECT_FALSE(_profiler->GetCurrentViewContext(viewCtx));
     EXPECT_TRUE(_profiler->GetCurrentSessionId().empty());
 }
 
-TEST_F(ProfilerRumContextTest, ClearRumContextClearsAppId) {
+TEST_F(ProfilerRumContextTest, NullSessionPreservesAppId) {
     RumSessionContext sessionCtx = {};
     sessionCtx.application_id = "app-1";
     sessionCtx.session_id = "S1";
     EXPECT_TRUE(_profiler->SetRumSession(&sessionCtx));
 
-    _profiler->ClearRumContext();
+    _profiler->SetRumSession(nullptr);
 
-    // After clearing, a different app_id should be accepted
+    // Same app_id should still be accepted after ending the session
+    sessionCtx.session_id = "S2";
+    EXPECT_TRUE(_profiler->SetRumSession(&sessionCtx));
+
+    // A different app_id should still be rejected
     RumSessionContext sessionCtx2 = {};
     sessionCtx2.application_id = "app-2";
-    sessionCtx2.session_id = "S2";
-    EXPECT_TRUE(_profiler->SetRumSession(&sessionCtx2));
+    sessionCtx2.session_id = "S3";
+    EXPECT_FALSE(_profiler->SetRumSession(&sessionCtx2));
 }
 
-TEST_F(ProfilerRumContextTest, ClearRumContextAfterOnlySession) {
+TEST_F(ProfilerRumContextTest, NullSessionAfterOnlySession) {
     RumSessionContext sessionCtx = {};
     sessionCtx.application_id = "app-1";
     sessionCtx.session_id = "S1";
     _profiler->SetRumSession(&sessionCtx);
 
-    _profiler->ClearRumContext();
+    _profiler->SetRumSession(nullptr);
 
     std::vector<RumSessionRecord> sessionRecords;
     _profiler->ConsumeSessionRecords(sessionRecords);
@@ -1326,13 +1340,13 @@ TEST_F(ProfilerRumContextTest, LeaveCurrentViewWithNoViewReturnsFalse) {
     EXPECT_FALSE(_profiler->LeaveCurrentView());
 }
 
-TEST_F(ProfilerRumContextTest, SetRumViewAfterClearRumContextReturnsFalse) {
+TEST_F(ProfilerRumContextTest, SetRumViewAfterNullSessionReturnsFalse) {
     RumSessionContext sessionCtx = {};
     sessionCtx.application_id = "app-1";
     sessionCtx.session_id = "S1";
     _profiler->SetRumSession(&sessionCtx);
 
-    _profiler->ClearRumContext();
+    _profiler->SetRumSession(nullptr);
 
     RumViewValues viewVals = {};
     viewVals.view_id = "view-1";
@@ -1340,13 +1354,13 @@ TEST_F(ProfilerRumContextTest, SetRumViewAfterClearRumContextReturnsFalse) {
     EXPECT_FALSE(_profiler->SetRumView(&viewVals));
 }
 
-TEST_F(ProfilerRumContextTest, EnterViewAfterClearRumContextReturnsFalse) {
+TEST_F(ProfilerRumContextTest, EnterViewAfterNullSessionReturnsFalse) {
     RumSessionContext sessionCtx = {};
     sessionCtx.application_id = "app-1";
     sessionCtx.session_id = "S1";
     _profiler->SetRumSession(&sessionCtx);
 
-    _profiler->ClearRumContext();
+    _profiler->SetRumSession(nullptr);
 
     EXPECT_FALSE(_profiler->EnterView("Page1"));
 }

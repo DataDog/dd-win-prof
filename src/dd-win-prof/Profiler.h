@@ -37,7 +37,6 @@ public :
     bool LeaveCurrentView();
     bool SetRumSession(const RumSessionContext* pContext);
     bool SetRumView(const RumViewValues* pContext);
-    void ClearRumContext();
 
     // IRumViewContextProvider implementation
     bool GetCurrentViewContext(RumViewContext& context) const override;

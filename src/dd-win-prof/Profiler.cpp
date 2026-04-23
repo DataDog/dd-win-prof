@@ -193,10 +193,12 @@ void Profiler::CompleteCurrentSession()
 
 bool Profiler::SetRumSession(const RumSessionContext* pContext)
 {
-    // sanity checks
     if (pContext == nullptr)
     {
-        return false;
+        std::unique_lock lock(_rumContextMutex);
+        CompleteCurrentSession();
+        CompleteCurrentView();
+        return true;
     }
 
     bool hasAppId = pContext->application_id != nullptr && pContext->application_id[0] != '\0';
@@ -295,15 +297,6 @@ bool Profiler::SetRumView(const RumViewValues* pContext)
         a.store(0, std::memory_order_relaxed);
 
     return true;
-}
-
-void Profiler::ClearRumContext()
-{
-    std::unique_lock lock(_rumContextMutex);
-
-    CompleteCurrentSession();
-    CompleteCurrentView();
-    _rumApplicationId.clear();
 }
 
 bool Profiler::EnterView(const char* viewName)

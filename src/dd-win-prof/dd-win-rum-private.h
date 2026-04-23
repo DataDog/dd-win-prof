@@ -23,7 +23,9 @@ extern "C" {
     // as a profile-level tag; subsequent calls with a different value return false.
     // session_id: updated on every call. Session transitions are tracked with
     // timestamps.
-    // Returns false if pContext is null, application_id or session_id is missing,
+    // Pass nullptr to end the current session: completes any pending session
+    // and view records, then returns true.
+    // Returns false if application_id or session_id is missing/empty,
     // or a different application_id is rejected.
     DD_WIN_PROF_API bool SetRumSession(const RumSessionContext* pContext);
 
@@ -31,8 +33,4 @@ extern "C" {
     // Pass nullptr/empty view_id to clear the current view (signals "between views").
     // Returns false if no session is active.
     DD_WIN_PROF_API bool SetRumView(const RumViewValues* pContext);
-
-    // Clear all RUM context (both session and view). Call on session end.
-    // Completes any pending session and view records before clearing.
-    DD_WIN_PROF_API void ClearRumContext();
 }

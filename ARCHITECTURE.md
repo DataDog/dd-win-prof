@@ -25,7 +25,8 @@ This is a Windows native profiler that performs CPU sampling and exports profile
 - Exports `EnterView()` and `LeaveCurrentView()` for RUM view navigation
 
 **`dd-win-rum-private.h`** - SDK-level RUM context API (exported but not public)
-- Exports `SetRumSession()`, `SetRumView()` and `ClearRumContext()` for fine-grained RUM context management
+- Exports `SetRumSession()` and `SetRumView()` for fine-grained RUM context management
+- Pass `nullptr` to `SetRumSession()` to end the current session
 
 ### Core Profiler Management
 

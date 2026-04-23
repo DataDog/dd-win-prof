@@ -115,14 +115,4 @@ DD_WIN_PROF_API bool SetRumView(const RumViewValues* pContext)
     return profiler->SetRumView(pContext);
 }
 
-DD_WIN_PROF_API void ClearRumContext()
-{
-    auto profiler = Profiler::GetInstance();
-    if (profiler == nullptr)
-    {
-        return;
-    }
-    profiler->ClearRumContext();
-}
-
 }
