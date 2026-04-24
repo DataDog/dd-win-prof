@@ -9,7 +9,7 @@
 #include <string>
 #include <Windows.h>
 
-#include "..\reference\dd-win-prof.h"
+#include "..\dd-win-prof\dd-win-rum-private.h"
 #include "Helpers.h"
 #include "Spinner.h"
 
@@ -339,43 +339,12 @@ void RunWaitingThreads()
 
 // Scenario 5: RUM context view transitions
 
-static std::string GenerateViewId()
+void SetSession(const std::string& appId, const std::string& sessionId)
 {
-    static std::mt19937 rng(std::random_device{}());
-    std::uniform_int_distribution<uint32_t> dist(0, 0xFFFFFFFF);
-
-    char buf[37]; // 8-4-4-4-12 + NUL
-    auto r = [&]() { return dist(rng); };
-    std::snprintf(buf, sizeof(buf),
-        "%08x-%04x-%04x-%04x-%04x%08x",
-        r(),
-        r() & 0xFFFF,
-        (r() & 0x0FFF) | 0x4000,   // version 4
-        (r() & 0x3FFF) | 0x8000,   // variant 1
-        r() & 0xFFFF, r());
-    return buf;
-}
-
-void SetView(const std::string& appId, const std::string& sessionId,
-             const char* viewName)
-{
-    std::string viewId = GenerateViewId();
-    RumContextValues ctx = {};
+    RumSessionContext ctx = {};
     ctx.application_id = appId.c_str();
     ctx.session_id = sessionId.c_str();
-    ctx.view_id = viewId.c_str();
-    ctx.view_name = viewName;
-    UpdateRumContext(&ctx);
-}
-
-void ClearView(const std::string& appId, const std::string& sessionId)
-{
-    RumContextValues ctx = {};
-    ctx.application_id = appId.c_str();
-    ctx.session_id = sessionId.c_str();
-    ctx.view_id = nullptr;
-    ctx.view_name = nullptr;
-    UpdateRumContext(&ctx);
+    SetRumSession(&ctx);
 }
 
 // Per-view function chains: each view produces a distinct call stack.
@@ -438,25 +407,35 @@ void RunRumScenario(const std::string& appId, const std::string& sessionId)
 {
     static const std::string sessionId2 = "99999999-2222-3333-4444-555555555555";
 
-    SetView(appId, sessionId, "HomePage");
+    SetSession(appId, sessionId);
+
+    // Explicit leave between views
+    EnterView("HomePage");
     std::cout << "View 1: HomePage, session S1..." << std::endl;
     HomePageView();
 
-    ClearView(appId, sessionId);
-    SetView(appId, sessionId, "SettingsPage");
-    std::cout << "View 2: SettingsPage, session S1..." << std::endl;
-    SettingsPageView();
-
-    ClearView(appId, sessionId);
+    LeaveCurrentView();
     std::cout << "No active view, session S1 (spinning 1s)..." << std::endl;
     Spin(1000);
 
-    // Session rotation: switch from S1 to S2
-    SetView(appId, sessionId2, "ProfilePage");
-    std::cout << "View 3: ProfilePage, session S2..." << std::endl;
+    // Stacked view: SettingsPage completes HomePage's record automatically
+    EnterView("SettingsPage");
+    std::cout << "View 2: SettingsPage, session S1..." << std::endl;
+    SettingsPageView();
+
+    EnterView("ProfilePage");
+    std::cout << "View 3: ProfilePage, session S1 (stacked, completes SettingsPage)..." << std::endl;
     ProfilePageView();
 
-    ClearView(appId, sessionId2);
+    LeaveCurrentView();
+
+    // Session rotation: switch from S1 to S2
+    SetSession(appId, sessionId2);
+    EnterView("HomePage");
+    std::cout << "View 4: HomePage, session S2..." << std::endl;
+    HomePageView();
+
+    LeaveCurrentView();
 }
 
 

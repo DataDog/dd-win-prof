@@ -3,12 +3,13 @@
 
 #include "pch.h"
 #include "dd-win-prof-internal.h"
+#include "dd-win-rum-private.h"
 #include "Log.h"
 #include "Profiler.h"
 
 extern "C" {
 
-DD_WIN_PROF_API bool SetupProfiler(ProfilerConfig* pSettings)
+DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig* pSettings)
 {
     if (pSettings == nullptr)
     {
@@ -74,14 +75,44 @@ DD_WIN_PROF_API void StopProfiler()
     profiler->StopProfiling();
 }
 
-DD_WIN_PROF_API bool UpdateRumContext(const RumContextValues* pContext)
+DD_WIN_PROF_API bool EnterView(const char* viewName)
 {
     auto profiler = Profiler::GetInstance();
     if (profiler == nullptr)
     {
         return false;
     }
-    return profiler->UpdateRumContext(pContext);
+    return profiler->EnterView(viewName);
+}
+
+DD_WIN_PROF_API bool LeaveCurrentView()
+{
+    auto profiler = Profiler::GetInstance();
+    if (profiler == nullptr)
+    {
+        return false;
+    }
+    return profiler->LeaveCurrentView();
+}
+
+DD_WIN_PROF_API bool SetRumSession(const RumSessionContext* pContext)
+{
+    auto profiler = Profiler::GetInstance();
+    if (profiler == nullptr)
+    {
+        return false;
+    }
+    return profiler->SetRumSession(pContext);
+}
+
+DD_WIN_PROF_API bool SetRumView(const RumViewValues* pContext)
+{
+    auto profiler = Profiler::GetInstance();
+    if (profiler == nullptr)
+    {
+        return false;
+    }
+    return profiler->SetRumView(pContext);
 }
 
 }
