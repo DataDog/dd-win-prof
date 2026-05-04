@@ -1,218 +1,239 @@
-// Unless explicitly stated otherwise all files in this repository are licensed under the Apache 2 License.
-// This product includes software developed at Datadog (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
+// Unless explicitly stated otherwise all files in this repository are licensed under
+// the Apache 2 License. This product includes software developed at Datadog
+// (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
 
 #pragma once
 
-#include "pch.h"
-#include "Configuration.h"
-#include "RumContext.h"
-#include "Sample.h"
-#include "PprofAggregator.h"
-#include "Symbolication.h"
-#include <unordered_map>
 #include <memory>
-#include <string>
-#include <string_view>
 #include <optional>
 #include <span>
+#include <string>
+#include <string_view>
+#include <unordered_map>
 
+#include "Configuration.h"
+#include "PprofAggregator.h"
+#include "RumContext.h"
+#include "Sample.h"
+#include "Symbolication.h"
 #include "datadog/profiling.h"
+#include "pch.h"
 
+class ProfileExporter {
+ public:
+  ProfileExporter(
+      Configuration* pConfiguration,
+      std::span<const SampleValueType> sampleTypeDefinitions,
+      IRumRecordProvider* pRumRecordProvider = nullptr
+  );
+  ~ProfileExporter();
+  bool Initialize();
+  bool Add(std::shared_ptr<Sample> const& sample);
+  bool Export(bool lastCall = false);
+  void Cleanup(
+      bool skipExporterCleanup = false
+  );  // Explicit cleanup with option to skip exporter cleanup
 
-class ProfileExporter
-{
-public:
-    ProfileExporter(Configuration* pConfiguration, std::span<const SampleValueType> sampleTypeDefinitions,
-                    IRumRecordProvider* pRumRecordProvider = nullptr);
-    ~ProfileExporter();
-    bool Initialize();
-    bool Add(std::shared_ptr<Sample> const& sample);
-    bool Export(bool lastCall = false);
-    void Cleanup(bool skipExporterCleanup = false);  // Explicit cleanup with option to skip exporter cleanup
+  // Check if properly initialized
+  bool IsInitialized() const { return _initialized; }
+  const std::string& GetLastError() const { return _lastError; }
 
-    // Check if properly initialized
-    bool IsInitialized() const { return _initialized; }
-    const std::string& GetLastError() const { return _lastError; }
+  // RUM application ID tag (set once by Profiler, emitted per-export)
+  void SetRumApplicationId(const std::string& applicationId);
 
-    // RUM application ID tag (set once by Profiler, emitted per-export)
-    void SetRumApplicationId(const std::string& applicationId);
+  // JSON serialization for RUM records.
+  //
+  // The resulting JSON is used two ways:
+  //   1. Optionally written locally as a `.rum-views.json` debug file when
+  //      pprof file writing is enabled.
+  //   2. Passed to libdatadog through the `optional_internal_metadata_json`
+  //      parameter of `ddog_prof_Exporter_Request_build`, where it ends up
+  //      embedded in the `internal` field of the profile's `event.json`.
+  //
+  // Public so unit tests can exercise it directly; not intended for external use.
+  static std::string SerializeRumRecordsToJson(
+      const std::vector<RumViewRecord>& viewRecords,
+      const std::vector<RumSessionRecord>& sessionRecords
+  );
+  static void EscapeJsonString(std::ostream& out, const std::string& s);
 
-    // JSON serialization for RUM records.
-    //
-    // The resulting JSON is used two ways:
-    //   1. Optionally written locally as a `.rum-views.json` debug file when
-    //      pprof file writing is enabled.
-    //   2. Passed to libdatadog through the `optional_internal_metadata_json`
-    //      parameter of `ddog_prof_Exporter_Request_build`, where it ends up
-    //      embedded in the `internal` field of the profile's `event.json`.
-    //
-    // Public so unit tests can exercise it directly; not intended for external use.
-    static std::string SerializeRumRecordsToJson(
-        const std::vector<RumViewRecord>& viewRecords,
-        const std::vector<RumSessionRecord>& sessionRecords);
-    static void EscapeJsonString(std::ostream& out, const std::string& s);
+  // Configuration methods for debug file writing
+  // These methods allow enabling/disabling writing of pprof files to disk for debugging
+  // purposes. When enabled, each exported profile will be written to a timestamped
+  // .pprof.lz4 file. This feature is OFF by default and should only be enabled for
+  // debugging or development.
+  //
+  // Example usage:
+  //   exporter.SetDebugPprofFileWritingEnabled(true);
+  //   exporter.SetDebugPprofPrefix("C:\\temp\\debug_profiles\\myapp_");
+  // This would create files like:
+  // C:\temp\debug_profiles\myapp_20241201T143022Z.pprof.lz4
+  void SetDebugPprofFileWritingEnabled(bool enabled) {
+    _debugPprofFileWritingEnabled = enabled;
+  }
+  bool IsDebugPprofFileWritingEnabled() const { return _debugPprofFileWritingEnabled; }
+  void SetDebugPprofPrefix(const std::string& prefix) { _debugPprofPrefix = prefix; }
+  const std::string& GetDebugPprofPrefix() const { return _debugPprofPrefix; }
 
-    // Configuration methods for debug file writing
-    // These methods allow enabling/disabling writing of pprof files to disk for debugging purposes.
-    // When enabled, each exported profile will be written to a timestamped .pprof.lz4 file.
-    // This feature is OFF by default and should only be enabled for debugging or development.
-    //
-    // Example usage:
-    //   exporter.SetDebugPprofFileWritingEnabled(true);
-    //   exporter.SetDebugPprofPrefix("C:\\temp\\debug_profiles\\myapp_");
-    // This would create files like: C:\temp\debug_profiles\myapp_20241201T143022Z.pprof.lz4
-    void SetDebugPprofFileWritingEnabled(bool enabled) { _debugPprofFileWritingEnabled = enabled; }
-    bool IsDebugPprofFileWritingEnabled() const { return _debugPprofFileWritingEnabled; }
-    void SetDebugPprofPrefix(const std::string& prefix) { _debugPprofPrefix = prefix; }
-    const std::string& GetDebugPprofPrefix() const { return _debugPprofPrefix; }
+  // Export tags (stable metadata set at export time)
+  bool PrepareStableTags(ddog_Vec_Tag& tags);
+  bool AddSingleTag(ddog_Vec_Tag& tags, std::string_view key, std::string_view value);
 
-    // Export tags (stable metadata set at export time)
-    bool PrepareStableTags(ddog_Vec_Tag& tags);
-    bool AddSingleTag(ddog_Vec_Tag& tags, std::string_view key, std::string_view value);
+  // Export functionality
+  bool InitializeExporter();
+  bool CreateExporterEndpoint(ddog_prof_Endpoint& endpoint);
+  bool BuildExportUrl();
+  bool ExportProfile(
+      const ddog_prof_EncodedProfile* encodedProfile,
+      uint32_t profileSeq,
+      const std::string& rumRecordsJson = {}
+  );
+  bool PrepareAdditionalTags(ddog_Vec_Tag& tags, uint32_t profileSeq);
+  bool CheckExportResponse(uint16_t responseCode);
+  void CleanupExporter();
 
-    // Export functionality
-    bool InitializeExporter();
-    bool CreateExporterEndpoint(ddog_prof_Endpoint& endpoint);
-    bool BuildExportUrl();
-    bool ExportProfile(const ddog_prof_EncodedProfile* encodedProfile, uint32_t profileSeq,
-                       const std::string& rumRecordsJson = {});
-    bool PrepareAdditionalTags(ddog_Vec_Tag& tags, uint32_t profileSeq);
-    bool CheckExportResponse(uint16_t responseCode);
-    void CleanupExporter();
+ private:
+  // Helper methods for location/function/mapping management
+  std::optional<ddog_prof_LocationId> InternLocation(uint64_t address);
+  std::optional<ddog_prof_FunctionId> InternFunction(
+      const CachedSymbolInfo& symbolInfo, ddog_prof_Profile* profile
+  );
+  std::optional<ddog_prof_MappingId> InternMapping(
+      const CachedSymbolInfo& symbolInfo, ddog_prof_Profile* profile
+  );
 
-private:
-    // Helper methods for location/function/mapping management
-    std::optional<ddog_prof_LocationId> InternLocation(uint64_t address);
-    std::optional<ddog_prof_FunctionId> InternFunction(const CachedSymbolInfo& symbolInfo, ddog_prof_Profile* profile);
-    std::optional<ddog_prof_MappingId> InternMapping(const CachedSymbolInfo& symbolInfo, ddog_prof_Profile* profile);
+  // Sample labels (per-sample metadata that gets interned)
+  struct SampleLabels {
+    ddog_prof_LabelId processIdLabelId;
+    ddog_prof_StringId processIdValueId;
+    ddog_prof_StringId threadIdKeyId;    // String ID for thread_id key (used to create
+                                         // numeric labels per thread)
+    ddog_prof_StringId threadNameKeyId;  // String ID for thread_name key
+    ddog_prof_StringId rumViewIdKeyId;   // String ID for "rum.view_id" key
+    ddog_prof_StringId traceEndpointKeyId;  // String ID for "trace endpoint" key
+  };
 
-    // Sample labels (per-sample metadata that gets interned)
-    struct SampleLabels {
-        ddog_prof_LabelId processIdLabelId;
-        ddog_prof_StringId processIdValueId;
-        ddog_prof_StringId threadIdKeyId;  // String ID for thread_id key (used to create numeric labels per thread)
-        ddog_prof_StringId threadNameKeyId;  // String ID for thread_name key
-        ddog_prof_StringId rumViewIdKeyId;       // String ID for "rum.view_id" key
-        ddog_prof_StringId traceEndpointKeyId;   // String ID for "trace endpoint" key
-    };
+  bool InternSampleLabels(SampleLabels& labels);
+  ddog_prof_LabelSetId CreateLabelSet(
+      const SampleLabels& labels,
+      std::shared_ptr<ThreadInfo> threadInfo,
+      const RumViewContext& rumView
+  );
 
-    bool InternSampleLabels(SampleLabels& labels);
-    ddog_prof_LabelSetId CreateLabelSet(const SampleLabels& labels, std::shared_ptr<ThreadInfo> threadInfo, const RumViewContext& rumView);
+  // Debug file writing methods
+  bool WritePprofFile(const ddog_prof_EncodedProfile* encodedProfile);
+  bool WriteRumRecordsFile(const std::string& json, const ddog_Timespec& startTime);
+  bool CreatePprofFile(const ddog_Timespec& startTime, int* fd);
+  bool WriteProfileToFile(const ddog_prof_EncodedProfile* encodedProfile, int fd);
 
-    // Debug file writing methods
-    bool WritePprofFile(const ddog_prof_EncodedProfile* encodedProfile);
-    bool WriteRumRecordsFile(const std::string& json, const ddog_Timespec& startTime);
-    bool CreatePprofFile(const ddog_Timespec& startTime, int* fd);
-    bool WriteProfileToFile(const ddog_prof_EncodedProfile* encodedProfile, int fd);
+  // System information helpers
+  uint32_t GetCurrentProcessId();
 
-    // System information helpers
-    uint32_t GetCurrentProcessId();
+  // Tag key constants (for stable export tags)
+  static constexpr const char* TAG_RUNTIME_ID = "runtime-id";
+  static constexpr const char* TAG_PROFILE_SEQ = "profile_seq";
+  static constexpr const char* TAG_REMOTE_SYMBOLS = "remote_symbols";
+  static constexpr const char* TAG_RUNTIME_OS = "runtime_os";
+  static constexpr const char* TAG_CPU_CORES_COUNT = "number_of_cpu_cores";
+  static constexpr const char* TAG_CPU_LOGICAL_CORES_COUNT = "number_of_logical_cores";
+  static constexpr const char* TAG_CPU_VENDOR = "cpu_vendor";
+  static constexpr const char* TAG_CPU_DESC = "cpu_desc";
+  static constexpr const char* TAG_CPU_ARCH = "cpu_arch";
+  // GPU specific tags (for as many as GPUs)
+  static constexpr const char* TAG_GPU_COUNT = "gpu_count";
+  static constexpr const char* TAG_GPU_DRIVER_DESC_PREFIX = "gpu_driver_desc_";
+  static constexpr const char* TAG_GPU_DRIVER_VERSION_PREFIX = "gpu_driver_version_";
+  static constexpr const char* TAG_GPU_DRIVER_DATE_PREFIX = "gpu_driver_date_";
+  static constexpr const char* TAG_GPU_NAME_PREFIX = "gpu_name_";
+  static constexpr const char* TAG_GPU_CHIP_PREFIX = "gpu_chip_";
+  static constexpr const char* TAG_GPU_RAM_PREFIX = "gpu_ram_";
 
-    // Tag key constants (for stable export tags)
-    static constexpr const char* TAG_RUNTIME_ID = "runtime-id";
-    static constexpr const char* TAG_PROFILE_SEQ = "profile_seq";
-    static constexpr const char* TAG_REMOTE_SYMBOLS = "remote_symbols";
-    static constexpr const char* TAG_RUNTIME_OS = "runtime_os";
-    static constexpr const char* TAG_CPU_CORES_COUNT = "number_of_cpu_cores";
-    static constexpr const char* TAG_CPU_LOGICAL_CORES_COUNT = "number_of_logical_cores";
-    static constexpr const char* TAG_CPU_VENDOR = "cpu_vendor";
-    static constexpr const char* TAG_CPU_DESC = "cpu_desc";
-    static constexpr const char* TAG_CPU_ARCH = "cpu_arch";
-    // GPU specific tags (for as many as GPUs)
-    static constexpr const char* TAG_GPU_COUNT = "gpu_count";
-    static constexpr const char* TAG_GPU_DRIVER_DESC_PREFIX = "gpu_driver_desc_";
-    static constexpr const char* TAG_GPU_DRIVER_VERSION_PREFIX = "gpu_driver_version_";
-    static constexpr const char* TAG_GPU_DRIVER_DATE_PREFIX = "gpu_driver_date_";
-    static constexpr const char* TAG_GPU_NAME_PREFIX = "gpu_name_";
-    static constexpr const char* TAG_GPU_CHIP_PREFIX = "gpu_chip_";
-    static constexpr const char* TAG_GPU_RAM_PREFIX = "gpu_ram_";
+  // RUM tags (per-export)
+  static constexpr const char* TAG_RUM_APPLICATION_ID = "rum.application_id";
+  // Session IDs are no longer emitted as a tag; they are carried in the
+  // internal metadata JSON payload (optional_internal_metadata_json).
 
-    // RUM tags (per-export)
-    static constexpr const char* TAG_RUM_APPLICATION_ID = "rum.application_id";
-    // Session IDs are no longer emitted as a tag; they are carried in the
-    // internal metadata JSON payload (optional_internal_metadata_json).
+  // TODO: how to define metrics? With tags? With separate json file?
+  static constexpr const char* TAG_RAM_SIZE = "ram_size";
+  static constexpr const char* TAG_RAM_AVAIL = "ram_available";
+  static constexpr const char* TAG_RAM_LOAD = "ram_load";
 
-    // TODO: how to define metrics? With tags? With separate json file?
-    static constexpr const char* TAG_RAM_SIZE = "ram_size";
-    static constexpr const char* TAG_RAM_AVAIL = "ram_available";
-    static constexpr const char* TAG_RAM_LOAD = "ram_load";
+  // Label key constants (for per-sample labels)
+  static constexpr const char* LABEL_PROCESS_ID = "process_id";
+  static constexpr const char* LABEL_THREAD_ID = "thread id";
+  static constexpr const char* LABEL_THREAD_NAME = "thread_name";
+  static constexpr const char* LABEL_RUM_VIEW_ID = "rum.view_id";
+  static constexpr const char* LABEL_TRACE_ENDPOINT = "trace endpoint";
 
-    // Label key constants (for per-sample labels)
-    static constexpr const char* LABEL_PROCESS_ID = "process_id";
-    static constexpr const char* LABEL_THREAD_ID = "thread id";
-    static constexpr const char* LABEL_THREAD_NAME = "thread_name";
-    static constexpr const char* LABEL_RUM_VIEW_ID = "rum.view_id";
-    static constexpr const char* LABEL_TRACE_ENDPOINT = "trace endpoint";
+  // Cache management
+  void ClearCaches();
+  void CleanupUnusedCacheEntries(uint32_t currentExportId);
+  void OnExportStart();  // New method to manage cache lifecycle
 
-    // Cache management
-    void ClearCaches();
-    void CleanupUnusedCacheEntries(uint32_t currentExportId);
-    void OnExportStart(); // New method to manage cache lifecycle
+  // Utility methods
+  std::string ComputeRuntimeId();
 
-    // Utility methods
-    std::string ComputeRuntimeId();
+  // Configuration and state
+  std::string _kProfilerVersion;
+  std::string _kProfilerUserAgent;
+  Configuration* _pConfiguration;
+  std::vector<SampleValueType> _sampleTypeDefinitions;
+  std::string _runtimeId;
+  uint32_t _processId;
+  bool _initialized;
+  std::string _lastError;
 
-    // Configuration and state
-    std::string _kProfilerVersion;
-    std::string _kProfilerUserAgent;
-    Configuration* _pConfiguration;
-    std::vector<SampleValueType> _sampleTypeDefinitions;
-    std::string _runtimeId;
-    uint32_t _processId;
-    bool _initialized;
-    std::string _lastError;
+  // Debug pprof file writing configuration
+  bool _debugPprofFileWritingEnabled;
+  std::string _debugPprofPrefix;
 
-    // Debug pprof file writing configuration
-    bool _debugPprofFileWritingEnabled;
-    std::string _debugPprofPrefix;
+  // Export configuration and state
+  bool _exportEnabled;
+  ddog_prof_ProfileExporter _exporter;  // Value type, not pointer
+  std::string _exportUrl;
+  std::string _apiKey;
+  bool _agentMode;  // true for agent, false for agentless
+  uint32_t _consecutiveErrors;
+  static constexpr uint32_t MAX_CONSECUTIVE_ERRORS = 3;
+  static constexpr int EXPORT_TIMEOUT_MS = 10000;
 
-    // Export configuration and state
-    bool _exportEnabled;
-    ddog_prof_ProfileExporter _exporter;  // Value type, not pointer
-    std::string _exportUrl;
-    std::string _apiKey;
-    bool _agentMode;  // true for agent, false for agentless
-    uint32_t _consecutiveErrors;
-    static constexpr uint32_t MAX_CONSECUTIVE_ERRORS = 3;
-    static constexpr int EXPORT_TIMEOUT_MS = 10000;
+  // libdatadog components
+  ddog_prof_ManagedStringStorage _stringStorage;
+  std::unique_ptr<Symbolication> _symbolication;
+  std::unique_ptr<dd_win_prof::PprofAggregator> _aggregator;
 
-    // libdatadog components
-    ddog_prof_ManagedStringStorage _stringStorage;
-    std::unique_ptr<Symbolication> _symbolication;
-    std::unique_ptr<dd_win_prof::PprofAggregator> _aggregator;
+  // Cache structures
+  struct LocationCacheEntry {
+    ddog_prof_LocationId locationId;
+    uint32_t lastUsedExportId;
+  };
 
-    // Cache structures
-    struct LocationCacheEntry {
-        ddog_prof_LocationId locationId;
-        uint32_t lastUsedExportId;
-    };
+  // Persistent cache - keeps expensive symbolication results across exports
+  std::unordered_map<uint64_t, CachedSymbolInfo> _persistentSymbolCache;
 
-    // Persistent cache - keeps expensive symbolication results across exports
-    std::unordered_map<uint64_t, CachedSymbolInfo> _persistentSymbolCache;
+  // Per-export cache - cleared on each export since location IDs become invalid after
+  // profile reset
+  std::unordered_map<uint64_t, ddog_prof_LocationId> _currentExportLocationCache;
 
-    // Per-export cache - cleared on each export since location IDs become invalid after profile reset
-    std::unordered_map<uint64_t, ddog_prof_LocationId> _currentExportLocationCache;
+  // Mapping cache - maps module identifier to mapping ID (cleared per export like
+  // locations) Key: hash of (ModuleNameId, BuildIdId) for uniqueness
+  std::unordered_map<uint64_t, ddog_prof_MappingId> _currentExportMappingCache;
 
-    // Mapping cache - maps module identifier to mapping ID (cleared per export like locations)
-    // Key: hash of (ModuleNameId, BuildIdId) for uniqueness
-    std::unordered_map<uint64_t, ddog_prof_MappingId> _currentExportMappingCache;
+  // Export tracking
+  uint32_t _currentExportId;
+  std::chrono::time_point<std::chrono::system_clock> _profileStartTime;
 
-    // Export tracking
-    uint32_t _currentExportId;
-    std::chrono::time_point<std::chrono::system_clock> _profileStartTime;
+  // number of sent profiles before cleaning up caches
+  static constexpr uint32_t CACHE_CLEANUP_THRESHOLD = 100;
 
-    // number of sent profiles before cleaning up caches
-    static constexpr uint32_t CACHE_CLEANUP_THRESHOLD = 100;
+  // Interned sample labels (reused across samples)
+  SampleLabels _sampleLabels;
 
-    // Interned sample labels (reused across samples)
-    SampleLabels _sampleLabels;
+  // RUM application ID (set once, emitted as profile tag per-export)
+  std::string _rumApplicationId;
 
-    // RUM application ID (set once, emitted as profile tag per-export)
-    std::string _rumApplicationId;
-
-    // RUM record provider and reusable swap buffers
-    IRumRecordProvider* _pRumRecordProvider;
-    std::vector<RumViewRecord> _viewRecordsBuffer;
-    std::vector<RumSessionRecord> _sessionRecordsBuffer;
+  // RUM record provider and reusable swap buffers
+  IRumRecordProvider* _pRumRecordProvider;
+  std::vector<RumViewRecord> _viewRecordsBuffer;
+  std::vector<RumSessionRecord> _sessionRecordsBuffer;
 };
-

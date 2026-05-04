@@ -1,136 +1,138 @@
-// Unless explicitly stated otherwise all files in this repository are licensed under the Apache 2 License.
-// This product includes software developed at Datadog (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
+// Unless explicitly stated otherwise all files in this repository are licensed under
+// the Apache 2 License. This product includes software developed at Datadog
+// (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
 
 #pragma once
 
+#include "TagsHelper.h"
 #include "pch.h"
 
-#include "TagsHelper.h"
+class Configuration {
+ public:
+  Configuration();
+  ~Configuration() = default;
 
-class Configuration
-{
-public:
-    Configuration();
-    ~Configuration() = default;
+  fs::path const& GetLogDirectory() const;
+  fs::path const& GetProfilesOutputDirectory() const;
+  std::chrono::seconds GetUploadInterval() const;
+  tags const& GetUserTags() const;
+  bool IsDebugLogEnabled() const;
 
-    fs::path const& GetLogDirectory() const;
-    fs::path const& GetProfilesOutputDirectory() const;
-    std::chrono::seconds GetUploadInterval() const;
-    tags const& GetUserTags() const;
-    bool IsDebugLogEnabled() const;
+  std::string const& GetVersion() const;
+  std::string const& GetEnvironment() const;
+  std::string const& GetHostname() const;
+  std::string const& GetAgentUrl() const;
+  std::string const& GetAgentHost() const;
+  int32_t GetAgentPort() const;
+  bool IsAgentless() const;
+  std::string const& GetSite() const;
+  std::string const& GetApiKey() const;
+  std::string const& GetServiceName() const;
+  const std::string& GetNamedPipeName() const;
 
-    std::string const& GetVersion() const;
-    std::string const& GetEnvironment() const;
-    std::string const& GetHostname() const;
-    std::string const& GetAgentUrl() const;
-    std::string const& GetAgentHost() const;
-    int32_t GetAgentPort() const;
-    bool IsAgentless() const;
-    std::string const& GetSite() const;
-    std::string const& GetApiKey() const;
-    std::string const& GetServiceName() const;
-    const std::string& GetNamedPipeName() const;
+  bool IsProfilerEnabled() const;
+  bool IsProfilerExplicitlyDisabled() const;
+  bool IsProfilerAutoStartEnabled() const;
+  bool IsCpuProfilingEnabled() const;
+  bool IsWallTimeProfilingEnabled() const;
+  bool IsExportEnabled() const;
+  bool AreCallstacksSymbolized() const;
 
-    bool IsProfilerEnabled() const;
-    bool IsProfilerExplicitlyDisabled() const;
-    bool IsProfilerAutoStartEnabled() const;
-    bool IsCpuProfilingEnabled() const;
-    bool IsWallTimeProfilingEnabled() const;
-    bool IsExportEnabled() const;
-    bool AreCallstacksSymbolized() const;
+  // Manual configuration methods (primarily for testing)
+  void SetExportEnabled(bool enabled);
 
-    // Manual configuration methods (primarily for testing)
-    void SetExportEnabled(bool enabled);
+  std::chrono::nanoseconds CpuWallTimeSamplingPeriod() const;
+  int32_t WalltimeThreadsThreshold() const;
+  int32_t CpuThreadsThreshold() const;
 
-    std::chrono::nanoseconds CpuWallTimeSamplingPeriod() const;
-    int32_t WalltimeThreadsThreshold() const;
-    int32_t CpuThreadsThreshold() const;
+  template <typename T>
+  static T GetEnvironmentValue(char const* name, T const& defaultValue);
 
-    template <typename T>
-    static T GetEnvironmentValue(char const* name, T const& defaultValue);
+  // Reset all fields to their default values (no env var reads).
+  // Used when noEnvVars is set in ProfilerConfig so that only
+  // explicit API overrides are applied on top of defaults.
+  void ResetToDefaults();
 
-    // Reset all fields to their default values (no env var reads).
-    // Used when noEnvVars is set in ProfilerConfig so that only
-    // explicit API overrides are applied on top of defaults.
-    void ResetToDefaults();
+  // some values can be set via API and will override the environment variables
+ public:
+  void SetServiceName(const char* serviceName);
+  void SetEnvironmentName(const char* environmentName);
+  void SetVersion(const char* version);
+  void SetEndpoint(const char* url);
+  void SetApiKey(const char* apiKey);
+  void EnableSymbolizedCallstacks();
 
-// some values can be set via API and will override the environment variables
-public:
-    void SetServiceName(const char* serviceName);
-    void SetEnvironmentName(const char* environmentName);
-    void SetVersion(const char* version);
-    void SetEndpoint(const char* url);
-    void SetApiKey(const char* apiKey);
-    void EnableSymbolizedCallstacks();
+  void SetCpuWallTimeSamplingPeriod(std::chrono::nanoseconds rate) {
+    _cpuWallTimeSamplingPeriod = rate;
+  }
+  void SetWalltimeThreadsThreshold(int32_t threshold) {
+    _walltimeThreadsThreshold = threshold;
+  }
+  void SetCpuThreadsThreshold(int32_t threshold) { _cpuThreadsThreshold = threshold; }
+  void SetUploadInterval(std::chrono::seconds interval) { _uploadPeriod = interval; }
+  void SetUserTags(tags userTags) { _userTags = std::move(userTags); }
+  void SetProfilesOutputDirectory(const fs::path& dir) { _pprofDirectory = dir; }
 
-    void SetCpuWallTimeSamplingPeriod(std::chrono::nanoseconds rate) { _cpuWallTimeSamplingPeriod = rate; }
-    void SetWalltimeThreadsThreshold(int32_t threshold) { _walltimeThreadsThreshold = threshold; }
-    void SetCpuThreadsThreshold(int32_t threshold) { _cpuThreadsThreshold = threshold; }
-    void SetUploadInterval(std::chrono::seconds interval) { _uploadPeriod = interval; }
-    void SetUserTags(tags userTags) { _userTags = std::move(userTags); }
-    void SetProfilesOutputDirectory(const fs::path& dir) { _pprofDirectory = dir; }
+ private:
+  void InitDefaults();
 
-private:
-    void InitDefaults();
+  static tags ExtractUserTags();
+  static std::string GetDefaultSite();
+  static std::string ExtractSite();
+  static std::chrono::seconds ExtractUploadInterval();
+  static fs::path GetDefaultLogDirectoryPath();
+  static fs::path GetApmBaseDirectory();
+  static fs::path ExtractLogDirectory();
+  static fs::path ExtractPprofDirectory();
+  static std::chrono::seconds GetDefaultUploadInterval();
+  static bool GetDefaultDebugLogEnabled();
+  static bool GetBooleanEnvironmentValue(char const* name, bool const& defaultValue);
+  static std::chrono::nanoseconds ExtractCpuWallTimeSamplingRate();
+  static int32_t ExtractWallTimeThreadsThreshold();
+  static int32_t ExtractCpuThreadsThreshold();
 
-    static tags ExtractUserTags();
-    static std::string GetDefaultSite();
-    static std::string ExtractSite();
-    static std::chrono::seconds ExtractUploadInterval();
-    static fs::path GetDefaultLogDirectoryPath();
-    static fs::path GetApmBaseDirectory();
-    static fs::path ExtractLogDirectory();
-    static fs::path ExtractPprofDirectory();
-    static std::chrono::seconds GetDefaultUploadInterval();
-    static bool GetDefaultDebugLogEnabled();
-    static bool GetBooleanEnvironmentValue(char const* name, bool const& defaultValue);
-    static std::chrono::nanoseconds ExtractCpuWallTimeSamplingRate();
-    static int32_t ExtractWallTimeThreadsThreshold();
-    static int32_t ExtractCpuThreadsThreshold();
+ private:
+  // default values
+  static std::string const DefaultProdSite;
+  static std::string const DefaultDevSite;
+  static std::string const DefaultVersion;
+  static std::string const DefaultEnvironment;
+  static std::string const DefaultAgentHost;
+  static std::string const DefaultEmptyString;
+  static int32_t const DefaultAgentPort;
+  static std::chrono::seconds const DefaultDevUploadInterval;
+  static std::chrono::seconds const DefaultProdUploadInterval;
+  static std::chrono::milliseconds const DefaultCpuProfilingInterval;
 
-private:
-    // default values
-    static std::string const DefaultProdSite;
-    static std::string const DefaultDevSite;
-    static std::string const DefaultVersion;
-    static std::string const DefaultEnvironment;
-    static std::string const DefaultAgentHost;
-    static std::string const DefaultEmptyString;
-    static int32_t const DefaultAgentPort;
-    static std::chrono::seconds const DefaultDevUploadInterval;
-    static std::chrono::seconds const DefaultProdUploadInterval;
-    static std::chrono::milliseconds const DefaultCpuProfilingInterval;
+ private:
+  bool _isProfilerEnabled;
+  bool _isProfilerAutoStartEnabled;
+  bool _isCpuProfilingEnabled;
+  bool _isWallTimeProfilingEnabled;
+  bool _isExportEnabled;
+  bool _areCallstacksSymbolized;
+  bool _debugLogEnabled;
+  fs::path _logDirectory;
+  fs::path _pprofDirectory;
+  std::string _version;
+  std::string _serviceName;
+  std::string _environmentName;
+  std::chrono::seconds _uploadPeriod;
+  std::string _agentUrl;
+  std::string _agentHost;
+  std::int32_t _agentPort;
+  std::string _apiKey;
+  std::string _hostname;
+  std::string _site;
+  std::string _namedPipeName;
+  tags _userTags;
+  bool _isAgentLess;
+  std::chrono::nanoseconds _cpuWallTimeSamplingPeriod;
+  int32_t _walltimeThreadsThreshold;
+  int32_t _cpuThreadsThreshold;
 
-private:
-    bool _isProfilerEnabled;
-    bool _isProfilerAutoStartEnabled;
-    bool _isCpuProfilingEnabled;
-    bool _isWallTimeProfilingEnabled;
-    bool _isExportEnabled;
-    bool _areCallstacksSymbolized;
-    bool _debugLogEnabled;
-    fs::path _logDirectory;
-    fs::path _pprofDirectory;
-    std::string _version;
-    std::string _serviceName;
-    std::string _environmentName;
-    std::chrono::seconds _uploadPeriod;
-    std::string _agentUrl;
-    std::string _agentHost;
-    std::int32_t _agentPort;
-    std::string _apiKey;
-    std::string _hostname;
-    std::string _site;
-    std::string _namedPipeName;
-    tags _userTags;
-    bool _isAgentLess;
-    std::chrono::nanoseconds _cpuWallTimeSamplingPeriod;
-    int32_t _walltimeThreadsThreshold;
-    int32_t _cpuThreadsThreshold;
-
-    static const uint64_t DefaultSamplingPeriod = 20;
-    static const uint64_t MinimumSamplingPeriod = 5;
-    static const int32_t DefaultWalltimeThreadsThreshold = 5;
-    static const int32_t DefaultCpuThreadsThreshold = 64;
+  static const uint64_t DefaultSamplingPeriod = 20;
+  static const uint64_t MinimumSamplingPeriod = 5;
+  static const int32_t DefaultWalltimeThreadsThreshold = 5;
+  static const int32_t DefaultCpuThreadsThreshold = 64;
 };
-
