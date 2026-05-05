@@ -1,33 +1,34 @@
-// Unless explicitly stated otherwise all files in this repository are licensed under the Apache 2 License.
-// This product includes software developed at Datadog (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
+// Unless explicitly stated otherwise all files in this repository are licensed under
+// the Apache 2 License. This product includes software developed at Datadog
+// (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
 
 #pragma once
 
 #include "pch.h"
 
-namespace OsSpecificApi
-{
-    std::chrono::milliseconds GetThreadCpuTime(HANDLE hThread);
+namespace OsSpecificApi {
+std::chrono::milliseconds GetThreadCpuTime(HANDLE hThread);
 
-    //    isRunning,        cpu time          , failed
-    std::tuple<bool, std::chrono::milliseconds, bool> IsRunning(HANDLE hThread);
+//    isRunning,        cpu time          , failed
+std::tuple<bool, std::chrono::milliseconds, bool> IsRunning(HANDLE hThread);
 
-    //    isRunning,  wait reason,        failed
-    std::tuple<bool,        ULONG,        bool> IsWaiting(HANDLE hThread);
+//    isRunning,  wait reason,        failed
+std::tuple<bool, ULONG, bool> IsWaiting(HANDLE hThread);
 
-    uint32_t GetProcessorCount();
+uint32_t GetProcessorCount();
 
-    std::string GetCpuVendor();
-    std::string GetCpuModel();
-    std::string GetCpuArchitecture();
-    bool GetGpuFromRegistry(
-        int device,
-        std::string& driverDesc,
-        std::string& driverVersion,
-        std::string& driverDate,
-        std::string& gpuName,
-        std::string& gpuChip,
-        uint64_t& gpuRam);
-    bool GetCpuCores(int& physicalCores, int& logicalCores);
-    bool GetMemoryInfo(uint64_t& totalPhys, uint64_t& availPhys, uint32_t& memoryLoad);
-} // namespace OsSpecificApi
+std::string GetCpuVendor();
+std::string GetCpuModel();
+std::string GetCpuArchitecture();
+bool GetGpuFromRegistry(
+    int device,
+    std::string& driverDesc,
+    std::string& driverVersion,
+    std::string& driverDate,
+    std::string& gpuName,
+    std::string& gpuChip,
+    uint64_t& gpuRam
+);
+bool GetCpuCores(int& physicalCores, int& logicalCores);
+bool GetMemoryInfo(uint64_t& totalPhys, uint64_t& availPhys, uint32_t& memoryLoad);
+}  // namespace OsSpecificApi

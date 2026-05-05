@@ -48,6 +48,8 @@ if(DD_WIN_PROF_BUILD_OBFUSCATION)
     add_subdirectory(obfuscation)
 endif()
 
+include(cmake/clang-format.cmake)
+
 # Helper function for consuming projects to copy dd-win-prof runtime
 # dependencies (DLLs and optionally PDBs) to their output directory.
 #
