@@ -34,6 +34,7 @@ param(
 
 # Configuration
 $RepoUrl = "https://github.com/SaschaWillems/Vulkan.git"
+$RepoRoot = Join-Path $PSScriptRoot ".."
 $Root = Join-Path $PSScriptRoot "vulkan_examples"
 $Src = Join-Path $Root "Vulkan"
 $Build = Join-Path $Root "build"
@@ -41,10 +42,9 @@ $Config = "Release"
 
 # Determine profiler DLL directory - look in src/reference (populated by CMake POST_BUILD)
 if ([string]::IsNullOrWhiteSpace($ProfilerDllDir)) {
-    $repoRoot = Join-Path $PSScriptRoot ".."
     $candidates = @(
-        (Join-Path $repoRoot "src\reference"),
-        (Join-Path $repoRoot "build\src\dd-win-prof\$Config")
+        (Join-Path $RepoRoot "src\reference"),
+        (Join-Path $RepoRoot "build\src\dd-win-prof\$Config")
     )
     foreach ($candidate in $candidates) {
         if (Test-Path (Join-Path $candidate "dd-win-prof.dll")) {
@@ -59,11 +59,27 @@ if ([string]::IsNullOrWhiteSpace($ProfilerDllDir)) {
 
 # Also determine injector path
 $ProfilerInjectorExe = $null
-$injectorCandidates = @(
-    (Join-Path (Split-Path $ProfilerDllDir -Parent) "ProfilerInjector.exe"),
-    (Join-Path $ProfilerDllDir "ProfilerInjector.exe")
-)
-foreach ($candidate in $injectorCandidates) {
+$injectorCandidates = @()
+if (![string]::IsNullOrWhiteSpace($ProfilerDllDir)) {
+    $profilerDllParent = Split-Path $ProfilerDllDir -Parent
+    $profilerDllGrandParent = if ($profilerDllParent) { Split-Path $profilerDllParent -Parent } else { $null }
+    $profilerDllGreatGrandParent = if ($profilerDllGrandParent) { Split-Path $profilerDllGrandParent -Parent } else { $null }
+
+    $injectorCandidates += (Join-Path $ProfilerDllDir "ProfilerInjector.exe")
+    if ($profilerDllParent) {
+        $injectorCandidates += (Join-Path $profilerDllParent "ProfilerInjector.exe")
+    }
+    if ($profilerDllGrandParent) {
+        $injectorCandidates += (Join-Path $profilerDllGrandParent "build\src\ProfilerInjector\$Config\ProfilerInjector.exe")
+    }
+    if ($profilerDllGreatGrandParent) {
+        $injectorCandidates += (Join-Path $profilerDllGreatGrandParent "src\ProfilerInjector\$Config\ProfilerInjector.exe")
+    }
+}
+$injectorCandidates += (Join-Path $RepoRoot "build\src\ProfilerInjector\$Config\ProfilerInjector.exe")
+$injectorCandidates += (Join-Path $RepoRoot "src\x64\$Config\ProfilerInjector.exe")
+
+foreach ($candidate in ($injectorCandidates | Select-Object -Unique)) {
     if (Test-Path $candidate) {
         $ProfilerInjectorExe = $candidate
         break
@@ -667,9 +683,16 @@ try {
         $injectorDest = Join-Path $binPath "ProfilerInjector.exe"
         Copy-Item $ProfilerInjectorExe $injectorDest -Force
         Write-Step "Copied ProfilerInjector.exe to $injectorDest" "OK"
+
+        $ffiDllSource = Join-Path $ProfilerDllDir "datadog_profiling_ffi.dll"
+        if (Test-Path $ffiDllSource) {
+            Copy-Item $ffiDllSource (Join-Path $binPath "datadog_profiling_ffi.dll") -Force
+            Write-Step "Copied datadog_profiling_ffi.dll to $binPath" "OK"
+        }
         
         # Get list of executables
-        $exeFiles = Get-ChildItem $binPath -Filter "*.exe" -ErrorAction SilentlyContinue
+        $exeFiles = Get-ChildItem $binPath -Filter "*.exe" -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -ne "ProfilerInjector.exe" }
         
         foreach ($exe in $exeFiles) {
             $batFileName = "$($exe.BaseName)_with_profiler.bat"
