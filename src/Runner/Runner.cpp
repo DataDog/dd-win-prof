@@ -12,6 +12,9 @@
 #include <random>
 #include <string>
 
+// Uuid.cpp is compiled directly into Runner (see CMakeLists.txt) since
+// dd-win-prof.dll doesn't export the symbol.
+#include "..\dd-win-prof\Uuid.h"
 #include "..\dd-win-prof\dd-win-rum-private.h"
 #include "Helpers.h"
 #include "Spinner.h"
@@ -570,8 +573,11 @@ void ShowHelp(const char* programName) {
 
   std::cout << "RUM Context Options (scenario 5):\n";
   std::cout
-      << "  --rum-app-id <uuid>    RUM application ID (required for scenario 5)\n";
-  std::cout << "  --rum-session-id <uuid> RUM session ID (required for scenario 5)\n\n";
+      << "  --rum-app-id <uuid>    RUM application ID (required for scenario 5;\n"
+         "                           falls back to DD_RUM_APPLICATION_ID env var)\n";
+  std::cout << "  --rum-session-id <uuid> RUM session ID (optional; falls back to\n"
+               "                           DD_RUM_SESSION_ID env var, else "
+               "auto-generated)\n\n";
 
   std::cout << "Additional Options:\n";
   std::cout << "  --symbolize            Enable call stack symbolization (default: "
@@ -757,12 +763,27 @@ bool ParseCommandLine(int argc, char* argv[], RunnerOptions& opts) {
 
   if (opts.scenario == 5) {
     if (opts.rumApplicationId.empty()) {
-      std::cout << "Error: --rum-app-id is mandatory for scenario 5.\n";
+      char buf[128] = {};
+      if (::GetEnvironmentVariableA("DD_RUM_APPLICATION_ID", buf, sizeof(buf)) > 0) {
+        opts.rumApplicationId = buf;
+      }
+    }
+    if (opts.rumApplicationId.empty()) {
+      std::cout << "Error: --rum-app-id (or DD_RUM_APPLICATION_ID) is mandatory "
+                   "for scenario 5.\n";
       return false;
     }
+
     if (opts.rumSessionId.empty()) {
-      std::cout << "Error: --rum-session-id is mandatory for scenario 5.\n";
-      return false;
+      char buf[128] = {};
+      if (::GetEnvironmentVariableA("DD_RUM_SESSION_ID", buf, sizeof(buf)) > 0) {
+        opts.rumSessionId = buf;
+      }
+    }
+    if (opts.rumSessionId.empty()) {
+      opts.rumSessionId = ddprof::Uuid().to_string();
+      std::cout << "No --rum-session-id provided; auto-generated: " << opts.rumSessionId
+                << "\n";
     }
   }
 

@@ -4,6 +4,8 @@ add_executable(Runner
     Spinner.cpp
     Helpers.h
     Spinner.h
+    ../dd-win-prof/Uuid.cpp
+    ../dd-win-prof/Uuid.h
 )
 
 target_link_libraries(Runner PRIVATE dd-win-prof)
