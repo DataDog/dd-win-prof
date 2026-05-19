@@ -20,6 +20,11 @@ endif()
 # Disabled by default when used as a dependency.
 option(DD_WIN_PROF_BUILD_OBFUSCATION "Build obfuscation tools (requires DIA SDK)" ${DD_WIN_PROF_IS_TOPLEVEL})
 
+# Enable MSVC AddressSanitizer for the whole project (compiler + linker).
+# Mostly intended for unit tests in CI; see src/Tests/CMakeLists.txt for the
+# runtime DLL deployment that lets Tests.exe actually launch with ASan on.
+option(DD_WIN_PROF_ENABLE_ASAN "Build with MSVC AddressSanitizer (/fsanitize=address)" OFF)
+
 add_compile_definitions(UNICODE _UNICODE)
 
 if(MSVC)
@@ -40,7 +45,78 @@ if(MSVC)
         $<$<CONFIG:Release>:/OPT:REF>
         $<$<CONFIG:Release>:/OPT:ICF>
     )
+
+    if(DD_WIN_PROF_ENABLE_ASAN)
+        message(STATUS "dd-win-prof: AddressSanitizer ENABLED (/fsanitize=address)")
+
+        # Resolve the MSVC ASan runtime DLL once, here, so every consumer
+        # (Tests.exe, Runner.exe, ...) can ask for it via the helper below.
+        # $ENV{VCToolsInstallDir} is exported by the VS Developer shell.
+        set(DD_WIN_PROF_ASAN_RUNTIME_DLL "" CACHE INTERNAL "")
+        if(DEFINED ENV{VCToolsInstallDir})
+            set(_candidate "$ENV{VCToolsInstallDir}/bin/Hostx64/x64/clang_rt.asan_dynamic-x86_64.dll")
+            if(EXISTS "${_candidate}")
+                set(DD_WIN_PROF_ASAN_RUNTIME_DLL "${_candidate}" CACHE INTERNAL "")
+            endif()
+        endif()
+        if(DD_WIN_PROF_ASAN_RUNTIME_DLL STREQUAL "")
+            message(WARNING "DD_WIN_PROF_ENABLE_ASAN: clang_rt.asan_dynamic-x86_64.dll "
+                            "could not be located. Configure from a VS Developer Command "
+                            "Prompt or set VCToolsInstallDir, otherwise instrumented "
+                            "binaries (Tests.exe, Runner.exe) will fail to start.")
+        else()
+            message(STATUS "dd-win-prof: ASan runtime DLL = ${DD_WIN_PROF_ASAN_RUNTIME_DLL}")
+        endif()
+
+        # /RTC* and /fsanitize=address are mutually exclusive. CMake injects
+        # /RTC1 by default in Debug-style configs via CMAKE_CXX_FLAGS_<CFG>;
+        # strip it from every config to keep the compiler happy.
+        foreach(_cfg "" _DEBUG _RELEASE _MINSIZEREL _RELWITHDEBINFO)
+            foreach(_lang CXX C)
+                set(_var CMAKE_${_lang}_FLAGS${_cfg})
+                if(DEFINED ${_var})
+                    string(REGEX REPLACE "/RTC[1csu]+" "" ${_var} "${${_var}}")
+                    set(${_var} "${${_var}}" CACHE STRING "" FORCE)
+                endif()
+            endforeach()
+        endforeach()
+
+        add_compile_options(/fsanitize=address)
+
+        # ASan is incompatible with incremental linking. Default Debug link
+        # flags pass /INCREMENTAL; force it off everywhere.
+        add_link_options(/INCREMENTAL:NO)
+        foreach(_cfg "" _DEBUG _RELEASE _MINSIZEREL _RELWITHDEBINFO)
+            foreach(_kind EXE SHARED MODULE)
+                set(_var CMAKE_${_kind}_LINKER_FLAGS${_cfg})
+                if(DEFINED ${_var})
+                    string(REGEX REPLACE "/INCREMENTAL(:NO)?" "" ${_var} "${${_var}}")
+                    set(${_var} "${${_var}} /INCREMENTAL:NO" CACHE STRING "" FORCE)
+                endif()
+            endforeach()
+        endforeach()
+    endif()
 endif()
+
+# Copy the MSVC AddressSanitizer runtime DLL next to a target's output. No-op
+# unless DD_WIN_PROF_ENABLE_ASAN is ON. Used by any executable target that
+# needs to launch standalone (Tests.exe, Runner.exe, ...).
+function(dd_win_prof_copy_asan_runtime TARGET_NAME)
+    if(NOT DD_WIN_PROF_ENABLE_ASAN OR NOT MSVC)
+        return()
+    endif()
+    if(DD_WIN_PROF_ASAN_RUNTIME_DLL STREQUAL "")
+        return()
+    endif()
+    get_filename_component(_dll_name "${DD_WIN_PROF_ASAN_RUNTIME_DLL}" NAME)
+    add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${DD_WIN_PROF_ASAN_RUNTIME_DLL}"
+            "$<TARGET_FILE_DIR:${TARGET_NAME}>/${_dll_name}"
+        VERBATIM
+        COMMENT "Copying MSVC ASan runtime next to ${TARGET_NAME}"
+    )
+endfunction()
 
 add_subdirectory(src)
 

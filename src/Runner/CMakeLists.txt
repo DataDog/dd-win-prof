@@ -43,3 +43,8 @@ add_custom_command(
 add_custom_target(Runner_runtime_deps DEPENDS "${_runner_runtime_deps_stamp}")
 add_dependencies(Runner_runtime_deps dd-win-prof)
 add_dependencies(Runner Runner_runtime_deps)
+
+# When ASan is on, Runner.exe (and the dd-win-prof.dll it loads) are both
+# instrumented and need the MSVC ASan runtime DLL alongside the executable.
+# No-op when DD_WIN_PROF_ENABLE_ASAN is OFF.
+dd_win_prof_copy_asan_runtime(Runner)

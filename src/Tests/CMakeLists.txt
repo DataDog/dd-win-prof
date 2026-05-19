@@ -82,5 +82,10 @@ add_custom_command(TARGET Tests POST_BUILD
     COMMENT "Copying libdatadog DLLs to Tests output directory"
 )
 
+# When building with /fsanitize=address, Tests.exe depends on the MSVC ASan
+# runtime DLL, which lives inside the Visual Studio install and is not on PATH
+# for arbitrary shells. Helper drops it next to the exe (no-op otherwise).
+dd_win_prof_copy_asan_runtime(Tests)
+
 include(CTest)
 add_test(NAME Tests COMMAND Tests)
