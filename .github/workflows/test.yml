@@ -101,6 +101,22 @@ jobs:
     - name: Build
       run: cmake --build build
 
+    # Sanity check: a binary compiled with /fsanitize=address has the linker
+    # auto-import clang_rt.asan_dynamic-x86_64.dll. If this grep returns
+    # nothing, ASan didn't actually instrument the TU even though configure
+    # advertised the flag -- fail the job so we don't get false confidence.
+    - name: Verify ASan instrumentation
+      shell: pwsh
+      run: |
+        $imports = & dumpbin /imports build/src/Tests/Tests.exe
+        $asan = $imports | Select-String -Pattern 'clang_rt\.asan'
+        if (-not $asan) {
+          Write-Error "Tests.exe does not import the ASan runtime; /fsanitize=address was NOT effective."
+          exit 1
+        }
+        Write-Host "ASan runtime import found:" -ForegroundColor Green
+        $asan | ForEach-Object { Write-Host "  $_" }
+
     - name: Run unit tests under ASan
       env:
         # Make ASan failures fatal and produce useful diagnostics.
