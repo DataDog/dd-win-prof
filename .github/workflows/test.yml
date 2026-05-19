@@ -81,11 +81,15 @@ jobs:
         key: deps-${{ hashFiles('src/CMakeLists.txt') }}
 
     # Sets up the MSVC Developer environment so that VCToolsInstallDir is
-    # exported and the ASan runtime DLL can be located by CMake.
+    # exported (used by CMake to locate the ASan runtime DLL) and so that
+    # Ninja + cl.exe are on PATH. Done inline rather than via a third-party
+    # action to stay within the org's allowed-actions policy.
     - name: Setup MSVC dev environment
-      uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
-      with:
-        arch: x64
+      shell: cmd
+      run: |
+        for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set VSINSTALL=%%i
+        call "%VSINSTALL%\VC\Auxiliary\Build\vcvars64.bat"
+        set >> %GITHUB_ENV%
 
     - name: Configure CMake (ASan)
       run: cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Debug -DDD_WIN_PROF_ENABLE_ASAN=ON -DFETCHCONTENT_BASE_DIR=${{ github.workspace }}/.deps
