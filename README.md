@@ -182,6 +182,29 @@ Run the helper script to generate and open the solution:
 
 This generates a Visual Studio solution in `build\` and opens it automatically. You can then build and debug directly from the IDE. See `.\scripts\generate-vs.ps1 -?` for options (custom build directory, VS version, etc.).
 
+#### Building with AddressSanitizer
+
+To get an ASan-instrumented solution, pass `-Asan` and use a separate build
+directory so it does not clobber your regular `build\`:
+
+```powershell
+.\scripts\generate-vs.ps1 -BuildDir build-asan -Asan
+```
+
+This configures CMake with `-DDD_WIN_PROF_ENABLE_ASAN=ON` and opens the
+resulting solution. Every configuration in that solution (Debug, Release, ...)
+will be ASan-instrumented; pick Debug from the VS dropdown for typical use.
+
+Requirements:
+- The **C++ AddressSanitizer** component must be installed via the Visual
+  Studio Installer (`Modify` → *Individual components* → search "AddressSanitizer").
+- No Developer Command Prompt needed: the build locates the ASan runtime DLL
+  (`clang_rt.asan_dynamic-x86_64.dll`) automatically via `vswhere` and copies
+  it next to `Tests.exe` and `Runner.exe`.
+
+To switch back to a non-ASan build, just open the original `build\` solution
+(or generate one without `-Asan`).
+
 ### Project structure and build outputs
 
 ```

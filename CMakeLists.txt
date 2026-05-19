@@ -20,6 +20,11 @@ endif()
 # Disabled by default when used as a dependency.
 option(DD_WIN_PROF_BUILD_OBFUSCATION "Build obfuscation tools (requires DIA SDK)" ${DD_WIN_PROF_IS_TOPLEVEL})
 
+# Enable MSVC AddressSanitizer for the whole project (compiler + linker).
+# Mostly intended for unit tests in CI; see src/Tests/CMakeLists.txt for the
+# runtime DLL deployment that lets Tests.exe actually launch with ASan on.
+option(DD_WIN_PROF_ENABLE_ASAN "Build with MSVC AddressSanitizer (/fsanitize=address)" OFF)
+
 add_compile_definitions(UNICODE _UNICODE)
 
 if(MSVC)
@@ -40,7 +45,14 @@ if(MSVC)
         $<$<CONFIG:Release>:/OPT:REF>
         $<$<CONFIG:Release>:/OPT:ICF>
     )
+
 endif()
+
+# AddressSanitizer plumbing: option handling, compile/link flag adjustments,
+# runtime DLL discovery, and the dd_win_prof_copy_asan_runtime() helper used
+# by Tests/Runner to ship the ASan DLL next to instrumented binaries.
+include(cmake/asan.cmake)
+dd_win_prof_setup_asan()
 
 add_subdirectory(src)
 

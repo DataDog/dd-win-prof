@@ -66,6 +66,80 @@ jobs:
           build/src/Tests/${{ matrix.configuration }}/Tests.exe
         retention-days: 7
 
+  asan:
+    name: Tests (ASan, Debug)
+    runs-on: windows-2022
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+    # NOTE: distinct cache key from the other jobs. FetchContent records the
+    # generator in its subbuild state, so reusing the VS-generator cache here
+    # would fail with "generator does not match". Keying on "ninja-asan"
+    # keeps this job's deps separate from the multi-config matrix.
+    - name: Cache dependencies
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: .deps
+        key: deps-ninja-asan-${{ hashFiles('src/CMakeLists.txt') }}
+
+    # Sets up the MSVC Developer environment so that VCToolsInstallDir is
+    # exported (used by CMake to locate the ASan runtime DLL) and so that
+    # Ninja + cl.exe are on PATH. Done inline rather than via a third-party
+    # action to stay within the org's allowed-actions policy.
+    - name: Setup MSVC dev environment
+      shell: cmd
+      run: |
+        for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set VSINSTALL=%%i
+        call "%VSINSTALL%\VC\Auxiliary\Build\vcvars64.bat"
+        set >> %GITHUB_ENV%
+
+    - name: Configure CMake (ASan)
+      run: cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Debug -DDD_WIN_PROF_ENABLE_ASAN=ON -DFETCHCONTENT_BASE_DIR=${{ github.workspace }}/.deps
+
+    - name: Build
+      run: cmake --build build
+
+    # Sanity check: a binary compiled with /fsanitize=address has the linker
+    # auto-import clang_rt.asan_dynamic-x86_64.dll. If this grep returns
+    # nothing, ASan didn't actually instrument the TU even though configure
+    # advertised the flag -- fail the job so we don't get false confidence.
+    - name: Verify ASan instrumentation
+      shell: pwsh
+      run: |
+        $imports = & dumpbin /imports build/src/Tests/Tests.exe
+        $asan = $imports | Select-String -Pattern 'clang_rt\.asan'
+        if (-not $asan) {
+          Write-Error "Tests.exe does not import the ASan runtime; /fsanitize=address was NOT effective."
+          exit 1
+        }
+        Write-Host "ASan runtime import found:" -ForegroundColor Green
+        $asan | ForEach-Object { Write-Host "  $_" }
+
+    - name: Run unit tests under ASan
+      env:
+        # Make ASan failures fatal and produce useful diagnostics.
+        ASAN_OPTIONS: abort_on_error=1:halt_on_error=1:print_stacktrace=1:detect_leaks=0:symbolize=1
+      run: build/src/Tests/Tests.exe
+
+    - name: Setup Python
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      with:
+        python-version: '3.x'
+
+    - name: Install Python dependencies
+      run: pip install -r src/integration-tests/requirements.txt
+
+    # The Runner integration test loads the ASan-instrumented dd-win-prof.dll
+    # in-process, so the Runner itself runs under ASan too. -Config Debug
+    # matches the build above; find-runner.ps1 picks up the Ninja layout.
+    - name: Run integration tests under ASan
+      env:
+        ASAN_OPTIONS: abort_on_error=1:halt_on_error=1:print_stacktrace=1:detect_leaks=0:symbolize=1
+      run: pwsh src/integration-tests/test_rum_scenario.ps1 -Config Debug
+      shell: pwsh
+
   check-format:
     runs-on: windows-2022
 
