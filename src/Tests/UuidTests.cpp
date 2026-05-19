@@ -18,17 +18,6 @@ class UuidTest : public ::testing::Test {
   }
 };
 
-// TEMP: deliberate ASan canary -- writes one byte past a heap allocation.
-// Used to validate that the CI ASan job actually catches real bugs.
-// MUST be reverted before merging.
-TEST_F(UuidTest, AsanCanaryHeapBufferOverflow) {
-  volatile char* buf = new char[8];
-  for (int i = 0; i <= 8; ++i) {
-    buf[i] = static_cast<char>(i);  // off-by-one at i == 8
-  }
-  delete[] buf;
-}
-
 TEST_F(UuidTest, CanCreateUuid) {
   // Arrange & Act
   ddprof::Uuid uuid;
