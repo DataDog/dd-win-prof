@@ -74,11 +74,15 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
+    # NOTE: distinct cache key from the other jobs. FetchContent records the
+    # generator in its subbuild state, so reusing the VS-generator cache here
+    # would fail with "generator does not match". Keying on "ninja-asan"
+    # keeps this job's deps separate from the multi-config matrix.
     - name: Cache dependencies
       uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: .deps
-        key: deps-${{ hashFiles('src/CMakeLists.txt') }}
+        key: deps-ninja-asan-${{ hashFiles('src/CMakeLists.txt') }}
 
     # Sets up the MSVC Developer environment so that VCToolsInstallDir is
     # exported (used by CMake to locate the ASan runtime DLL) and so that
