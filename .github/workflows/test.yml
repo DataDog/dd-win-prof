@@ -48,6 +48,47 @@ jobs:
       run: pwsh src/integration-tests/test_rum_scenario.ps1 -Config Release
       shell: pwsh
 
+    - name: Set up Go (for prof-analyze)
+      if: matrix.configuration == 'Release'
+      uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+      with:
+        go-version: '1.25.1'
+
+    - name: Cache prof-analyze binary
+      if: matrix.configuration == 'Release'
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: ~/go/bin
+        key: prof-analyze-65ffbe5796c83709592c6166e38c8d6898847edc
+
+    - name: Install prof-analyze
+      if: matrix.configuration == 'Release'
+      run: |
+        if (-not (Test-Path "$env:USERPROFILE\go\bin\prof-analyze.exe")) {
+          go install github.com/DataDog/profiler-correctness/v1/cmd/prof-analyze@65ffbe5796c83709592c6166e38c8d6898847edc
+        }
+      shell: pwsh
+
+    - name: Capture Runner scenario 1 pprof
+      if: matrix.configuration == 'Release'
+      run: |
+        $pprofDir = Join-Path $env:RUNNER_TEMP "scn1"
+        pwsh e2e-tests/capture-pprof.ps1 -Scenario 1 -Iterations 5 -Config Release -PprofDir $pprofDir -NoExport -Symbolize
+        echo "PPROF_DIR=$pprofDir" >> $env:GITHUB_ENV
+      shell: pwsh
+
+    - name: Analyze scenario 1
+      if: matrix.configuration == 'Release'
+      run: prof-analyze -expectedJson e2e-tests/runner-scenarios/scenario_1/expected_profile.json -pprofPath "$env:PPROF_DIR"
+      shell: pwsh
+
+    - name: Upload scenario 1 pprof on failure
+      if: failure() && matrix.configuration == 'Release'
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: scenario-1-pprof
+        path: ${{ env.PPROF_DIR }}
+
     - name: Upload build artifacts
       if: matrix.configuration == 'Release'
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
