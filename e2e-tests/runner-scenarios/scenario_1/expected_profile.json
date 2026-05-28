@@ -1,6 +1,6 @@
 {
   "test_name": "runner_scenario_1",
-  "note": "Runner scenario 1 (SimpleCalls): per iteration Spin(300) directly, then SimpleCall1 → Spin(200) + SimpleCall2 → Spin(100). The four helpers are __declspec(noinline) so the per-call-site distribution stays observable in Release builds.",
+  "note": "Runner scenario 1 (SimpleCalls): per iteration Spin(300) directly, then SimpleCall1 → Spin(200) + SimpleCall2 → Spin(100). SimpleCall2's body is a single Spin call, which MSVC eliminates as a tail call in Release even with __declspec(noinline) — so SimpleCall2's 100ms gets attributed to SimpleCalls (its grandparent caller). The expected split is therefore (300+100)/600 = 67% direct + 200/600 = 33% via SimpleCall1; SimpleCall2 itself never appears as a frame.",
   "scale_by_duration": true,
   "stacks": [
     {
@@ -8,17 +8,12 @@
       "stack-content": [
         {
           "regular_expression": ";SimpleCalls;Spin(;|$)",
-          "percent": 50,
-          "error_margin": 15
+          "percent": 67,
+          "error_margin": 10
         },
         {
           "regular_expression": ";SimpleCall1;Spin(;|$)",
           "percent": 33,
-          "error_margin": 15
-        },
-        {
-          "regular_expression": ";SimpleCall2;Spin(;|$)",
-          "percent": 17,
           "error_margin": 10
         }
       ]
