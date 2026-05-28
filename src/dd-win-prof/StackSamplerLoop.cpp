@@ -234,8 +234,11 @@ void StackSamplerLoop::CollectOneThreadSample(
     PROFILING_TYPE profilingType,
     ULONG waitingReason
 ) {
-  // the thread needs to be suspended before capturing the stack
-  if (!_stackFrameCollector.TrySuspendThread(pThreadInfo)) {
+  // Suspend the thread AND grab its CONTEXT in one shot. The CONTEXT acts both
+  // as the suspend-fence (per Raymond Chen) and as the unwind seed below, so we
+  // pay for a single GetThreadContext per sample instead of two.
+  CONTEXT seedContext;
+  if (!_stackFrameCollector.TrySuspendThread(pThreadInfo, seedContext)) {
     return;
   }
 
@@ -243,7 +246,11 @@ void StackSamplerLoop::CollectOneThreadSample(
   uint64_t frames[MaxFrameCount];
   uint16_t framesCount = MaxFrameCount;
   bool isStackCaptured = (_stackFrameCollector.CaptureStack(
-      pThreadInfo->GetOsThreadHandle(), frames, framesCount, isTruncated
+      pThreadInfo->GetOsThreadHandle(),
+      seedContext,
+      frames,
+      framesCount,
+      isTruncated
   ));
   // resume the thread before doing any allocation that could cause a deadlock
   ::ResumeThread(pThreadInfo->GetOsThreadHandle());

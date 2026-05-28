@@ -20,18 +20,19 @@ bool StackFrameCollector::CaptureStack(
 }
 
 bool StackFrameCollector::CaptureStack(
-    HANDLE hThread, uint64_t* pFrames, uint16_t& framesCount, bool& isTruncated
+    HANDLE hThread,
+    const CONTEXT& seedContext,
+    uint64_t* pFrames,
+    uint16_t& framesCount,
+    bool& isTruncated
 ) {
   isTruncated = false;
   uint16_t maxFramesCount = framesCount;
 
-  CONTEXT context;
-  context.ContextFlags = CONTEXT_FULL;
-  BOOL hasInfo = ::GetThreadContext(hThread, &context);
-
-  if (!hasInfo) {
-    return false;
-  }
+  // RtlVirtualUnwind mutates the context as it walks frames, so work on a copy
+  // of the seed obtained by TrySuspendThread. No GetThreadContext call here:
+  // the suspend + fetch already happened in TrySuspendThread.
+  CONTEXT context = seedContext;
 
   // Get thread stack limits:
   DWORD64 stackLimit = 0;
@@ -144,7 +145,9 @@ bool StackFrameCollector::CaptureStack(
   return true;
 }
 
-bool StackFrameCollector::TrySuspendThread(std::shared_ptr<ThreadInfo> pThreadInfo) {
+bool StackFrameCollector::TrySuspendThread(
+    std::shared_ptr<ThreadInfo> pThreadInfo, CONTEXT& outContext
+) {
   HANDLE hThread = pThreadInfo->GetOsThreadHandle();
   DWORD suspendCount = ::SuspendThread(hThread);
   if (suspendCount == static_cast<DWORD>(-1)) {
@@ -160,9 +163,15 @@ bool StackFrameCollector::TrySuspendThread(std::shared_ptr<ThreadInfo> pThreadIn
   // suspension management (and we have biger problems if we do not), this should be
   // benign.
 
-  // SuspendThread is asynchronous and requires GetThreadContext to be called.
+  // SuspendThread is asynchronous; the kernel only guarantees the thread is fully
+  // stopped once we have observed its register state. We need the CONTEXT anyway
+  // as the unwind seed, so fetch it here with CONTEXT_FULL. This single
+  // GetThreadContext call serves as both the suspend fence and the seed for
+  // CaptureStack, replacing the previous double-fetch (one CONTEXT_INTEGER fence
+  // + one CONTEXT_FULL seed).
   // https://devblogs.microsoft.com/oldnewthing/20150205-00/?p=44743
-  if (EnsureThreadIsSuspended(hThread)) {
+  outContext.ContextFlags = CONTEXT_FULL;
+  if (::GetThreadContext(hThread, &outContext)) {
     return true;
   }
 
