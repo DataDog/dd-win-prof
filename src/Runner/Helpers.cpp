@@ -8,7 +8,7 @@
 
 #include "Windows.h"
 
-void Spin(int durationMS) {
+__declspec(noinline) void Spin(int durationMS) {
   auto start = ::GetTickCount64();
   auto current = ::GetTickCount64();
   do {
