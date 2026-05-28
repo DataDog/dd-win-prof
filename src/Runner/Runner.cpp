@@ -48,14 +48,17 @@ struct RunnerOptions {
 void ShowHelp(const char* programName);
 bool ParseCommandLine(int argc, char* argv[], RunnerOptions& opts);
 
-void SimpleCall2() { Spin(100); }
+// Noinline so each function stays observable as a distinct frame in
+// Release-build profiles. The prof-correctness analyzer asserts on
+// per-function CPU shares; inlining collapses them all into the caller.
+__declspec(noinline) void SimpleCall2() { Spin(100); }
 
-void SimpleCall1() {
+__declspec(noinline) void SimpleCall1() {
   Spin(200);
   SimpleCall2();
 }
 
-void SimpleCalls() {
+__declspec(noinline) void SimpleCalls() {
   for (int count = 0; count < 3; count++) {
     Spin(300);
     SimpleCall1();
