@@ -69,25 +69,34 @@ jobs:
         }
       shell: pwsh
 
-    - name: Capture Runner scenario 1 pprof
+    - name: Run Runner correctness scenarios
       if: matrix.configuration == 'Release'
+      shell: pwsh
       run: |
-        $pprofDir = Join-Path $env:RUNNER_TEMP "scn1"
-        pwsh e2e-tests/capture-pprof.ps1 -Scenario 1 -Iterations 5 -Config Release -PprofDir $pprofDir -NoExport -Symbolize
-        echo "PPROF_DIR=$pprofDir" >> $env:GITHUB_ENV
-      shell: pwsh
+        $root = "e2e-tests/runner-scenarios"
+        $outRoot = Join-Path $env:RUNNER_TEMP "runner-scenarios"
+        $failed = @()
+        $scenarios = Get-ChildItem $root -Directory | Where-Object { $_.Name -like 'scenario_*' } | Sort-Object Name
+        foreach ($scn in $scenarios) {
+            $num      = ($scn.Name -replace '^scenario_', '')
+            $pprofDir = Join-Path $outRoot $scn.Name
+            Write-Host "=== $($scn.Name) ===" -ForegroundColor Cyan
+            pwsh e2e-tests/capture-pprof.ps1 -Scenario $num -Iterations 5 -Config Release -PprofDir $pprofDir
+            if ($LASTEXITCODE -ne 0) { $failed += "$($scn.Name) (capture)"; continue }
+            prof-analyze -expectedJson (Join-Path $scn.FullName "expected_profile.json") -pprofPath $pprofDir
+            if ($LASTEXITCODE -ne 0) { $failed += "$($scn.Name) (analyze)" }
+        }
+        if ($failed.Count -gt 0) {
+            Write-Host "Failed scenarios: $($failed -join ', ')" -ForegroundColor Red
+            exit 1
+        }
 
-    - name: Analyze scenario 1
-      if: matrix.configuration == 'Release'
-      run: prof-analyze -expectedJson e2e-tests/runner-scenarios/scenario_1/expected_profile.json -pprofPath "$env:PPROF_DIR"
-      shell: pwsh
-
-    - name: Upload scenario 1 pprof on failure
+    - name: Upload runner-scenario pprofs on failure
       if: failure() && matrix.configuration == 'Release'
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
-        name: scenario-1-pprof
-        path: ${{ env.PPROF_DIR }}
+        name: runner-scenarios-pprof
+        path: ${{ runner.temp }}/runner-scenarios
 
     - name: Upload build artifacts
       if: matrix.configuration == 'Release'

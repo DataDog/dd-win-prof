@@ -1,19 +1,15 @@
-# Capture pprof profiles by running Runner.exe with the chosen scenario, used
-# both locally (to bootstrap expected_profile.json files) and in CI (to feed
-# the prof-correctness analyzer). Loads DD_* env vars from an optional .env
-# file, then invokes Runner with --pprofdir pointing at a local directory.
+# Capture pprof profiles by running Runner.exe with the chosen scenario.
+# Used both locally (to bootstrap expected_profile.json files) and in CI
+# (to feed the prof-correctness analyzer).
 #
-# Switches:
-#   -NoExport    Skip the upload path (--noenvvars + fake URL/key), useful in
-#                CI where no credentials are present.
-#   -Symbolize   Pass --symbolize so frame names land in the captured pprof.
-#                Recommended whenever you intend to write or update an
-#                expected_profile.json against the result.
+# Defaults: symbolize on, upload off — set as env vars so Runner picks
+# them up without extra flags. Per-scenario config (e.g. RUM IDs) lives
+# in runner-scenarios/scenario_<N>/.env and is auto-loaded.
 #
 # Usage:
-#   .\capture-pprof.ps1
-#   .\capture-pprof.ps1 -Scenario 5 -Iterations 5 -Symbolize
-#   .\capture-pprof.ps1 -Config Release -NoExport -Symbolize -PprofDir C:\tmp\scn1
+#   .\capture-pprof.ps1                                      # scenario 1, 3 iterations
+#   .\capture-pprof.ps1 -Scenario 5 -Iterations 5
+#   .\capture-pprof.ps1 -Config Release -PprofDir C:\tmp\out
 
 [CmdletBinding()]
 param(
@@ -22,24 +18,34 @@ param(
     [string]$EnvFile  = (Join-Path $PSScriptRoot ".env"),
     [string]$PprofDir = (Join-Path $PSScriptRoot "temp"),
     [ValidateSet("Debug", "Release", "Auto")]
-    [string]$Config   = "Debug",
-    [switch]$NoExport,
-    [switch]$Symbolize
+    [string]$Config   = "Debug"
 )
 
 $ErrorActionPreference = "Stop"
 
-# Load .env into the current PowerShell session (KEY=VALUE, skip comments/blank).
-if (Test-Path $EnvFile) {
-    Write-Host "Loading env from: $EnvFile" -ForegroundColor Cyan
-    Get-Content $EnvFile | ForEach-Object {
+function Load-EnvFile([string]$path) {
+    if (-not (Test-Path $path)) { return }
+    Write-Host "Loading env from: $path" -ForegroundColor Cyan
+    Get-Content $path | ForEach-Object {
         if ($_ -match '^\s*([^#=][^=]*)=(.*)$') {
             Set-Item -Path "env:$($matches[1].Trim())" -Value $matches[2].Trim()
         }
     }
-} else {
-    Write-Host "No .env file at $EnvFile (continuing -- runner will use process env)" -ForegroundColor Yellow
 }
+
+# Defaults that suit local dev and CI: never upload, always symbolize.
+# Loaded .env files below can override either if a user really needs to.
+$env:DD_INTERNAL_PROFILING_EXPORT_ENABLED       = "0"
+$env:DD_PROFILING_INTERNAL_SYMBOLIZE_CALLSTACKS = "1"
+
+# Optional user .env (general overrides for local dev).
+Load-EnvFile $EnvFile
+
+# Per-scenario env (RUM IDs, scenario-specific tags). Lives next to the
+# scenario's expected_profile.json so adding a new scenario means dropping
+# a folder, no script change. Named scenario.env (not .env) because the
+# repo's .gitignore drops .env / .env.* by default.
+Load-EnvFile (Join-Path $PSScriptRoot "runner-scenarios\scenario_$Scenario\scenario.env")
 
 if (-not (Test-Path $PprofDir)) {
     New-Item -ItemType Directory -Force -Path $PprofDir | Out-Null
@@ -56,16 +62,6 @@ $runnerArgs = @(
     "--iterations", $Iterations,
     "--pprofdir",   $PprofDir
 )
-if ($Symbolize) { $runnerArgs += "--symbolize" }
-if ($NoExport)  {
-    # --noenvvars forces Runner to ignore env config; --url and --apikey are
-    # then mandatory but never actually contacted (intake://0 just no-ops).
-    $runnerArgs += @(
-        "--noenvvars",
-        "--url",    "https://localhost:0/no-upload",
-        "--apikey", "correctness-test-key"
-    )
-}
 
 Write-Host ""
 Write-Host "Running: $runner $($runnerArgs -join ' ')" -ForegroundColor Cyan

@@ -1,14 +1,24 @@
 {
   "test_name": "runner_scenario_1",
-  "note": "Runner scenario 1 spins on the main thread (SimpleCalls → SimpleCall1/2 → Spin → GetTickCount64). In Release builds MSVC inlines those helpers into main, so the per-function frames disappear; for now we only assert that the workload lands on the main thread. Per-function assertions (~50% / 33% / 17% across the three Spin call sites) will be re-enabled once the helpers are annotated noinline.",
+  "note": "Runner scenario 1 (SimpleCalls): per iteration Spin(300) directly, then SimpleCall1 → Spin(200) + SimpleCall2 → Spin(100). The four helpers are __declspec(noinline) so the per-call-site distribution stays observable in Release builds.",
   "scale_by_duration": true,
   "stacks": [
     {
       "profile-type": "cpu-time",
       "stack-content": [
         {
-          "regular_expression": ";main(;|$)",
-          "percent": 95,
+          "regular_expression": ";SimpleCalls;Spin(;|$)",
+          "percent": 50,
+          "error_margin": 15
+        },
+        {
+          "regular_expression": ";SimpleCall1;Spin(;|$)",
+          "percent": 33,
+          "error_margin": 15
+        },
+        {
+          "regular_expression": ";SimpleCall2;Spin(;|$)",
+          "percent": 17,
           "error_margin": 10
         }
       ]
