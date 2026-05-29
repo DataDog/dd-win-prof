@@ -246,11 +246,7 @@ void StackSamplerLoop::CollectOneThreadSample(
   uint64_t frames[MaxFrameCount];
   uint16_t framesCount = MaxFrameCount;
   bool isStackCaptured = (_stackFrameCollector.CaptureStack(
-      pThreadInfo->GetOsThreadHandle(),
-      seedContext,
-      frames,
-      framesCount,
-      isTruncated
+      pThreadInfo->GetOsThreadHandle(), seedContext, frames, framesCount, isTruncated
   ));
   // resume the thread before doing any allocation that could cause a deadlock
   ::ResumeThread(pThreadInfo->GetOsThreadHandle());
