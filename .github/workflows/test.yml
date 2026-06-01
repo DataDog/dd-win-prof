@@ -48,6 +48,56 @@ jobs:
       run: pwsh src/integration-tests/test_rum_scenario.ps1 -Config Release
       shell: pwsh
 
+    - name: Set up Go (for prof-analyze)
+      if: matrix.configuration == 'Release'
+      uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+      with:
+        go-version: '1.25.1'
+
+    - name: Cache prof-analyze binary
+      if: matrix.configuration == 'Release'
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: ~/go/bin
+        key: prof-analyze-v1.0.0
+
+    - name: Install prof-analyze
+      if: matrix.configuration == 'Release'
+      run: |
+        if (-not (Test-Path "$env:USERPROFILE\go\bin\prof-analyze.exe")) {
+          go install github.com/DataDog/prof-correctness/cmd/prof-analyze@v1.0.0
+        }
+      shell: pwsh
+
+    - name: Run Runner correctness scenarios
+      if: matrix.configuration == 'Release'
+      shell: pwsh
+      run: |
+        $root = "e2e-tests/runner-scenarios"
+        $outRoot = Join-Path $env:RUNNER_TEMP "runner-scenarios"
+        $failed = @()
+        $scenarios = Get-ChildItem $root -Directory | Where-Object { $_.Name -like 'scenario_*' } | Sort-Object Name
+        foreach ($scn in $scenarios) {
+            $num      = ($scn.Name -replace '^scenario_', '')
+            $pprofDir = Join-Path $outRoot $scn.Name
+            Write-Host "=== $($scn.Name) ===" -ForegroundColor Cyan
+            pwsh e2e-tests/capture-pprof.ps1 -Scenario $num -Iterations 5 -Config Release -PprofDir $pprofDir
+            if ($LASTEXITCODE -ne 0) { $failed += "$($scn.Name) (capture)"; continue }
+            prof-analyze -expectedJson (Join-Path $scn.FullName "expected_profile.json") -pprofPath $pprofDir
+            if ($LASTEXITCODE -ne 0) { $failed += "$($scn.Name) (analyze)" }
+        }
+        if ($failed.Count -gt 0) {
+            Write-Host "Failed scenarios: $($failed -join ', ')" -ForegroundColor Red
+            exit 1
+        }
+
+    - name: Upload runner-scenario pprofs on failure
+      if: failure() && matrix.configuration == 'Release'
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: runner-scenarios-pprof
+        path: ${{ runner.temp }}/runner-scenarios
+
     - name: Upload build artifacts
       if: matrix.configuration == 'Release'
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

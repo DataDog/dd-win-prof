@@ -1,0 +1,72 @@
+{
+  "test_name": "runner_scenario_4",
+  "note": "Locks/sleep scenario: 4 waiter threads + a master that holds all primitives for 3 s then releases. Each waiter does Spin(500) after acquiring. Asserts cpu-time / wait-time / wall-time per thread_name. NOTE: wait-time and wall-time for Mutex Waiter and Semaphore Waiter are intentionally not asserted — the profiler today does not appear to track WaitForSingleObject(mutex/semaphore) blocking time, so their ~3s wait is invisible in both wait-time and wall-time totals (only the post-acquire Spin shows up). CriticalSection and Sleep waiters are tracked correctly.",
+  "scale_by_duration": true,
+  "stacks": [
+    {
+      "profile-type": "cpu-time",
+      "stack-content": [
+        {
+          "regular_expression": ";MutexThreadFunction;Spin(;|$)",
+          "percent": 18, "error_margin": 10,
+          "labels": [{ "key": "thread_name", "values": ["Mutex Waiter"] }]
+        },
+        {
+          "regular_expression": ";SemaphoreThreadFunction;Spin(;|$)",
+          "percent": 18, "error_margin": 10,
+          "labels": [{ "key": "thread_name", "values": ["Semaphore Waiter"] }]
+        },
+        {
+          "regular_expression": ";CriticalSectionThreadFunction;Spin(;|$)",
+          "percent": 18, "error_margin": 10,
+          "labels": [{ "key": "thread_name", "values": ["CriticalSection Waiter"] }]
+        },
+        {
+          "regular_expression": ";SleepThreadFunction;Spin(;|$)",
+          "percent": 18, "error_margin": 10,
+          "labels": [{ "key": "thread_name", "values": ["Sleep Waiter"] }]
+        }
+      ]
+    },
+    {
+      "profile-type": "wait-time",
+      "stack-content": [
+        {
+          "regular_expression": ".*",
+          "percent": 11, "error_margin": 8,
+          "labels": [{ "key": "thread_name", "values": ["CriticalSection Waiter"] }]
+        },
+        {
+          "regular_expression": ".*",
+          "percent": 9, "error_margin": 8,
+          "labels": [{ "key": "thread_name", "values": ["Sleep Waiter"] }]
+        },
+        {
+          "regular_expression": ".*",
+          "percent": 13, "error_margin": 8,
+          "labels": [{ "key": "thread_name", "values": ["Wait Master"] }]
+        }
+      ]
+    },
+    {
+      "profile-type": "wall-time",
+      "stack-content": [
+        {
+          "regular_expression": ".*",
+          "percent": 11, "error_margin": 8,
+          "labels": [{ "key": "thread_name", "values": ["CriticalSection Waiter"] }]
+        },
+        {
+          "regular_expression": ".*",
+          "percent": 9, "error_margin": 8,
+          "labels": [{ "key": "thread_name", "values": ["Sleep Waiter"] }]
+        },
+        {
+          "regular_expression": ".*",
+          "percent": 13, "error_margin": 8,
+          "labels": [{ "key": "thread_name", "values": ["Wait Master"] }]
+        }
+      ]
+    }
+  ]
+}

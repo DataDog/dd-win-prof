@@ -1,0 +1,39 @@
+{
+  "test_name": "runner_scenario_5",
+  "note": "RUM context view transitions: cycles HomePage / SettingsPage / ProfilePage with per-sample profiling labels. Each labeled segment should carry a non-empty rum.view_id. Idle/transition samples without rum.view_id are not asserted here — the current analyzer can't express label-absence; the three percentage checks already prove labels track view transitions correctly.",
+  "scale_by_duration": true,
+  "stacks": [
+    {
+      "profile-type": "cpu-time",
+      "stack-content": [
+        {
+          "regular_expression": ".*",
+          "percent": 40,
+          "error_margin": 15,
+          "labels": [
+            { "key": "trace endpoint", "values": ["HomePage"] },
+            { "key": "rum.view_id",    "values_regex": ".+" }
+          ]
+        },
+        {
+          "regular_expression": ".*",
+          "percent": 24,
+          "error_margin": 15,
+          "labels": [
+            { "key": "trace endpoint", "values": ["SettingsPage"] },
+            { "key": "rum.view_id",    "values_regex": ".+" }
+          ]
+        },
+        {
+          "regular_expression": ".*",
+          "percent": 22,
+          "error_margin": 15,
+          "labels": [
+            { "key": "trace endpoint", "values": ["ProfilePage"] },
+            { "key": "rum.view_id",    "values_regex": ".+" }
+          ]
+        }
+      ]
+    }
+  ]
+}
