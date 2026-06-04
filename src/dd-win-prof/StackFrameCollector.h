@@ -22,9 +22,14 @@ class StackFrameCollector {
   // Unwind the (already suspended) thread starting from the provided seed
   // CONTEXT. The seed is expected to come from TrySuspendThread; CaptureStack
   // does not query the thread context itself.
+  // NOTE: the context is taken by non-const reference and is MUTATED by
+  // RtlVirtualUnwind frame-by-frame during the walk. CONTEXT is ~1.2 KB on
+  // x64, so we avoid copying it on every sample by letting the caller's
+  // stack-allocated CONTEXT be the working buffer. Callers must not rely on
+  // its contents after CaptureStack returns.
   bool CaptureStack(
       HANDLE hThread,
-      const CONTEXT& seedContext,
+      CONTEXT& context,
       uint64_t* pFrames,
       uint16_t& framesCount,
       bool& isTruncated

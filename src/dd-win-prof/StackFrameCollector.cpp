@@ -21,7 +21,7 @@ bool StackFrameCollector::CaptureStack(
 
 bool StackFrameCollector::CaptureStack(
     HANDLE hThread,
-    const CONTEXT& seedContext,
+    CONTEXT& context,
     uint64_t* pFrames,
     uint16_t& framesCount,
     bool& isTruncated
@@ -29,10 +29,10 @@ bool StackFrameCollector::CaptureStack(
   isTruncated = false;
   uint16_t maxFramesCount = framesCount;
 
-  // RtlVirtualUnwind mutates the context as it walks frames, so work on a copy
-  // of the seed obtained by TrySuspendThread. No GetThreadContext call here:
-  // the suspend + fetch already happened in TrySuspendThread.
-  CONTEXT context = seedContext;
+  // No GetThreadContext call here: the suspend + fetch already happened in
+  // TrySuspendThread. RtlVirtualUnwind mutates `context` as it walks frames;
+  // the caller (StackSamplerLoop) does not read it back, so we avoid the
+  // ~1.2 KB-per-sample copy that a const-ref + local snapshot would cost.
 
   // Get thread stack limits:
   DWORD64 stackLimit = 0;
