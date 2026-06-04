@@ -2,9 +2,11 @@
 // the Apache 2 License. This product includes software developed at Datadog
 // (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
 
-#include "pch.h"
+#include <gtest/gtest.h>
 
 #include <chrono>
+
+#include "pch.h"
 
 using namespace std::chrono_literals;
 
