@@ -125,25 +125,26 @@ void StackSamplerLoop::CpuProfilingIteration() {
         //       maybe the cpu iteration should happen before the walltime iteration?
         pThreadInfo->SetLastWaitSampleTimestamp(0ns);
 
-        auto cpuForSample = currentConsumption - lastConsumption;
+        auto cpuDelta = currentConsumption - lastConsumption;
 
         // we don't collect a sample for this thread is no CPU was consumed since the
         // last check
-        if (cpuForSample > 0ms) {
+        if (cpuDelta > 0ms) {
           auto lastCpuTimestamp = pThreadInfo->GetCpuTimestamp();
           auto thisSampleTimestamp = OpSysTools::GetHighPrecisionTimestamp();
+
+          // Work in nanoseconds to avoid precision loss when capping.
+          std::chrono::nanoseconds cpuForSample = cpuDelta;
 
           // For the first computation, no need to deal with overlapping CPU usage
           if (lastCpuTimestamp != 0ns) {
             // detect overlapping CPU usage
             auto threshold = lastCpuTimestamp + cpuForSample;
             if (threshold > thisSampleTimestamp) {
-              // ensure that we don't overlap
-              // -> only the largest possibly CPU consumption is accounted = diff
-              // between the 2 timestamps
-              cpuForSample = std::chrono::duration_cast<std::chrono::milliseconds>(
-                  thisSampleTimestamp - lastCpuTimestamp - 1us
-              );  // removing 1 microsecond to be sure;
+              // Cap to elapsed wall-clock time to avoid over-counting.
+              // Subtract 1µs safety margin to avoid attributing 100% CPU.
+              auto elapsed = thisSampleTimestamp - lastCpuTimestamp;
+              cpuForSample = elapsed > 1us ? elapsed - 1us : 0ns;
             }
           }
 

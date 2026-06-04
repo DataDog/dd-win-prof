@@ -1,6 +1,7 @@
 add_executable(Tests
     main.cpp
     ConfigurationTests.cpp
+    CpuOverlapTests.cpp
     DynamicModuleTests.cpp
     PprofAggregatorTests.cpp
     ProfileExporterTests.cpp
