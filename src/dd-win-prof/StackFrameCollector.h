@@ -29,7 +29,7 @@ class StackFrameCollector {
   // its contents after CaptureStack returns.
   bool CaptureStack(
       HANDLE hThread,
-      CONTEXT& context,
+      CONTEXT& seedContext,
       uint64_t* pFrames,
       uint16_t& framesCount,
       bool& isTruncated
@@ -39,9 +39,9 @@ class StackFrameCollector {
   // call. The successful GetThreadContext also acts as the synchronization fence
   // required after the asynchronous SuspendThread (see
   // https://devblogs.microsoft.com/oldnewthing/20150205-00/?p=44743).
-  // On success, outContext is populated with CONTEXT_FULL and the caller MUST
+  // On success, seedContext is populated with CONTEXT_FULL and the caller MUST
   // eventually call ::ResumeThread on the thread.
-  bool TrySuspendThread(std::shared_ptr<ThreadInfo> pThreadInfo, CONTEXT& outContext);
+  bool TrySuspendThread(std::shared_ptr<ThreadInfo> pThreadInfo, CONTEXT& seedContext);
 
  private:
   bool TryGetThreadStackBoundaries(
