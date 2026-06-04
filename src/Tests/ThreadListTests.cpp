@@ -2,9 +2,10 @@
 // the Apache 2 License. This product includes software developed at Datadog
 // (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
 
-#include "pch.h"
+#include <gtest/gtest.h>
 
 #include "../dd-win-prof/ThreadList.h"
+#include "pch.h"
 
 // Test helper to create a thread with a specific handle value
 class TestThreadInfo : public ThreadInfo {
