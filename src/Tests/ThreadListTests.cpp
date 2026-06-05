@@ -175,3 +175,217 @@ TEST(ThreadListTests, MultipleIterators_IndependentPositions) {
   ASSERT_NE(thread, nullptr);
   EXPECT_EQ(thread->GetThreadId(), 1);
 }
+
+// ============================================================================
+// BUG-REVEALING EDGE CASES (from code review)
+// ============================================================================
+
+// A single valid thread positioned before an invalid one must keep being
+// returned on every round. Currently the 2nd call returns nullptr because the
+// "full circle" check (startPos == pos) fires on the same iteration that found
+// the valid thread.
+TEST(ThreadListTests, LoopNext_ValidBeforeInvalid_KeepsReturningValid) {
+  ThreadList threadList;
+  threadList.AddThread(1, reinterpret_cast<HANDLE>(0x1000));  // valid
+  threadList.AddThread(2, INVALID_HANDLE_VALUE);             // invalid
+
+  uint32_t it = threadList.CreateIterator();
+
+  auto first = threadList.LoopNext(it);
+  ASSERT_NE(first, nullptr);
+  EXPECT_EQ(first->GetThreadId(), 1);
+
+  auto second = threadList.LoopNext(it);  // currently returns nullptr (BUG)
+  ASSERT_NE(second, nullptr);
+  EXPECT_EQ(second->GetThreadId(), 1);
+}
+
+// Same defect, single valid element among many: [inv, inv, valid].
+TEST(ThreadListTests, LoopNext_SingleValidAtEnd_StableAcrossCalls) {
+  ThreadList threadList;
+  threadList.AddThread(1, INVALID_HANDLE_VALUE);
+  threadList.AddThread(2, NULL);
+  threadList.AddThread(3, reinterpret_cast<HANDLE>(0x3000));  // valid
+
+  uint32_t it = threadList.CreateIterator();
+  for (int i = 0; i < 4; ++i) {
+    auto t = threadList.LoopNext(it);
+    ASSERT_NE(t, nullptr) << "iteration " << i;
+    EXPECT_EQ(t->GetThreadId(), 3) << "iteration " << i;
+  }
+}
+
+// ============================================================================
+// GUARD-CLAUSE / API EDGE CASES
+// ============================================================================
+
+TEST(ThreadListTests, LoopNext_EmptyList_ReturnsNull) {
+  ThreadList threadList;
+  uint32_t it = threadList.CreateIterator();
+  EXPECT_EQ(threadList.LoopNext(it), nullptr);
+}
+
+TEST(ThreadListTests, LoopNext_InvalidIteratorIndex_ReturnsNull) {
+  ThreadList threadList;
+  threadList.AddThread(1, reinterpret_cast<HANDLE>(0x1000));
+  // No CreateIterator() call, and an out-of-range index.
+  EXPECT_EQ(threadList.LoopNext(0), nullptr);
+  EXPECT_EQ(threadList.LoopNext(99), nullptr);
+}
+
+TEST(ThreadListTests, LoopNext_SingleValidThread_ReturnedEveryCall) {
+  ThreadList threadList;
+  threadList.AddThread(42, reinterpret_cast<HANDLE>(0x1000));
+  uint32_t it = threadList.CreateIterator();
+  for (int i = 0; i < 3; ++i) {
+    auto t = threadList.LoopNext(it);
+    ASSERT_NE(t, nullptr);
+    EXPECT_EQ(t->GetThreadId(), 42);
+  }
+}
+
+// Only NULL handles (the other half of the skip condition; existing test
+// mixes NULL/INVALID_HANDLE_VALUE but never isolates NULL).
+TEST(ThreadListTests, LoopNext_SkipsNullHandlesSpecifically) {
+  ThreadList threadList;
+  threadList.AddThread(1, NULL);
+  threadList.AddThread(2, reinterpret_cast<HANDLE>(0x2000));
+  uint32_t it = threadList.CreateIterator();
+  auto t = threadList.LoopNext(it);
+  ASSERT_NE(t, nullptr);
+  EXPECT_EQ(t->GetThreadId(), 2);
+}
+
+// ============================================================================
+// Count() (entirely untested today)
+// ============================================================================
+
+TEST(ThreadListTests, Count_TracksAddAndRemove) {
+  ThreadList threadList;
+  EXPECT_EQ(threadList.Count(), 0u);
+  threadList.AddThread(1, reinterpret_cast<HANDLE>(0x1000));
+  threadList.AddThread(2, reinterpret_cast<HANDLE>(0x2000));
+  EXPECT_EQ(threadList.Count(), 2u);
+  threadList.RemoveThread(1);
+  EXPECT_EQ(threadList.Count(), 1u);
+}
+
+// ============================================================================
+// RemoveThread / UpdateIterators branches
+// ============================================================================
+
+// Removing a tid that isn't present must be a no-op (loop falls through).
+TEST(ThreadListTests, RemoveThread_NonExistentTid_NoOp) {
+  ThreadList threadList;
+  threadList.AddThread(1, reinterpret_cast<HANDLE>(0x1000));
+  threadList.RemoveThread(999);  // not present
+  EXPECT_EQ(threadList.Count(), 1u);
+  uint32_t it = threadList.CreateIterator();
+  auto t = threadList.LoopNext(it);
+  ASSERT_NE(t, nullptr);
+  EXPECT_EQ(t->GetThreadId(), 1);
+}
+
+// Removing the LAST element while an iterator points past the new end must
+// reset that iterator to 0 (exercises the `pos >= size -> 0` branch).
+TEST(ThreadListTests, RemoveThread_LastThread_ResetsIterator) {
+  ThreadList threadList;
+  threadList.AddThread(1, reinterpret_cast<HANDLE>(0x1000));
+  threadList.AddThread(2, reinterpret_cast<HANDLE>(0x2000));
+  threadList.AddThread(3, reinterpret_cast<HANDLE>(0x3000));
+
+  uint32_t it = threadList.CreateIterator();
+  threadList.LoopNext(it);  // -> 1, iter=1
+  threadList.LoopNext(it);  // -> 2, iter=2 (points at thread 3)
+
+  threadList.RemoveThread(3);  // removalPos == 2 == size after erase -> reset
+
+  auto t = threadList.LoopNext(it);
+  ASSERT_NE(t, nullptr);
+  EXPECT_EQ(t->GetThreadId(), 1);  // iterator was reset to position 0
+}
+
+// Removing the FIRST element shifts every iterator left by one
+// (exercises the `removalPos < pos -> pos - 1` branch).
+TEST(ThreadListTests, RemoveThread_FirstThread_ShiftsIterator) {
+  ThreadList threadList;
+  threadList.AddThread(1, reinterpret_cast<HANDLE>(0x1000));
+  threadList.AddThread(2, reinterpret_cast<HANDLE>(0x2000));
+  threadList.AddThread(3, reinterpret_cast<HANDLE>(0x3000));
+
+  uint32_t it = threadList.CreateIterator();
+  threadList.LoopNext(it);  // -> 1, iter=1
+  threadList.LoopNext(it);  // -> 2, iter=2 (points at thread 3)
+
+  threadList.RemoveThread(1);  // removalPos 0 < 2 -> iter becomes 1
+
+  auto t = threadList.LoopNext(it);
+  ASSERT_NE(t, nullptr);
+  EXPECT_EQ(t->GetThreadId(), 3);  // still pointing at thread 3
+}
+
+// Remove every thread, then LoopNext must safely return null.
+TEST(ThreadListTests, RemoveThread_DownToEmpty_LoopNextReturnsNull) {
+  ThreadList threadList;
+  threadList.AddThread(1, reinterpret_cast<HANDLE>(0x1000));
+  threadList.AddThread(2, reinterpret_cast<HANDLE>(0x2000));
+  uint32_t it = threadList.CreateIterator();
+  threadList.RemoveThread(1);
+  threadList.RemoveThread(2);
+  EXPECT_EQ(threadList.Count(), 0u);
+  EXPECT_EQ(threadList.LoopNext(it), nullptr);
+}
+
+// RemoveThread must fix up MULTIPLE iterators at different positions
+// (existing removal test only has one iterator).
+TEST(ThreadListTests, RemoveThread_UpdatesMultipleIterators) {
+  ThreadList threadList;
+  threadList.AddThread(1, reinterpret_cast<HANDLE>(0x1000));
+  threadList.AddThread(2, reinterpret_cast<HANDLE>(0x2000));
+  threadList.AddThread(3, reinterpret_cast<HANDLE>(0x3000));
+
+  uint32_t a = threadList.CreateIterator();
+  uint32_t b = threadList.CreateIterator();
+  threadList.LoopNext(a);  // a -> 1, pos 1
+  threadList.LoopNext(b);
+  threadList.LoopNext(b);  // b -> pos 2
+
+  threadList.RemoveThread(1);  // pos 0 removed: a stays valid, b shifts left
+
+  auto ta = threadList.LoopNext(a);
+  ASSERT_NE(ta, nullptr);
+  EXPECT_EQ(ta->GetThreadId(), 2);
+  auto tb = threadList.LoopNext(b);
+  ASSERT_NE(tb, nullptr);
+  EXPECT_EQ(tb->GetThreadId(), 3);
+}
+
+// ============================================================================
+// Ordering / lifecycle interplay
+// ============================================================================
+
+// Iterator created before any thread exists, threads added afterwards.
+TEST(ThreadListTests, CreateIterator_BeforeAddingThreads) {
+  ThreadList threadList;
+  uint32_t it = threadList.CreateIterator();
+  EXPECT_EQ(threadList.LoopNext(it), nullptr);  // empty -> null
+  threadList.AddThread(1, reinterpret_cast<HANDLE>(0x1000));
+  auto t = threadList.LoopNext(it);
+  ASSERT_NE(t, nullptr);
+  EXPECT_EQ(t->GetThreadId(), 1);
+}
+
+// A thread added mid-iteration is eventually returned by the round-robin.
+TEST(ThreadListTests, AddThread_DuringIteration_IsEventuallyReturned) {
+  ThreadList threadList;
+  threadList.AddThread(1, reinterpret_cast<HANDLE>(0x1000));
+  threadList.AddThread(2, reinterpret_cast<HANDLE>(0x2000));
+  uint32_t it = threadList.CreateIterator();
+
+  threadList.LoopNext(it);  // -> 1
+  threadList.AddThread(3, reinterpret_cast<HANDLE>(0x3000));  // appended
+
+  EXPECT_EQ(threadList.LoopNext(it)->GetThreadId(), 2);
+  EXPECT_EQ(threadList.LoopNext(it)->GetThreadId(), 3);  // new one picked up
+  EXPECT_EQ(threadList.LoopNext(it)->GetThreadId(), 1);  // wrap
+}
