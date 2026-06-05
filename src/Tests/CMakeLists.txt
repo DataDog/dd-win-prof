@@ -6,6 +6,7 @@ add_executable(Tests
     ProfileExporterTests.cpp
     RumContextTests.cpp
     SymbolicationTests.cpp
+    ThreadListTests.cpp
     UuidTests.cpp
     pch.h
     targetver.h

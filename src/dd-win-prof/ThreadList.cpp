@@ -83,7 +83,13 @@ std::shared_ptr<ThreadInfo> ThreadList::LoopNext(uint32_t iterator) {
 
   _iterators[iterator] = pos;
 
-  if (startPos == pos) {
+  // Check if we actually found a valid thread.
+  // The loop exits when startPos == pos OR when we find a valid thread.
+  // If pInfo is invalid, it means we completed a full circle without finding
+  // any valid thread. If pInfo is valid, return it even if startPos == pos
+  // (which happens when the valid thread sits just before the start position).
+  if (pInfo->GetOsThreadHandle() == static_cast<HANDLE>(NULL) ||
+      pInfo->GetOsThreadHandle() == INVALID_HANDLE_VALUE) {
     return nullptr;
   }
 
