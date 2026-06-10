@@ -19,10 +19,29 @@ class StackFrameCollector {
       uint32_t threadID, uint64_t* pFrames, uint16_t& framesCount, bool& isTruncated
   );
 
+  // Unwind the (already suspended) thread starting from the provided seed
+  // CONTEXT. The seed is expected to come from TrySuspendThread; CaptureStack
+  // does not query the thread context itself.
+  // NOTE: the context is taken by non-const reference and is MUTATED by
+  // RtlVirtualUnwind frame-by-frame during the walk. CONTEXT is ~1.2 KB on
+  // x64, so we avoid copying it on every sample by letting the caller's
+  // stack-allocated CONTEXT be the working buffer. Callers must not rely on
+  // its contents after CaptureStack returns.
   bool CaptureStack(
-      HANDLE hThread, uint64_t* pFrames, uint16_t& framesCount, bool& isTruncated
+      HANDLE hThread,
+      CONTEXT& seedContext,
+      uint64_t* pFrames,
+      uint16_t& framesCount,
+      bool& isTruncated
   );
-  bool TrySuspendThread(std::shared_ptr<ThreadInfo> pThreadInfo);
+
+  // Suspend the target thread and fetch its CONTEXT in a single GetThreadContext
+  // call. The successful GetThreadContext also acts as the synchronization fence
+  // required after the asynchronous SuspendThread (see
+  // https://devblogs.microsoft.com/oldnewthing/20150205-00/?p=44743).
+  // On success, seedContext is populated with CONTEXT_FULL and the caller MUST
+  // eventually call ::ResumeThread on the thread.
+  bool TrySuspendThread(std::shared_ptr<ThreadInfo> pThreadInfo, CONTEXT& seedContext);
 
  private:
   bool TryGetThreadStackBoundaries(
@@ -31,13 +50,6 @@ class StackFrameCollector {
   bool ValidatePointerInStack(
       DWORD64 pointerValue, DWORD64 stackLimit, DWORD64 stackBase
   );
-
-  inline bool EnsureThreadIsSuspended(HANDLE hThread) {
-    CONTEXT ctx;
-    ctx.ContextFlags = CONTEXT_INTEGER;
-
-    return ::GetThreadContext(hThread, &ctx);
-  }
 
  private:
   // Function pointer for NtQueryInformationThread
