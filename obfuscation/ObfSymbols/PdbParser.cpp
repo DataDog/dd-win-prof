@@ -415,7 +415,7 @@ bool PdbParser::ExtractModuleInfo(ModuleInfo& moduleInfo) {
     swprintf_s(
         buildIdStr,
         80,
-        L"%08x%04x%04x%02x%02x%02x%02x%02x%02x%02x%02x%x",
+        L"%08X%04X%04X%02X%02X%02X%02X%02X%02X%02X%02X%X",
         guid.Data1,
         guid.Data2,
         guid.Data3,
@@ -752,6 +752,11 @@ bool PdbParser::ExtractSymbols(std::vector<SymbolInfo>& symbols) {
       }
     } else {
       rvaOptimized = rvaOriginal;
+      if (rvaOptimized == 0) {
+        skippedSymbols++;
+        pSymbol.Release();
+        continue;
+      }
       sizeOptimized = static_cast<ULONG>(sizeOriginal);
     }
 
@@ -838,6 +843,11 @@ bool PdbParser::ExtractSymbols(std::vector<SymbolInfo>& symbols) {
         sizeOptimized = CalculateSizeWithOMAP(rvaOriginal, sizeOriginal);
       } else {
         rvaOptimized = rvaOriginal;
+        if (rvaOptimized == 0) {
+          publicSymbolsSkipped++;
+          pPublicSymbol.Release();
+          continue;
+        }
         sizeOptimized = static_cast<ULONG>(sizeOriginal);
       }
 
