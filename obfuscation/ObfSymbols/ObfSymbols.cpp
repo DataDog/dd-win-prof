@@ -77,8 +77,13 @@ void WriteSymbolLine(
     const std::wstring& obfuscatedName,
     bool includeSignature
 ) {
-  stream << (symbol.isPublic ? L"PUBLIC" : L"PRIVATE") << L" " << std::hex << symbol.rva
-         << L" " << std::hex << symbol.size << L" " << obfuscatedName;
+  // Use FUNC records instead of PUBLIC/PRIVATE - symbolic library supports FUNC via session.functions()
+  // Format: FUNC <rva> <size> <param_size> <name>
+  // param_size is the size of parameters on stack (0 if unknown)
+  stream << L"FUNC" << L" " << std::hex << symbol.rva
+         << L" " << std::hex << symbol.size
+         << L" 0"  // param_size - unknown, use 0
+         << L" " << obfuscatedName;
 
   if (includeSignature) {
     stream << L" " << (!symbol.signature.empty() ? symbol.signature : symbol.name);
