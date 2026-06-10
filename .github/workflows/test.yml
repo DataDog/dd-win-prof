@@ -25,10 +25,22 @@ jobs:
         key: deps-${{ hashFiles('src/CMakeLists.txt') }}
 
     - name: Configure CMake
-      run: cmake -G "Visual Studio 17 2022" -A x64 -B build -DFETCHCONTENT_BASE_DIR=${{ github.workspace }}/.deps
+      run: cmake -G "Visual Studio 17 2022" -A x64 -B build -DDD_WIN_PROF_BUILD_OBFUSCATION=ON -DFETCHCONTENT_BASE_DIR=${{ github.workspace }}/.deps
 
     - name: Build
       run: cmake --build build --config ${{ matrix.configuration }}
+
+    - name: Validate Runner symbol file
+      shell: pwsh
+      run: |
+        $config  = "${{ matrix.configuration }}"
+        $obfExe  = "build/obfuscation/ObfSymbols/$config/ObfSymbols.exe"
+        $pdb     = "build/src/Runner/$config/Runner.pdb"
+        $symFile = "build/src/Runner/$config/Runner.sym"
+        Write-Host "Generating $symFile ..."
+        & $obfExe --pdb $pdb --out $symFile
+        if ($LASTEXITCODE -ne 0) { Write-Error "ObfSymbols failed (exit $LASTEXITCODE)"; exit 1 }
+        pwsh e2e-tests/validate-runner-sym.ps1 -SymFile $symFile
 
     - name: Run tests
       run: build/src/Tests/${{ matrix.configuration }}/Tests.exe
