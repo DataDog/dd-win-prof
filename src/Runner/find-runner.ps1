@@ -22,8 +22,6 @@ function Find-Runner {
 
     $candidates = @()
     foreach ($cfg in $configs) {
-        $candidates += (Join-Path $ScriptDir "x64\$cfg\Runner.exe")          # MSBuild output: src/Runner/x64/<cfg>/
-        $candidates += (Join-Path $ScriptDir "..\x64\$cfg\Runner.exe")       # legacy: src/x64/<cfg>/
         $candidates += (Join-Path $ScriptDir "..\..\build\src\Runner\$cfg\Runner.exe")  # CMake (multi-config: VS)
     }
     # Single-config generators (Ninja, Make) drop the binary directly under
