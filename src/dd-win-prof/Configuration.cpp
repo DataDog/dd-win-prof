@@ -31,13 +31,7 @@ void Configuration::SetEnvironmentName(const char* environmentName) {
 
 void Configuration::SetVersion(const char* version) { _version = version; }
 
-void Configuration::SetEndpoint(const char* url) {
-  //_agentUrl = url;
-  _site = url;
-
-  // force agentless mode when setting the full URL
-  _isAgentLess = true;
-}
+void Configuration::SetEndpoint(const char* url) { _site = url; }
 
 void Configuration::SetApiKey(const char* apiKey) { _apiKey = apiKey; }
 
@@ -61,7 +55,6 @@ void Configuration::InitDefaults() {
   _walltimeThreadsThreshold = DefaultWalltimeThreadsThreshold;
   _cpuThreadsThreshold = DefaultCpuThreadsThreshold;
   _apiKey = DefaultEmptyString;
-  _isAgentLess = false;
   _agentUrl = DefaultEmptyString;
   _agentHost = DefaultAgentHost;
   _agentPort = DefaultAgentPort;
@@ -107,7 +100,6 @@ Configuration::Configuration() {
   _cpuThreadsThreshold = ExtractCpuThreadsThreshold();
   _apiKey = GetEnvironmentValue(EnvironmentVariables::ApiKey, DefaultEmptyString);
 
-  _isAgentLess = GetEnvironmentValue(EnvironmentVariables::Agentless, false);
   _agentUrl = GetEnvironmentValue(EnvironmentVariables::AgentUrl, DefaultEmptyString);
   _agentHost = GetEnvironmentValue(EnvironmentVariables::AgentHost, DefaultAgentHost);
   _agentPort = GetEnvironmentValue(EnvironmentVariables::AgentPort, DefaultAgentPort);
@@ -323,7 +315,21 @@ std::string const& Configuration::GetAgentHost() const { return _agentHost; }
 
 int32_t Configuration::GetAgentPort() const { return _agentPort; }
 
-bool Configuration::IsAgentless() const { return _isAgentLess; }
+bool Configuration::IsAgentless() const { return !_apiKey.empty(); }
+
+bool Configuration::ValidateTransportConfig() const {
+  bool hasAgentSettings = !_agentUrl.empty() || _agentHost != DefaultAgentHost ||
+                          _agentPort != DefaultAgentPort;
+  if (IsAgentless() && hasAgentSettings) {
+    Log::Error(
+        "Conflicting transport config: DD_API_KEY is set (agentless) but agent "
+        "settings (DD_TRACE_AGENT_URL / DD_AGENT_HOST / DD_TRACE_AGENT_PORT) are "
+        "also configured. Remove one or the other."
+    );
+    return false;
+  }
+  return true;
+}
 
 std::string const& Configuration::GetSite() const { return _site; }
 

@@ -112,9 +112,10 @@ Define your configuration in a `ProfilerConfig` instance and pass it to `SetupPr
 
 #### Agentless (direct to Datadog)
 
+When `DD_API_KEY` is set, profiling data is sent directly to the Datadog intake without requiring a local Datadog Agent.
+
 - `DD_SERVICE=your-app-name` - Application name
-- `DD_PROFILING_AGENTLESS=1` - Enable agentless mode
-- `DD_SITE=datadoghq.com` - Datadog site (varies by region)
+- `DD_SITE=datadoghq.com` - Datadog site (varies by region, defaults to `datadoghq.com`)
 - `DD_API_KEY=your-api-key` - Your Datadog API key
 
 #### Optional (recommended)
@@ -129,7 +130,6 @@ Define your configuration in a `ProfilerConfig` instance and pass it to `SetupPr
 **Agentless via env vars:**
 ```bash
 DD_SERVICE=my-windows-app
-DD_PROFILING_AGENTLESS=1
 DD_SITE=datadoghq.com
 DD_API_KEY=your_datadog_api_key_here
 DD_VERSION=1.2.3

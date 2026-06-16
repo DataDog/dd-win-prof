@@ -24,7 +24,10 @@ class Configuration {
   std::string const& GetAgentUrl() const;
   std::string const& GetAgentHost() const;
   int32_t GetAgentPort() const;
+  // Agentless mode is derived: true when an API key is configured.
   bool IsAgentless() const;
+  // Returns false and logs an error if agent and agentless settings conflict.
+  bool ValidateTransportConfig() const;
   std::string const& GetSite() const;
   std::string const& GetApiKey() const;
   std::string const& GetServiceName() const;
@@ -126,7 +129,7 @@ class Configuration {
   std::string _site;
   std::string _namedPipeName;
   tags _userTags;
-  bool _isAgentLess;
+
   std::chrono::nanoseconds _cpuWallTimeSamplingPeriod;
   int32_t _walltimeThreadsThreshold;
   int32_t _cpuThreadsThreshold;
