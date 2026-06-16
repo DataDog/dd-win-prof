@@ -217,6 +217,8 @@ void StackSamplerLoop::WalltimeProfilingIteration() {
       waitReason = WAIT_REASON_NONE;
     }
 
+    //Log::Debug("  #", i, "> ", threadId);
+
     // get callstack and create sample (possibly mixed with wait information)
     CollectOneThreadSample(
         pThreadInfo, thisSampleTimestamp, duration, PROFILING_TYPE::WallTime, waitReason
@@ -226,6 +228,9 @@ void StackSamplerLoop::WalltimeProfilingIteration() {
     i++;
 
   } while (i < sampledThreadsCount && !_shutdownRequested);
+  //Log::Debug(
+  //    "Walltime profiling iteration: sampled ", i, " threads over ", managedThreadsCount
+  //);
 }
 
 void StackSamplerLoop::CollectOneThreadSample(
