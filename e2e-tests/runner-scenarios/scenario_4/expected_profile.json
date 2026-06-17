@@ -4,31 +4,6 @@
   "scale_by_duration": false,
   "stacks": [
     {
-      "profile-type": "cpu-time",
-      "stack-content": [
-        {
-          "regular_expression": ";MutexThreadFunction;Spin(;|$)",
-          "percent": 22, "error_margin": 5,
-          "labels": [{ "key": "thread_name", "values": ["Mutex Waiter"] }]
-        },
-        {
-          "regular_expression": ";SemaphoreThreadFunction;Spin(;|$)",
-          "percent": 22, "error_margin": 5,
-          "labels": [{ "key": "thread_name", "values": ["Semaphore Waiter"] }]
-        },
-        {
-          "regular_expression": ";CriticalSectionThreadFunction;Spin(;|$)",
-          "percent": 22, "error_margin": 5,
-          "labels": [{ "key": "thread_name", "values": ["CriticalSection Waiter"] }]
-        },
-        {
-          "regular_expression": ";SleepThreadFunction;Spin(;|$)",
-          "percent": 22, "error_margin": 5,
-          "labels": [{ "key": "thread_name", "values": ["Sleep Waiter"] }]
-        }
-      ]
-    },
-    {
       "profile-type": "wait-time",
       "stack-content": [
         {
