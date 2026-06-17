@@ -57,6 +57,14 @@ $runnerDir = Join-Path $PSScriptRoot "..\src\Runner"
 . (Join-Path $runnerDir "find-runner.ps1")
 $runner = Find-Runner -ScriptDir $runnerDir -Config $Config
 
+# Print profiler DLL timestamp so we can verify the build includes our changes.
+$dllPath = Join-Path (Split-Path $runner) "dd-win-prof.dll"
+if (Test-Path $dllPath) {
+    Write-Host "Found dd-win-prof.dll: $dllPath ($((Get-Item $dllPath).LastWriteTime))" -ForegroundColor Green
+} else {
+    Write-Host "dd-win-prof.dll not found next to Runner.exe" -ForegroundColor Yellow
+}
+
 $runnerArgs = @(
     "--scenario",   $Scenario,
     "--iterations", $Iterations,

@@ -51,9 +51,16 @@ struct CachedModuleInfo {
   ddog_prof_ManagedStringId BuildIdId;     // Interned build ID from PE header
   uint64_t ModuleBaseAddress;              // Module base address
   uint32_t ModuleSize;                     // Module size in bytes
+  bool symbolLoadAttempted;  // True if SymFromAddr was already tried for this module
+  bool hasFullSymbols;  // True if PDB/full symbols are available (not just exports)
 
   CachedModuleInfo()
-      : ModuleNameId{0}, BuildIdId{0}, ModuleBaseAddress(0), ModuleSize(0) {}
+      : ModuleNameId{0},
+        BuildIdId{0},
+        ModuleBaseAddress(0),
+        ModuleSize(0),
+        symbolLoadAttempted(false),
+        hasFullSymbols(false) {}
 };
 
 class Symbolication {
