@@ -80,46 +80,24 @@ jobs:
       - name: Build Release
         run: cmake --build build --config Release
 
+      # Layout, file list, and licensing bundle are all owned by CMake
+      # install() rules; this step just drives them. See:
+      #   src/dd-win-prof/CMakeLists.txt     (Profiler/*)
+      #   obfuscation/ObfSymbols/CMakeLists.txt (Obfuscation/ObfSymbols.exe)
+      #   CMakeLists.txt                      (LICENSE, NOTICE, licenses/*)
       - name: Stage release assets
         id: stage
         shell: pwsh
         run: |
-          $tag = "${{ steps.tag.outputs.tag }}"
           $stagingRoot = Join-Path $env:RUNNER_TEMP "release-staging"
           $pkgDir      = Join-Path $stagingRoot "dd-win-prof"
-          $profilerDir = Join-Path $pkgDir "Profiler"
-          $obfDir      = Join-Path $pkgDir "Obfuscation"
-          $licensesDir = Join-Path $pkgDir "licenses"
-          New-Item -ItemType Directory -Force -Path $profilerDir | Out-Null
-          New-Item -ItemType Directory -Force -Path $obfDir      | Out-Null
-          New-Item -ItemType Directory -Force -Path $licensesDir | Out-Null
+          if (Test-Path $stagingRoot) { Remove-Item $stagingRoot -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $pkgDir | Out-Null
 
-          # Profiler artifacts come from src/reference (populated by the
-          # build) for dd-win-prof.{dll,lib,pdb} and the vendored
-          # datadog_profiling_ffi.{dll,pdb}. The public header lives in
-          # src/dd-win-prof/.
-          Copy-Item src/reference/dd-win-prof.dll          $profilerDir
-          Copy-Item src/reference/dd-win-prof.lib          $profilerDir
-          Copy-Item src/reference/dd-win-prof.pdb          $profilerDir
-          Copy-Item src/reference/datadog_profiling_ffi.dll $profilerDir
-          Copy-Item src/reference/datadog_profiling_ffi.pdb $profilerDir
-          Copy-Item src/dd-win-prof/dd-win-prof.h          $profilerDir
-
-          # ObfSymbols tool
-          Copy-Item build/obfuscation/ObfSymbols/Release/ObfSymbols.exe $obfDir
-
-          # Licensing: ship our own Apache-2.0 LICENSE + NOTICE, the
-          # third-party manifest, and the upstream license texts for any
-          # third-party binary we redistribute (libdatadog DLL) or
-          # statically link into dd-win-prof.dll (spdlog + bundled fmt).
-          Copy-Item LICENSE              $pkgDir
-          Copy-Item NOTICE               $pkgDir
-          Copy-Item LICENSE-3rdparty.csv $pkgDir
-          Copy-Item third-party/libdatadog-x64-windows/LICENSE (Join-Path $licensesDir "libdatadog-LICENSE")
-          Copy-Item third-party/spdlog/LICENSE                 (Join-Path $licensesDir "spdlog-LICENSE")
+          cmake --install build --config Release --prefix $pkgDir
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           $zipPath = Join-Path $stagingRoot "dd-win-prof.zip"
-          if (Test-Path $zipPath) { Remove-Item $zipPath }
           Compress-Archive -Path $pkgDir -DestinationPath $zipPath
           Write-Host "Created $zipPath"
           Get-ChildItem $stagingRoot -Recurse | Select-Object FullName, Length
