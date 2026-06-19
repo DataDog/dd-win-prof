@@ -21,8 +21,15 @@ on:
         description: "Existing tag to (re)build a release for, e.g. v0.3.0"
         required: true
 
+# Token model: the default GITHUB_TOKEN is org-capped to `contents: read`,
+# which is enough to checkout but not to create a release. We federate an
+# elevated token via Octo-STS (policy at
+# .github/chainguard/self.release.build-and-release.sts.yaml) and use it
+# for the `gh release` calls. `id-token: write` is required on the job
+# so the runner can mint the OIDC token that Octo-STS exchanges.
 permissions:
-  contents: write
+  contents: read
+  id-token: write
   actions: read
 
 jobs:
@@ -91,10 +98,17 @@ jobs:
 
           "zip_path=$zipPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
+      - name: Federate GH token via Octo-STS
+        uses: DataDog/dd-octo-sts-action@96a25462dbcb10ebf0bfd6e2ccc917d2ab235b9a # v1.0.4
+        id: octo-sts
+        with:
+          scope: DataDog/dd-win-prof
+          policy: self.release.build-and-release
+
       - name: Create or update draft release
         shell: pwsh
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.octo-sts.outputs.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           $tag = "${{ steps.tag.outputs.tag }}"

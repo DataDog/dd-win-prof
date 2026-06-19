@@ -1,0 +1,31 @@
+# Octo-STS trust policy for the release workflow's `build-and-release` job.
+#
+# Federates a GitHub Actions OIDC token into a higher-privileged GH token so
+# `gh release create ...` can succeed even though the repo's default
+# GITHUB_TOKEN is restricted to `contents: read`.
+#
+# Referenced from .github/workflows/release.yml as
+# `policy: self.release.build-and-release`. Naming convention (matches
+# DataDog/java-profiler): self.<workflow-stem>.<job-id>.sts.yaml.
+#
+# Reference: https://edu.chainguard.dev/open-source/octo-sts/
+
+issuer: https://token.actions.githubusercontent.com
+
+# Match the GitHub Actions OIDC subject for either:
+#  - a tag push of vX.Y.Z   (sub = repo:<owner>/<repo>:ref:refs/tags/vX.Y.Z)
+#  - a workflow_dispatch from main  (sub = repo:<owner>/<repo>:ref:refs/heads/main)
+# Kept narrow on purpose: only the release flow should ever match this.
+subject_pattern: repo:DataDog/dd-win-prof:ref:(refs/tags/v\d+\.\d+\.\d+|refs/heads/main)
+
+claim_pattern:
+  # Tag pushes are the primary trigger; workflow_dispatch is the manual
+  # escape hatch for re-uploading assets to an existing release.
+  event_name: push|workflow_dispatch
+  # Lock to release.yml so other workflows can't claim this token even if
+  # they end up running on the same ref.
+  job_workflow_ref: DataDog/dd-win-prof/\.github/workflows/release\.yml@.*
+
+# Just enough to create/update a GitHub Release and upload assets.
+permissions:
+  contents: write
