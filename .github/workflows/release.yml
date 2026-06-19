@@ -51,22 +51,9 @@ jobs:
         with:
           ref: ${{ steps.tag.outputs.tag }}
 
-      - name: Verify Version.h matches tag
+      - name: Verify version.h matches tag
         shell: pwsh
-        run: |
-          $tag = "${{ steps.tag.outputs.tag }}"
-          $expected = $tag.TrimStart('v')
-          $content = Get-Content src/dd-win-prof/Version.h -Raw
-          $major = [regex]::Match($content, 'DLL_VERSION_MAJOR\s+(\d+)').Groups[1].Value
-          $minor = [regex]::Match($content, 'DLL_VERSION_MINOR\s+(\d+)').Groups[1].Value
-          $patch = [regex]::Match($content, 'DLL_VERSION_PATCH\s+(\d+)').Groups[1].Value
-          $actual = "$major.$minor.$patch"
-          Write-Host "Tag version:      $expected"
-          Write-Host "Version.h value: $actual"
-          if ($actual -ne $expected) {
-            Write-Error "Version.h ($actual) does not match tag ($expected). Bump src/dd-win-prof/Version.h before tagging."
-            exit 1
-          }
+        run: pwsh scripts/check-version.ps1 -Tag "${{ steps.tag.outputs.tag }}"
 
       - name: Cache dependencies
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
