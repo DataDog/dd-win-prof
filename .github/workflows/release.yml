@@ -1,0 +1,137 @@
+name: Release
+
+# Triggered when a vX.Y.Z tag is pushed. Builds the Release configuration
+# (profiler DLL + FFI + ObfSymbols), assembles dd-win-prof.zip matching the
+# layout used for the v0.2.0 hand-packaged release, creates a *draft*
+# GitHub Release with auto-generated notes, and uploads the zip as the
+# single asset. The release is left as a draft so the maintainer can edit
+# the notes and publish manually.
+#
+# Also supports workflow_dispatch with an explicit tag, for re-running
+# against an existing tag (e.g. to re-upload assets).
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        type: string
+        description: "Existing tag to (re)build a release for, e.g. v0.3.0"
+        required: true
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build-and-release:
+    runs-on: windows-2022
+
+    steps:
+      - name: Resolve tag
+        id: tag
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $tag = "${{ inputs.release_tag }}"
+          } else {
+            $tag = "${{ github.ref_name }}"
+          }
+          if ($tag -notmatch '^v\d+\.\d+\.\d+$') {
+            Write-Error "Tag '$tag' does not match vX.Y.Z"
+            exit 1
+          }
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Releasing tag: $tag"
+
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - name: Verify Version.h matches tag
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.tag.outputs.tag }}"
+          $expected = $tag.TrimStart('v')
+          $content = Get-Content src/dd-win-prof/Version.h -Raw
+          $major = [regex]::Match($content, 'DLL_VERSION_MAJOR\s+(\d+)').Groups[1].Value
+          $minor = [regex]::Match($content, 'DLL_VERSION_MINOR\s+(\d+)').Groups[1].Value
+          $patch = [regex]::Match($content, 'DLL_VERSION_PATCH\s+(\d+)').Groups[1].Value
+          $actual = "$major.$minor.$patch"
+          Write-Host "Tag version:      $expected"
+          Write-Host "Version.h value: $actual"
+          if ($actual -ne $expected) {
+            Write-Error "Version.h ($actual) does not match tag ($expected). Bump src/dd-win-prof/Version.h before tagging."
+            exit 1
+          }
+
+      - name: Cache dependencies
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .deps
+          key: deps-${{ hashFiles('src/CMakeLists.txt') }}
+
+      - name: Configure CMake
+        run: cmake -G "Visual Studio 17 2022" -A x64 -B build -DDD_WIN_PROF_BUILD_OBFUSCATION=ON -DFETCHCONTENT_BASE_DIR=${{ github.workspace }}/.deps
+
+      - name: Build Release
+        run: cmake --build build --config Release
+
+      - name: Stage release assets
+        id: stage
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.tag.outputs.tag }}"
+          $stagingRoot = Join-Path $env:RUNNER_TEMP "release-staging"
+          $pkgDir      = Join-Path $stagingRoot "dd-win-prof"
+          $profilerDir = Join-Path $pkgDir "Profiler"
+          $obfDir      = Join-Path $pkgDir "Obfuscation"
+          New-Item -ItemType Directory -Force -Path $profilerDir | Out-Null
+          New-Item -ItemType Directory -Force -Path $obfDir      | Out-Null
+
+          # Profiler artifacts come from src/reference (populated by the
+          # build) for dd-win-prof.{dll,lib,pdb} and the vendored
+          # datadog_profiling_ffi.{dll,pdb}. The public header lives in
+          # src/dd-win-prof/.
+          Copy-Item src/reference/dd-win-prof.dll          $profilerDir
+          Copy-Item src/reference/dd-win-prof.lib          $profilerDir
+          Copy-Item src/reference/dd-win-prof.pdb          $profilerDir
+          Copy-Item src/reference/datadog_profiling_ffi.dll $profilerDir
+          Copy-Item src/reference/datadog_profiling_ffi.pdb $profilerDir
+          Copy-Item src/dd-win-prof/dd-win-prof.h          $profilerDir
+
+          # ObfSymbols tool
+          Copy-Item build/obfuscation/ObfSymbols/Release/ObfSymbols.exe $obfDir
+
+          $zipPath = Join-Path $stagingRoot "dd-win-prof.zip"
+          if (Test-Path $zipPath) { Remove-Item $zipPath }
+          Compress-Archive -Path $pkgDir -DestinationPath $zipPath
+          Write-Host "Created $zipPath"
+          Get-ChildItem $stagingRoot -Recurse | Select-Object FullName, Length
+
+          "zip_path=$zipPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Create or update draft release
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $tag = "${{ steps.tag.outputs.tag }}"
+          $zip = "${{ steps.stage.outputs.zip_path }}"
+
+          $exists = (gh release view $tag 2>$null)
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "Release $tag already exists; uploading asset with --clobber"
+            gh release upload $tag $zip --clobber
+          } else {
+            Write-Host "Creating draft release $tag"
+            gh release create $tag $zip `
+              --title "$tag" `
+              --generate-notes `
+              --draft
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
