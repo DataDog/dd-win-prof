@@ -239,6 +239,32 @@ After building, the key artifacts are:
 
 The `src\reference\` directory is the easiest way to get all the files needed at runtime — after a successful build it contains `dd-win-prof.dll`, `dd-win-prof.lib`, `dd-win-prof.pdb`, `datadog_profiling_ffi.dll`, and `datadog_profiling_ffi.pdb`.
 
+### Packaging a release
+
+To reproduce locally the exact tree shipped by the release workflow (the
+contents of `dd-win-prof.zip` on the GitHub Release), run `cmake --install`
+against a Release build:
+
+```powershell
+cmake -G "Visual Studio 17 2022" -A x64 -B build -DDD_WIN_PROF_BUILD_OBFUSCATION=ON
+cmake --build   build --config Release
+cmake --install build --config Release --prefix .\stage\dd-win-prof
+```
+
+The resulting `.\stage\dd-win-prof\` contains:
+
+```
+LICENSE, NOTICE, LICENSE-3rdparty.csv
+licenses\{libdatadog-LICENSE, spdlog-LICENSE}
+Profiler\{dd-win-prof.dll, .lib, .pdb, .h, datadog_profiling_ffi.dll, .pdb}
+Obfuscation\ObfSymbols.exe
+```
+
+The install layout is owned by `install()` rules in the relevant
+`CMakeLists.txt` files (top-level for licensing, `src/dd-win-prof/` for
+the profiler, `obfuscation/ObfSymbols/` for the tool). Update those
+files when adding or moving artifacts.
+
 ### Run Tests
 
 ```powershell
@@ -276,3 +302,18 @@ See [`src/integration-tests/README.md`](src/integration-tests/README.md) for det
 ### Automated Build
 
 For reference, see the complete automated build process in [`.github/workflows/test.yml`](.github/workflows/test.yml).
+
+### Cutting a release
+
+Releases are produced by [`.github/workflows/release.yml`](.github/workflows/release.yml),
+triggered on `vX.Y.Z` tag push.
+
+1. Bump `src/dd-win-prof/version.h` (`DLL_VERSION_MAJOR/MINOR/PATCH`) on a PR and merge to `main`. The release workflow asserts the tag matches this file and fails fast otherwise.
+2. Tag and push:
+   ```bash
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
+   ```
+3. The workflow builds Release on `windows-2022`, runs `cmake --install` to assemble the package (see *Packaging a release* above), and creates a **draft** GitHub Release with `dd-win-prof.zip` attached and auto-generated notes. Edit the notes in the UI and publish when ready.
+
+The workflow also accepts `workflow_dispatch` against an existing tag, for re-uploading the zip without re-tagging.
