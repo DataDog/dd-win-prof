@@ -66,15 +66,14 @@ include(cmake/clang-format.cmake)
 # `cmake --install build --config Release --prefix <stage>/dd-win-prof`
 # and zips the resulting tree. Per-target file rules live with the targets
 # (src/dd-win-prof, obfuscation/ObfSymbols); these rules cover the
-# repo-level licensing files that must accompany every binary distribution
-# under Apache 2.0 plus the third-party license texts for redistributed
-# or statically-linked OSS components.
+# repo-level licensing files that must accompany every binary distribution.
+# Apache 2.0 attribution for our own code and libdatadog is provided by
+# the root LICENSE + NOTICE; third-party components (spdlog, bundled fmt)
+# are enumerated in LICENSE-3rdparty.csv with their license types, and the
+# corresponding license texts live under licenses/.
 if(DD_WIN_PROF_IS_TOPLEVEL)
     install(FILES LICENSE NOTICE LICENSE-3rdparty.csv DESTINATION .)
-    install(FILES third-party/libdatadog-x64-windows/LICENSE
-            RENAME libdatadog-LICENSE DESTINATION licenses)
-    install(FILES third-party/spdlog/LICENSE
-            RENAME spdlog-LICENSE DESTINATION licenses)
+    install(DIRECTORY licenses/ DESTINATION licenses)
 endif()
 
 # Helper function for consuming projects to copy dd-win-prof runtime
