@@ -89,8 +89,10 @@ jobs:
           $pkgDir      = Join-Path $stagingRoot "dd-win-prof"
           $profilerDir = Join-Path $pkgDir "Profiler"
           $obfDir      = Join-Path $pkgDir "Obfuscation"
+          $licensesDir = Join-Path $pkgDir "licenses"
           New-Item -ItemType Directory -Force -Path $profilerDir | Out-Null
           New-Item -ItemType Directory -Force -Path $obfDir      | Out-Null
+          New-Item -ItemType Directory -Force -Path $licensesDir | Out-Null
 
           # Profiler artifacts come from src/reference (populated by the
           # build) for dd-win-prof.{dll,lib,pdb} and the vendored
@@ -105,6 +107,16 @@ jobs:
 
           # ObfSymbols tool
           Copy-Item build/obfuscation/ObfSymbols/Release/ObfSymbols.exe $obfDir
+
+          # Licensing: ship our own Apache-2.0 LICENSE + NOTICE, the
+          # third-party manifest, and the upstream license texts for any
+          # third-party binary we redistribute (libdatadog DLL) or
+          # statically link into dd-win-prof.dll (spdlog + bundled fmt).
+          Copy-Item LICENSE              $pkgDir
+          Copy-Item NOTICE               $pkgDir
+          Copy-Item LICENSE-3rdparty.csv $pkgDir
+          Copy-Item third-party/libdatadog-x64-windows/LICENSE (Join-Path $licensesDir "libdatadog-LICENSE")
+          Copy-Item third-party/spdlog/LICENSE                 (Join-Path $licensesDir "spdlog-LICENSE")
 
           $zipPath = Join-Path $stagingRoot "dd-win-prof.zip"
           if (Test-Path $zipPath) { Remove-Item $zipPath }
