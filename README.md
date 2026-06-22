@@ -289,8 +289,8 @@ For reference, see the complete automated build process in [`.github/workflows/t
 
 ### Cutting a release
 
-[`.github/workflows/release.yml`](.github/workflows/release.yml) runs on `vX.Y.Z` tag push and produces a draft GitHub Release with `dd-win-prof.zip`.
+[`.github/workflows/release.yml`](.github/workflows/release.yml) runs on `vX.Y.Z` tag push and produces a draft GitHub Release with `dd-win-prof.zip`. `main` always sits at the version about to be released, so the tag points at `main` as-is.
 
-1. Bump `src/dd-win-prof/version.h` on a PR and merge (the workflow asserts tag == `Version.h`).
-2. Sign and push the tag: `git tag -s vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`. (`-s` produces a signed, annotated tag; lightweight unsigned tags are discouraged.)
-3. Edit the auto-generated notes in the UI and publish.
+1. Sign and push the tag: `git tag -s vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`. (`-s` signs the annotated tag; lightweight unsigned tags are discouraged.) The workflow asserts `version.h` matches the tag and fails fast otherwise.
+2. Open a follow-up PR bumping `src/dd-win-prof/version.h` to the next dev version, so `main` is ready for the next release cycle.
+3. Edit the auto-generated notes on the draft release and publish.
