@@ -292,5 +292,5 @@ For reference, see the complete automated build process in [`.github/workflows/t
 [`.github/workflows/release.yml`](.github/workflows/release.yml) runs on `vX.Y.Z` tag push and produces a draft GitHub Release with `dd-win-prof.zip`.
 
 1. Bump `src/dd-win-prof/version.h` on a PR and merge (the workflow asserts tag == `Version.h`).
-2. `git tag vX.Y.Z && git push origin vX.Y.Z`.
+2. Sign and push the tag: `git tag -s vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`. (`-s` produces a signed, annotated tag; lightweight unsigned tags are discouraged.)
 3. Edit the auto-generated notes in the UI and publish.
