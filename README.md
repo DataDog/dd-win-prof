@@ -239,6 +239,16 @@ After building, the key artifacts are:
 
 The `src\reference\` directory is the easiest way to get all the files needed at runtime — after a successful build it contains `dd-win-prof.dll`, `dd-win-prof.lib`, `dd-win-prof.pdb`, `datadog_profiling_ffi.dll`, and `datadog_profiling_ffi.pdb`.
 
+### Packaging a release
+
+Reproduce the release zip layout locally with `cmake --install`:
+
+```powershell
+cmake --install build --config Release --prefix .\stage\dd-win-prof
+```
+
+Layout is owned by `install()` rules in the relevant `CMakeLists.txt` files.
+
 ### Run Tests
 
 ```powershell
@@ -276,3 +286,11 @@ See [`src/integration-tests/README.md`](src/integration-tests/README.md) for det
 ### Automated Build
 
 For reference, see the complete automated build process in [`.github/workflows/test.yml`](.github/workflows/test.yml).
+
+### Cutting a release
+
+[`.github/workflows/release.yml`](.github/workflows/release.yml) runs on `vX.Y.Z` tag push and produces a draft GitHub Release with `dd-win-prof.zip`. `main` always sits at the version about to be released, so the tag points at `main` as-is.
+
+1. Sign and push the tag: `git tag -s vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`. (`-s` signs the annotated tag; lightweight unsigned tags are discouraged.) The workflow asserts `version.h` matches the tag and fails fast otherwise.
+2. Open a follow-up PR bumping `src/dd-win-prof/version.h` to the next dev version, so `main` is ready for the next release cycle.
+3. Edit the auto-generated notes on the draft release and publish.

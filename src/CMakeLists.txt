@@ -57,6 +57,9 @@ FetchContent_Declare(
 set(SPDLOG_BUILD_EXAMPLE OFF CACHE BOOL "" FORCE)
 set(SPDLOG_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(SPDLOG_BUILD_BENCH OFF CACHE BOOL "" FORCE)
+# Suppress spdlog's install() rules so `cmake --install` for the release
+# package doesn't drop spdlog headers/CMake config into our prefix.
+set(SPDLOG_INSTALL OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(spdlog)
 
 # Create an alias target for backwards compatibility with the previous setup
@@ -70,6 +73,11 @@ FetchContent_Declare(
     URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz
 )
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+# Suppress googletest's install() rules. Without this, `cmake --install`
+# for the release package tries to install gtest headers + .lib into our
+# prefix (and fails on the .lib path), and would pollute the zip with
+# test-only artifacts.
+set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
 add_subdirectory(dd-win-prof)
