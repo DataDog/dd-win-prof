@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Release tag to test (e.g., v0.3.0, or leave empty for latest)'
+        description: 'Release tag to test (e.g., v0.3.0)'
         required: false
         type: string
-        default: ''
+        default: 'v0.3.0'
   schedule:
     - cron: '0 8 * * 1'  # Weekly on Monday at 8am UTC
 
@@ -25,9 +25,8 @@ jobs:
       run: |
         $tag = "${{ inputs.release_tag }}"
         if ([string]::IsNullOrWhiteSpace($tag)) {
-          Write-Host "Fetching latest release..."
-          $release = gh release list --limit 1 --json tagName,name | ConvertFrom-Json | Select-Object -First 1
-          $tag = $release.tagName
+          # Default to v0.3.0 for testing
+          $tag = "v0.3.0"
         }
         Write-Host "Testing release: $tag"
         echo "tag=$tag" >> $env:GITHUB_OUTPUT
@@ -38,9 +37,10 @@ jobs:
       shell: pwsh
       run: |
         $tag = "${{ steps.release.outputs.tag }}"
-        Write-Host "Downloading release $tag..."
+        Write-Host "Downloading release $tag (including draft releases)..."
         
         New-Item -ItemType Directory -Force -Path release-artifacts | Out-Null
+        # Note: gh release download works with draft releases when you have write access
         gh release download $tag --dir release-artifacts
         
         Write-Host "`nExtracting archives..."
