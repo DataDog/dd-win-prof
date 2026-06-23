@@ -34,17 +34,17 @@ param(
 
 # Configuration
 $RepoUrl = "https://github.com/SaschaWillems/Vulkan.git"
+$RepoRoot = Join-Path $PSScriptRoot ".."
 $Root = Join-Path $PSScriptRoot "vulkan_examples"
 $Src = Join-Path $Root "Vulkan"
 $Build = Join-Path $Root "build"
 $Config = "Release"
 
-# Determine profiler DLL directory - look in src/x64/Release or src/dd-win-prof/x64/Release
+# Determine profiler DLL directory - look in src/reference (populated by CMake POST_BUILD)
 if ([string]::IsNullOrWhiteSpace($ProfilerDllDir)) {
-    $srcDir = Join-Path $PSScriptRoot "..\src"
     $candidates = @(
-        (Join-Path $srcDir "x64\$Config"),
-        (Join-Path $srcDir "dd-win-prof\x64\$Config")
+        (Join-Path $RepoRoot "src\reference"),
+        (Join-Path $RepoRoot "build\src\dd-win-prof\$Config")
     )
     foreach ($candidate in $candidates) {
         if (Test-Path (Join-Path $candidate "dd-win-prof.dll")) {
@@ -59,11 +59,27 @@ if ([string]::IsNullOrWhiteSpace($ProfilerDllDir)) {
 
 # Also determine injector path
 $ProfilerInjectorExe = $null
-$injectorCandidates = @(
-    (Join-Path (Split-Path $ProfilerDllDir -Parent) "ProfilerInjector.exe"),
-    (Join-Path $ProfilerDllDir "ProfilerInjector.exe")
-)
-foreach ($candidate in $injectorCandidates) {
+$injectorCandidates = @()
+if (![string]::IsNullOrWhiteSpace($ProfilerDllDir)) {
+    $profilerDllParent = Split-Path $ProfilerDllDir -Parent
+    $profilerDllGrandParent = if ($profilerDllParent) { Split-Path $profilerDllParent -Parent } else { $null }
+    $profilerDllGreatGrandParent = if ($profilerDllGrandParent) { Split-Path $profilerDllGrandParent -Parent } else { $null }
+
+    $injectorCandidates += (Join-Path $ProfilerDllDir "ProfilerInjector.exe")
+    if ($profilerDllParent) {
+        $injectorCandidates += (Join-Path $profilerDllParent "ProfilerInjector.exe")
+    }
+    if ($profilerDllGrandParent) {
+        $injectorCandidates += (Join-Path $profilerDllGrandParent "build\src\ProfilerInjector\$Config\ProfilerInjector.exe")
+    }
+    if ($profilerDllGreatGrandParent) {
+        $injectorCandidates += (Join-Path $profilerDllGreatGrandParent "src\ProfilerInjector\$Config\ProfilerInjector.exe")
+    }
+}
+$injectorCandidates += (Join-Path $RepoRoot "build\src\ProfilerInjector\$Config\ProfilerInjector.exe")
+$injectorCandidates += (Join-Path $RepoRoot "src\x64\$Config\ProfilerInjector.exe")
+
+foreach ($candidate in ($injectorCandidates | Select-Object -Unique)) {
     if (Test-Path $candidate) {
         $ProfilerInjectorExe = $candidate
         break
@@ -496,13 +512,16 @@ try {
         Write-Step "Profiler DLL directory: $ProfilerDllDir"
         
         if (Test-Path $dllPath) {
+            $dllInfo = Get-Item $dllPath
             Write-Step "dd-win-prof.dll found at: $dllPath" "OK"
+            Write-Step "  Last modified: $($dllInfo.LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss'))" "OK"
+            Write-Step "  Size: $([math]::Round($dllInfo.Length / 1KB, 1)) KB" "OK"
         } else {
             Write-Step "ERROR: dd-win-prof.dll not found at: $dllPath" "ERROR"
-            Write-Step "Please build the profiler solution first using Visual Studio:" "ERROR"
-            Write-Step "  1. Open src/WindowsProfiler.sln in Visual Studio" "ERROR"
-            Write-Step "  2. Build -> Build Solution (or press Ctrl+Shift+B)" "ERROR"
-            Write-Step "  3. Ensure dd-win-prof project builds successfully" "ERROR"
+            Write-Step "Please build the profiler first:" "ERROR"
+            Write-Step "  cmake -G `"Visual Studio 17 2022`" -A x64 -B build" "ERROR"
+            Write-Step "  cmake --build build --config Release" "ERROR"
+            Write-Step "Or use: .\scripts\generate-vs.ps1" "ERROR"
             exit 1
         }
         
@@ -510,7 +529,7 @@ try {
             Write-Step "ProfilerInjector.exe found at: $ProfilerInjectorExe" "OK"
         } else {
             Write-Step "WARNING: ProfilerInjector.exe not found" "WARN"
-            Write-Step "Please ensure ProfilerInjector project is built in Visual Studio" "WARN"
+            Write-Step "Build it with: cmake --build build --config Release --target ProfilerInjector" "WARN"
         }
         
         # Add profiler DLL directory to PATH so it can be found at runtime
@@ -657,21 +676,30 @@ try {
         $dllSource = Join-Path $ProfilerDllDir "dd-win-prof.dll"
         $dllDest = Join-Path $binPath "dd-win-prof.dll"
         Copy-Item $dllSource $dllDest -Force
-        Write-Step "Copied dd-win-prof.dll to $dllDest" "OK"
+        $copiedDllInfo = Get-Item $dllDest
+        Write-Step "Copied dd-win-prof.dll to $dllDest (modified: $($copiedDllInfo.LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss')))" "OK"
         
         # Copy injector to bin directory for convenience
         $injectorDest = Join-Path $binPath "ProfilerInjector.exe"
         Copy-Item $ProfilerInjectorExe $injectorDest -Force
         Write-Step "Copied ProfilerInjector.exe to $injectorDest" "OK"
+
+        $ffiDllSource = Join-Path $ProfilerDllDir "datadog_profiling_ffi.dll"
+        if (Test-Path $ffiDllSource) {
+            Copy-Item $ffiDllSource (Join-Path $binPath "datadog_profiling_ffi.dll") -Force
+            Write-Step "Copied datadog_profiling_ffi.dll to $binPath" "OK"
+        }
         
         # Get list of executables
-        $exeFiles = Get-ChildItem $binPath -Filter "*.exe" -ErrorAction SilentlyContinue
+        $exeFiles = Get-ChildItem $binPath -Filter "*.exe" -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -ne "ProfilerInjector.exe" }
         
         foreach ($exe in $exeFiles) {
             $batFileName = "$($exe.BaseName)_with_profiler.bat"
             $batFilePath = Join-Path $binPath $batFileName
             
             # Generate bat file content using local copies
+            $dllTimestamp = $copiedDllInfo.LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss')
             $batContent = @"
 @echo off
 REM Auto-generated profiler runner for $($exe.Name)
@@ -692,6 +720,7 @@ if not exist "ProfilerInjector.exe" (
 )
 
 echo Running $($exe.Name) with Datadog profiler...
+echo dd-win-prof.dll built: $dllTimestamp
 echo Working directory: %CD%
 echo.
 

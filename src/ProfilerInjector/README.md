@@ -75,6 +75,8 @@ ProfilerInjector.exe myapp.exe
 - `DD_TRACE_DEBUG=1` - Enable debug logging  
 - `DD_SERVICE=<name>` - Set service name for profiling data
 - `DD_PROFILING_ENABLED=false` - Disable profiling completely
+- `DD_TRACE_LOG_DIRECTORY` - Log output directory (set at DLL load; default: `%PROGRAMDATA%\Datadog Tracer\logs`)
+- `DD_INTERNAL_PROFILING_OUTPUT_DIR` - Local pprof debug output directory
 
 ## Building
 

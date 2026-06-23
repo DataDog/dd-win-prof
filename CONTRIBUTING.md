@@ -36,25 +36,32 @@ For new features:
 ## Development Setup
 
 ### Prerequisites
-- Visual Studio 2022 (or compatible)
+
+- Visual Studio 2022 (or compatible) with C++ development tools
 - Windows 10/11 SDK
-- PowerShell (for dependency scripts)
+- CMake 3.21 or later
 
 ### Building
-```bash
-# Download dependencies
-.\scripts\download-libdatadog.ps1
-.\scripts\download-spdlog.ps1
 
-# Build with Visual Studio or MSBuild
-msbuild src/InprocProfiling/InprocProfiling.vcxproj /p:Configuration=Release
+```powershell
+# Configure and build
+cmake -G "Visual Studio 17 2022" -A x64 -B build
+cmake --build build --config Release
+```
+
+To omit obfuscation tools from the build, pass `-DDD_WIN_PROF_BUILD_OBFUSCATION=OFF` when configuring.
+
+To open the project in Visual Studio, use the helper script:
+
+```powershell
+.\scripts\generate-vs.ps1
 ```
 
 ### Testing
-```bash
-# Build and run tests
-msbuild src/Tests/Tests.vcxproj /p:Configuration=Debug
-src/Tests/x64/Debug/Tests.exe
+
+```powershell
+cmake --build build --config Debug
+build\src\Tests\Debug\Tests.exe
 ```
 
 ## Code Guidelines

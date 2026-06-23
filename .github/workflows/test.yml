@@ -6,94 +6,225 @@ on:
   pull_request:
     branches: [ main, master, develop ]
 
-env:
-  LIBDATADOG_VERSION: "19.0.0"
-  SPDLOG_VERSION: "1.14.1"
-
 jobs:
   test:
     runs-on: windows-2022
-    
+
     strategy:
       matrix:
         configuration: [Debug, Release]
-        platform: [x64]
-    
+
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Cache third-party dependencies
-      uses: actions/cache@v4
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+    - name: Cache dependencies
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
-        path: third-party
-        key: third-party-libdatadog-${{ env.LIBDATADOG_VERSION }}-spdlog-${{ env.SPDLOG_VERSION }}-${{ matrix.platform }}
-        restore-keys: |
-          third-party-libdatadog-${{ env.LIBDATADOG_VERSION }}-spdlog-${{ env.SPDLOG_VERSION }}-
-          third-party-libdatadog-${{ env.LIBDATADOG_VERSION }}-
-          third-party-libdatadog-
-    
-    - name: Cache NuGet packages
-      uses: actions/cache@v4
-      with:
-        path: src/packages
-        key: nuget-packages-${{ hashFiles('src/Tests/packages.config') }}
-        restore-keys: |
-          nuget-packages-
-      
-    - name: Download dependencies
-      run: |
-        .\scripts\download-libdatadog.ps1 -Version ${{ env.LIBDATADOG_VERSION }} -Platform ${{ matrix.platform }}
-        .\scripts\download-spdlog.ps1 -Version ${{ env.SPDLOG_VERSION }}
+        path: .deps
+        key: deps-${{ hashFiles('src/CMakeLists.txt') }}
+
+    - name: Configure CMake
+      run: cmake -G "Visual Studio 17 2022" -A x64 -B build -DDD_WIN_PROF_BUILD_OBFUSCATION=ON -DFETCHCONTENT_BASE_DIR=${{ github.workspace }}/.deps
+
+    - name: Build
+      run: cmake --build build --config ${{ matrix.configuration }}
+
+    - name: Validate Runner symbol file
       shell: pwsh
-      
-    - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@v2
-      
-    - name: Setup NuGet
-      uses: nuget/setup-nuget@v2
-      with:
-        nuget-version: 'latest'
-        
-    - name: Restore NuGet packages
       run: |
-        nuget restore src/Tests/packages.config -PackagesDirectory src/packages
-        
-    - name: Build solution
-      run: |
-        msbuild src/dd-win-prof/dd-win-prof.vcxproj /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /p:RestorePackagesConfig=true
-        msbuild src/ProfilerInjector/ProfilerInjector.vcxproj /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /p:RestorePackagesConfig=true
-        msbuild src/Runner/Runner.vcxproj /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /p:RestorePackagesConfig=true
-        msbuild src/Tests/Tests.vcxproj /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /p:RestorePackagesConfig=true
-        
+        $config  = "${{ matrix.configuration }}"
+        $obfExe  = "build/obfuscation/ObfSymbols/$config/ObfSymbols.exe"
+        $pdb     = "build/src/Runner/$config/Runner.pdb"
+        $symFile = "build/src/Runner/$config/Runner.sym"
+        Write-Host "Generating $symFile ..."
+        & $obfExe --pdb $pdb --out $symFile
+        if ($LASTEXITCODE -ne 0) { Write-Error "ObfSymbols failed (exit $LASTEXITCODE)"; exit 1 }
+        pwsh e2e-tests/validate-runner-sym.ps1 -SymFile $symFile
+
     - name: Run tests
+      run: build/src/Tests/${{ matrix.configuration }}/Tests.exe
+
+    - name: Setup Python
+      if: matrix.configuration == 'Release'
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      with:
+        python-version: '3.x'
+
+    - name: Install Python dependencies
+      if: matrix.configuration == 'Release'
+      run: pip install -r src/integration-tests/requirements.txt
+
+    - name: Run integration tests
+      if: matrix.configuration == 'Release'
+      run: pwsh src/integration-tests/test_rum_scenario.ps1 -Config Release
+      shell: pwsh
+
+    - name: Set up Go (for prof-analyze)
+      if: matrix.configuration == 'Release'
+      uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+      with:
+        go-version: '1.25.1'
+
+    - name: Cache prof-analyze binary
+      if: matrix.configuration == 'Release'
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: ~/go/bin
+        key: prof-analyze-v1.0.0
+
+    - name: Install prof-analyze
+      if: matrix.configuration == 'Release'
       run: |
-        src/Tests/x64/${{ matrix.configuration }}/Tests.exe
+        if (-not (Test-Path "$env:USERPROFILE\go\bin\prof-analyze.exe")) {
+          go install github.com/DataDog/prof-correctness/cmd/prof-analyze@v1.0.0
+        }
+      shell: pwsh
+
+    - name: Run Runner correctness scenarios
+      if: matrix.configuration == 'Release'
+      shell: pwsh
+      run: |
+        $root = "e2e-tests/runner-scenarios"
+        $outRoot = Join-Path $env:RUNNER_TEMP "runner-scenarios"
+        $failed = @()
+        $scenarios = Get-ChildItem $root -Directory | Where-Object { $_.Name -like 'scenario_*' } | Sort-Object Name
+        foreach ($scn in $scenarios) {
+            $num      = ($scn.Name -replace '^scenario_', '')
+            $pprofDir = Join-Path $outRoot $scn.Name
+            Write-Host "=== $($scn.Name) ===" -ForegroundColor Cyan
+            pwsh e2e-tests/capture-pprof.ps1 -Scenario $num -Iterations 5 -Config Release -PprofDir $pprofDir
+            if ($LASTEXITCODE -ne 0) { $failed += "$($scn.Name) (capture)"; continue }
+            prof-analyze -expectedJson (Join-Path $scn.FullName "expected_profile.json") -pprofPath $pprofDir
+            if ($LASTEXITCODE -ne 0) { $failed += "$($scn.Name) (analyze)" }
+        }
+        if ($failed.Count -gt 0) {
+            Write-Host "Failed scenarios: $($failed -join ', ')" -ForegroundColor Red
+            exit 1
+        }
+
+    - name: Upload runner-scenario pprofs on failure
+      if: failure() && matrix.configuration == 'Release'
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: runner-scenarios-pprof
+        path: ${{ runner.temp }}/runner-scenarios
 
     - name: Upload build artifacts
       if: matrix.configuration == 'Release'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
-        name: profiler-artifacts-${{ matrix.platform }}
+        name: profiler-artifacts-x64
         path: |
-          src/dd-win-prof/x64/${{ matrix.configuration }}/dd-win-prof.dll
-          src/dd-win-prof/x64/${{ matrix.configuration }}/dd-win-prof.pdb
-          src/dd-win-prof/x64/${{ matrix.configuration }}/dd-win-prof.lib
-          src/dd-win-prof/dd-win-prof.h
-          src/ProfilerInjector/x64/${{ matrix.configuration }}/ProfilerInjector.exe
-          src/ProfilerInjector/x64/${{ matrix.configuration }}/ProfilerInjector.pdb
-          src/Runner/x64/${{ matrix.configuration }}/Runner.exe
-          src/Runner/x64/${{ matrix.configuration }}/Runner.pdb
-          src/Tests/x64/${{ matrix.configuration }}/Tests.exe
-          third-party/libdatadog-x64-windows/Release/dynamic/datadog_profiling_ffi.dll
+          src/reference/dd-win-prof.dll
+          src/reference/dd-win-prof.lib
+          src/reference/dd-win-prof.pdb
+          src/reference/datadog_profiling_ffi.dll
+          src/reference/datadog_profiling_ffi.pdb
+          build/src/ProfilerInjector/${{ matrix.configuration }}/ProfilerInjector.exe
+          build/src/ProfilerInjector/${{ matrix.configuration }}/ProfilerInjector.pdb
+          build/src/Runner/${{ matrix.configuration }}/Runner.exe
+          build/src/Runner/${{ matrix.configuration }}/Runner.pdb
+          build/src/Tests/${{ matrix.configuration }}/Tests.exe
         retention-days: 7
+
+  asan:
+    name: Tests (ASan, Debug)
+    runs-on: windows-2022
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+    # NOTE: distinct cache key from the other jobs. FetchContent records the
+    # generator in its subbuild state, so reusing the VS-generator cache here
+    # would fail with "generator does not match". Keying on "ninja-asan"
+    # keeps this job's deps separate from the multi-config matrix.
+    - name: Cache dependencies
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: .deps
+        key: deps-ninja-asan-${{ hashFiles('src/CMakeLists.txt') }}
+
+    # Sets up the MSVC Developer environment so that VCToolsInstallDir is
+    # exported (used by CMake to locate the ASan runtime DLL) and so that
+    # Ninja + cl.exe are on PATH. Done inline rather than via a third-party
+    # action to stay within the org's allowed-actions policy.
+    - name: Setup MSVC dev environment
+      shell: cmd
+      run: |
+        for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set VSINSTALL=%%i
+        call "%VSINSTALL%\VC\Auxiliary\Build\vcvars64.bat"
+        set >> %GITHUB_ENV%
+
+    - name: Configure CMake (ASan)
+      run: cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Debug -DDD_WIN_PROF_ENABLE_ASAN=ON -DFETCHCONTENT_BASE_DIR=${{ github.workspace }}/.deps
+
+    - name: Build
+      run: cmake --build build
+
+    # Sanity check: a binary compiled with /fsanitize=address has the linker
+    # auto-import clang_rt.asan_dynamic-x86_64.dll. If this grep returns
+    # nothing, ASan didn't actually instrument the TU even though configure
+    # advertised the flag -- fail the job so we don't get false confidence.
+    - name: Verify ASan instrumentation
+      shell: pwsh
+      run: |
+        $imports = & dumpbin /imports build/src/Tests/Tests.exe
+        $asan = $imports | Select-String -Pattern 'clang_rt\.asan'
+        if (-not $asan) {
+          Write-Error "Tests.exe does not import the ASan runtime; /fsanitize=address was NOT effective."
+          exit 1
+        }
+        Write-Host "ASan runtime import found:" -ForegroundColor Green
+        $asan | ForEach-Object { Write-Host "  $_" }
+
+    - name: Run unit tests under ASan
+      env:
+        # Make ASan failures fatal and produce useful diagnostics.
+        ASAN_OPTIONS: abort_on_error=1:halt_on_error=1:print_stacktrace=1:detect_leaks=0:symbolize=1
+      run: build/src/Tests/Tests.exe
+
+    - name: Setup Python
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      with:
+        python-version: '3.x'
+
+    - name: Install Python dependencies
+      run: pip install -r src/integration-tests/requirements.txt
+
+    # The Runner integration test loads the ASan-instrumented dd-win-prof.dll
+    # in-process, so the Runner itself runs under ASan too. -Config Debug
+    # matches the build above; find-runner.ps1 picks up the Ninja layout.
+    - name: Run integration tests under ASan
+      env:
+        ASAN_OPTIONS: abort_on_error=1:halt_on_error=1:print_stacktrace=1:detect_leaks=0:symbolize=1
+      run: pwsh src/integration-tests/test_rum_scenario.ps1 -Config Debug
+      shell: pwsh
+
+  check-format:
+    runs-on: windows-2022
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+    - name: Cache dependencies
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: .deps
+        key: deps-${{ hashFiles('src/CMakeLists.txt') }}
+
+    - name: Install clang-format 20
+      run: choco install llvm --version=20.1.8 -y --no-progress
+
+    - name: Configure CMake
+      run: cmake -G "Visual Studio 17 2022" -A x64 -B build -DFETCHCONTENT_BASE_DIR=${{ github.workspace }}/.deps "-DCLANG_FORMAT_BINARY=C:/Program Files/LLVM/bin/clang-format.exe"
+
+    - name: Check formatting
+      run: cmake --build build --target check-format
 
   e2e-tests:
     needs: test
     if: success()
     uses: ./.github/workflows/e2e.yml
-
-  release-tests:
-    needs: test
-    if: success()
-    uses: ./.github/workflows/release-test.yml

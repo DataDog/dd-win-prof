@@ -1,80 +1,49 @@
 @echo off
-REM Build script for Symbols solution
-REM Usage: build.bat [Debug|Release] [x64|x86] [clean]
+REM Build script for ObfSymbols using CMake
+REM Usage: build.bat [Debug|Release] [clean]
 
 setlocal
 
-REM Set defaults
 set CONFIG=%1
-set PLATFORM=%2
-set CLEAN=%3
+set CLEAN=%2
 
 if "%CONFIG%"=="" set CONFIG=Debug
-if "%PLATFORM%"=="" set PLATFORM=x64
 
 REM Validate configuration
 if /i not "%CONFIG%"=="Debug" if /i not "%CONFIG%"=="Release" (
     echo ERROR: Configuration must be Debug or Release
-    echo Usage: build.bat [Debug^|Release] [x64^|x86] [clean]
-    exit /b 1
-)
-
-REM Validate platform
-if /i not "%PLATFORM%"=="x64" if /i not "%PLATFORM%"=="x86" (
-    echo ERROR: Platform must be x64 or x86
-    echo Usage: build.bat [Debug^|Release] [x64^|x86] [clean]
+    echo Usage: build.bat [Debug^|Release] [clean]
     exit /b 1
 )
 
 echo ========================================
-echo Building Symbols Solution
+echo Building ObfSymbols (CMake)
 echo Configuration: %CONFIG%
-echo Platform: %PLATFORM%
 echo ========================================
 echo.
 
-REM Initialize Visual Studio environment
-REM Try to find Visual Studio in this order: Enterprise, Professional, Community
-set VS_PATH=
-set VS_EDITION=
+set PROJECT_ROOT=%~dp0..
+set BUILD_DIR=%PROJECT_ROOT%\build
 
-if exist "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" (
-    set VS_PATH=C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat
-    set VS_EDITION=Enterprise
-) else if exist "C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\Tools\VsDevCmd.bat" (
-    set VS_PATH=C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\Tools\VsDevCmd.bat
-    set VS_EDITION=Professional
-) else if exist "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" (
-    set VS_PATH=C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat
-    set VS_EDITION=Community
+if /i "%CLEAN%"=="clean" (
+    if exist "%BUILD_DIR%" (
+        echo Cleaning build directory...
+        rmdir /s /q "%BUILD_DIR%"
+    )
 )
 
-if "%VS_PATH%"=="" (
-    echo ERROR: Visual Studio 2022 not found!
-    echo Please install Visual Studio 2022 (Community, Professional, or Enterprise edition^)
-    exit /b 1
+REM Configure if needed
+if not exist "%BUILD_DIR%\CMakeCache.txt" (
+    echo Configuring CMake...
+    cmake -G "Visual Studio 17 2022" -A x64 -B "%BUILD_DIR%" -S "%PROJECT_ROOT%" -DDD_WIN_PROF_BUILD_OBFUSCATION=ON
+    if errorlevel 1 (
+        echo ERROR: CMake configure failed
+        exit /b 1
+    )
 )
 
-echo Using Visual Studio 2022 %VS_EDITION%
-call "%VS_PATH%" -arch=amd64
-
-if errorlevel 1 (
-    echo ERROR: Failed to initialize Visual Studio environment
-    exit /b 1
-)
-
-REM Determine build target
-set TARGET=Build
-if /i "%CLEAN%"=="clean" set TARGET=Rebuild
-
-echo Running MSBuild (%TARGET%)...
-echo.
-
-REM Build the project
-set PROJECT=ObfSymbols\ObfSymbols.vcxproj
-
-REM Run MSBuild
-msbuild %PROJECT% /t:%TARGET% /p:Configuration=%CONFIG% /p:Platform=%PLATFORM% /v:minimal
+echo Building ObfSymbols...
+cmake --build "%BUILD_DIR%" --config %CONFIG% --target ObfSymbols
 
 if errorlevel 1 (
     echo.
@@ -89,10 +58,9 @@ echo ========================================
 echo BUILD SUCCEEDED!
 echo ========================================
 echo.
-echo Output: ObfSymbols\%PLATFORM%\%CONFIG%\ObfSymbols.exe
+echo Output: %BUILD_DIR%\obfuscation\ObfSymbols\%CONFIG%\ObfSymbols.exe
 echo.
-echo Usage: .\ObfSymbols\%PLATFORM%\%CONFIG%\ObfSymbols.exe --pdb ^<pdb_file^> --out ^<output_file^> [--obf ^<obfuscated_output_file^>]
+echo Usage: %BUILD_DIR%\obfuscation\ObfSymbols\%CONFIG%\ObfSymbols.exe --pdb ^<pdb_file^> --out ^<output_file^> [--obf ^<obfuscated_output_file^>]
 echo   If --obf is not specified, the obfuscated file will be auto-generated
 
 endlocal
-

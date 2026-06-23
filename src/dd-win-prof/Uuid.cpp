@@ -1,10 +1,13 @@
-// Unless explicitly stated otherwise all files in this repository are licensed under the Apache 2 License.
-// This product includes software developed at Datadog (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
+// Unless explicitly stated otherwise all files in this repository are licensed under
+// the Apache 2 License. This product includes software developed at Datadog
+// (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
+
+#include "Uuid.h"
+
+#include <format>
+#include <random>
 
 #include "pch.h"
-#include "Uuid.h"
-#include <random>
-#include <format>
 
 namespace ddprof {
 // NOLINTBEGIN(readability-magic-numbers)
@@ -41,17 +44,45 @@ Uuid::Uuid() {
 // we could loop instead to make things more readable,
 // though that would be worse to understand the format
 std::string Uuid::to_string() const {
-  return std::format("{:x}{:x}{:x}{:x}{:x}{:x}{:x}{:x}-"
-                     "{:x}{:x}{:x}{:x}-"
-                     "{:x}{:x}{:x}{:x}-"
-                     "{:x}{:x}{:x}{:x}-"
-                     "{:x}{:x}{:x}{:x}{:x}{:x}{:x}{:x}{:x}{:x}{:x}{:x}",
-                     data[0], data[1], data[2], data[3], data[4], data[5],
-                     data[6], data[7], data[8], data[9], data[10], data[11],
-                     data[12], data[13], data[14], data[15], data[16],
-                     data[17], data[18], data[19], data[20], data[21],
-                     data[22], data[23], data[24], data[25], data[26],
-                     data[27], data[28], data[29], data[30], data[31]);
+  return std::format(
+      "{:x}{:x}{:x}{:x}{:x}{:x}{:x}{:x}-"
+      "{:x}{:x}{:x}{:x}-"
+      "{:x}{:x}{:x}{:x}-"
+      "{:x}{:x}{:x}{:x}-"
+      "{:x}{:x}{:x}{:x}{:x}{:x}{:x}{:x}{:x}{:x}{:x}{:x}",
+      data[0],
+      data[1],
+      data[2],
+      data[3],
+      data[4],
+      data[5],
+      data[6],
+      data[7],
+      data[8],
+      data[9],
+      data[10],
+      data[11],
+      data[12],
+      data[13],
+      data[14],
+      data[15],
+      data[16],
+      data[17],
+      data[18],
+      data[19],
+      data[20],
+      data[21],
+      data[22],
+      data[23],
+      data[24],
+      data[25],
+      data[26],
+      data[27],
+      data[28],
+      data[29],
+      data[30],
+      data[31]
+  );
 }
 // NOLINTEND(readability-magic-numbers)
-} // namespace ddprof
+}  // namespace ddprof

@@ -13,44 +13,41 @@
 // ============================================================================
 
 // PUBLIC: Base shape class with virtual functions
-class TESTSYMBOLS_API Shape
-{
-public:
-    virtual ~Shape() {}
-    virtual double GetArea() const = 0;
-    virtual double GetPerimeter() const = 0;
-    virtual void Draw() const;
+class TESTSYMBOLS_API Shape {
+ public:
+  virtual ~Shape() {}
+  virtual double GetArea() const = 0;
+  virtual double GetPerimeter() const = 0;
+  virtual void Draw() const;
 
-    void SetName(const char* name);
-    const char* GetName() const;
+  void SetName(const char* name);
+  const char* GetName() const;
 
-private:
-    char m_name[64];
+ private:
+  char m_name[64];
 };
 
 // PUBLIC: Circle class
-class TESTSYMBOLS_API Circle : public Shape
-{
-public:
-    explicit Circle(double radius);
-    ~Circle() override;
+class TESTSYMBOLS_API Circle : public Shape {
+ public:
+  explicit Circle(double radius);
+  ~Circle() override;
 
-    double GetArea() const override;
-    double GetPerimeter() const override;
-    void Draw() const override;
+  double GetArea() const override;
+  double GetPerimeter() const override;
+  void Draw() const override;
 
-    double GetRadius() const;
+  double GetRadius() const;
 
-private:
-    double m_radius;
+ private:
+  double m_radius;
 };
 
 // PRIVATE: This class is NOT exported (internal only)
-class InternalHelper
-{
-public:
-    static int Calculate(int x);
-    static double ProcessData(double value);
+class InternalHelper {
+ public:
+  static int Calculate(int x);
+  static double ProcessData(double value);
 };
 
 // ============================================================================
@@ -65,10 +62,9 @@ TESTSYMBOLS_API int Add(int a, int b, int c);
 // PUBLIC: Exported template function
 // Note: Templates in headers can't use __declspec(dllexport) directly
 // We'll explicitly instantiate them in the .cpp file
-template<typename T>
-T Max(T a, T b)
-{
-    return (a > b) ? a : b;
+template <typename T>
+T Max(T a, T b) {
+  return (a > b) ? a : b;
 }
 
 // Explicit template declarations (will be instantiated in .cpp)
@@ -83,21 +79,19 @@ void InternalProcess();
 // PUBLIC: Exported operator overloading
 // ============================================================================
 
-class TESTSYMBOLS_API Complex
-{
-public:
-    Complex(double real = 0, double imag = 0);
-    ~Complex();
+class TESTSYMBOLS_API Complex {
+ public:
+  Complex(double real = 0, double imag = 0);
+  ~Complex();
 
-    Complex operator+(const Complex& other) const;
-    Complex operator*(const Complex& other) const;
-    bool operator==(const Complex& other) const;
+  Complex operator+(const Complex& other) const;
+  Complex operator*(const Complex& other) const;
+  bool operator==(const Complex& other) const;
 
-    double GetReal() const;
-    double GetImag() const;
+  double GetReal() const;
+  double GetImag() const;
 
-private:
-    double m_real;
-    double m_imag;
+ private:
+  double m_real;
+  double m_imag;
 };
-

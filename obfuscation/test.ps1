@@ -6,9 +6,7 @@ param(
     [ValidateSet("Debug", "Release")]
     [string]$Configuration = "Debug",
 
-    [Parameter(Position=1)]
-    [ValidateSet("x64", "x86")]
-    [string]$Platform = "x64"
+    [string]$BuildDir = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -50,10 +48,19 @@ function Test-Condition {
 # MAIN TEST EXECUTION
 # ============================================================================
 
+$ProjectRoot = Split-Path -Parent $PSScriptRoot
+
+if (-not $BuildDir) {
+    $BuildDir = Join-Path $ProjectRoot "build"
+}
+
+# CMake output base for obfuscation targets
+$ObfBuildDir = Join-Path $BuildDir "obfuscation"
+
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "ObfSymbols Test Suite" -ForegroundColor Cyan
 Write-Host "Configuration: $Configuration" -ForegroundColor Yellow
-Write-Host "Platform: $Platform" -ForegroundColor Yellow
+Write-Host "Build directory: $BuildDir" -ForegroundColor Yellow
 Write-Host "========================================" -ForegroundColor Cyan
 
 # ============================================================================
@@ -61,25 +68,18 @@ Write-Host "========================================" -ForegroundColor Cyan
 # ============================================================================
 Write-TestHeader "Building TestSymbolsDll"
 
-# Check if Visual Studio Developer PowerShell is already initialized
-if (-not (Get-Command msbuild -ErrorAction SilentlyContinue)) {
-    Write-Info "Initializing Visual Studio Developer Environment..."
-
-    $vsDevShell = "C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\Tools\Launch-VsDevShell.ps1"
-
-    if (Test-Path $vsDevShell) {
-        & $vsDevShell -Arch amd64 -SkipAutomaticLocation
-        Set-Location $PSScriptRoot
-    } else {
-        Write-Failure "Visual Studio 2022 Professional not found!"
+# Configure CMake if needed
+if (-not (Test-Path (Join-Path $BuildDir "CMakeCache.txt"))) {
+    Write-Info "Configuring CMake..."
+    cmake -G "Visual Studio 17 2022" -A x64 -B "$BuildDir" -S "$ProjectRoot" -DDD_WIN_PROF_BUILD_OBFUSCATION=ON
+    if ($LASTEXITCODE -ne 0) {
+        Write-Failure "CMake configure failed"
         exit 1
     }
 }
 
-$testProjectPath = "TestSymbolsDll\TestSymbolsDll.vcxproj"
-Write-Info "Building: $testProjectPath"
-
-msbuild $testProjectPath /t:Build /p:Configuration=$Configuration /p:Platform=$Platform /v:minimal /nologo
+Write-Info "Building TestSymbolsDll with CMake..."
+cmake --build "$BuildDir" --config $Configuration --target TestSymbolsDll
 
 if ($LASTEXITCODE -ne 0) {
     Write-Failure "Failed to build TestSymbolsDll"
@@ -93,8 +93,8 @@ Write-Success "TestSymbolsDll built successfully"
 # ============================================================================
 Write-TestHeader "Verifying TestSymbolsDll Outputs"
 
-$testDll = "TestSymbolsDll\$Platform\$Configuration\TestSymbolsDll.dll"
-$testPdb = "TestSymbolsDll\$Platform\$Configuration\TestSymbolsDll.pdb"
+$testDll = "$ObfBuildDir/TestSymbolsDll/$Configuration/TestSymbolsDll.dll"
+$testPdb = "$ObfBuildDir/TestSymbolsDll/$Configuration/TestSymbolsDll.pdb"
 
 Test-Condition "TestSymbolsDll.dll exists" (Test-Path $testDll) "File not found: $testDll"
 Test-Condition "TestSymbolsDll.pdb exists" (Test-Path $testPdb) "File not found: $testPdb"
@@ -109,9 +109,9 @@ if (-not (Test-Path $testPdb)) {
 # ============================================================================
 Write-TestHeader "Running ObfSymbols"
 
-$obfSymbolsExe = "ObfSymbols\$Platform\$Configuration\ObfSymbols.exe"
-$outputFile = "TestSymbolsDll\$Platform\$Configuration\TestSymbolsDll.sym"
-$obfOutputFile = "TestSymbolsDll\$Platform\$Configuration\TestSymbolsDll_obf.sym"
+$obfSymbolsExe = "$ObfBuildDir/ObfSymbols/$Configuration/ObfSymbols.exe"
+$outputFile = "$ObfBuildDir/TestSymbolsDll/$Configuration/TestSymbolsDll.sym"
+$obfOutputFile = "$ObfBuildDir/TestSymbolsDll/$Configuration/TestSymbolsDll_obf.sym"
 
 # Clean up previous test outputs
 if (Test-Path $outputFile) { Remove-Item $outputFile -Force }
@@ -121,7 +121,7 @@ Test-Condition "ObfSymbols.exe exists" (Test-Path $obfSymbolsExe) "File not foun
 
 if (-not (Test-Path $obfSymbolsExe)) {
     Write-Info "Building ObfSymbols first..."
-    & "$PSScriptRoot\build.ps1" -Configuration $Configuration -Platform $Platform
+    cmake --build "$BuildDir" --config $Configuration --target ObfSymbols
     if ($LASTEXITCODE -ne 0) {
         Write-Failure "Failed to build ObfSymbols"
         exit 1
@@ -204,7 +204,7 @@ Test-Condition "Both files have same line count" ($symbolLines.Count -eq $obfLin
 
 Write-Info "Found $($symbolLines.Count) lines (includes MODULE header)"
 
-# Test: Symbol file format (PUBLIC/PRIVATE ADDRESS SIZE SymbolName)
+# Test: Symbol file format (FUNC ADDRESS SIZE PARAM_SIZE SymbolName)
 # Note: Addresses are hex without 0x prefix
 $invalidSymbolLines = @()
 $addresses = @()
@@ -217,15 +217,15 @@ foreach ($line in $symbolLines) {
         continue
     }
 
-    if ($line -match '^(PUBLIC|PRIVATE)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+(.+)$') {
-        $visibility = $matches[1]
-        $address = $matches[2]
-        $size = $matches[3]
+    if ($line -match '^FUNC\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+(.+)$') {
+        $address = $matches[1]
+        $size = $matches[2]
+        $paramSize = $matches[3]
         $symbolName = $matches[4]
         $addresses += [Convert]::ToInt64($address, 16)
 
-        # Count visibility types
-        if ($visibility -eq "PUBLIC") { $publicCount++ } else { $privateCount++ }
+        # All FUNC records counted as public (they're all exported functions)
+        $publicCount++
 
         # Validate address is hex
         if ($address -notmatch '^[0-9a-fA-F]+$') {
@@ -234,6 +234,11 @@ foreach ($line in $symbolLines) {
 
         # Validate size is hex
         if ($size -notmatch '^[0-9a-fA-F]+$') {
+            $invalidSymbolLines += $line
+        }
+
+        # Validate param_size is hex
+        if ($paramSize -notmatch '^[0-9a-fA-F]+$') {
             $invalidSymbolLines += $line
         }
 
@@ -269,7 +274,7 @@ Test-Condition "Addresses are sorted in ascending order" $addressesSorted `
 # ============================================================================
 Write-TestHeader "Validating Obfuscated Symbol File Format"
 
-# Test: Obfuscated file format (PUBLIC/PRIVATE ADDRESS SIZE obf_XXXXXXXX)
+# Test: Obfuscated file format (FUNC ADDRESS SIZE PARAM_SIZE obf_XXXXXXXX)
 # Note: Obfuscated file does NOT include real symbol names
 # Note: Addresses are hex without 0x prefix
 $invalidObfLines = @()
@@ -284,17 +289,17 @@ foreach ($line in $obfLines) {
         continue
     }
 
-    if ($line -match '^(PUBLIC|PRIVATE)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+(obf_[0-9A-F]{8})$') {
-        $visibility = $matches[1]
-        $address = $matches[2]
-        $size = $matches[3]
+    if ($line -match '^FUNC\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+(obf_[0-9A-F]{8})$') {
+        $address = $matches[1]
+        $size = $matches[2]
+        $paramSize = $matches[3]
         $obfName = $matches[4]
 
         $obfNames += $obfName
         $obfAddresses += [Convert]::ToInt64($address, 16)
 
-        # Count visibility types
-        if ($visibility -eq "PUBLIC") { $obfPublicCount++ } else { $obfPrivateCount++ }
+        # All FUNC records counted as public
+        $obfPublicCount++
 
         # Validate address is hex
         if ($address -notmatch '^[0-9a-fA-F]+$') {
@@ -367,25 +372,25 @@ if ($symbolLines.Count -gt 1) {
         $symbolLine = $symbolLines[$idx]
         $obfLine = $obfLines[$idx]
 
-        if ($symbolLine -match '^(PUBLIC|PRIVATE)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+(.+)$') {
-            $symVisibility = $matches[1]
-            $symAddress = $matches[2]
-            $symSize = $matches[3]
+        if ($symbolLine -match '^FUNC\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+(.+)$') {
+            $symAddress = $matches[1]
+            $symSize = $matches[2]
+            $symParamSize = $matches[3]
             $symName = $matches[4]
 
-            # Extract obfuscated name from symbol line (it's the first space-separated token after size)
+            # Extract obfuscated name from symbol line (it's the first space-separated token after param_size)
             $symObfName = if ($symName -match '^(obf_[0-9A-F]{8})\s+') { $matches[1] } else { "" }
 
-            if ($obfLine -match '^(PUBLIC|PRIVATE)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+(obf_[0-9A-F]{8})$') {
-                $obfVisibility = $matches[1]
-                $obfAddress = $matches[2]
-                $obfSize = $matches[3]
+            if ($obfLine -match '^FUNC\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+(obf_[0-9A-F]{8})$') {
+                $obfAddress = $matches[1]
+                $obfSize = $matches[2]
+                $obfParamSize = $matches[3]
                 $obfName = $matches[4]
 
-                # Test: Visibility matches
-                $visibilityMatch = ($symVisibility -eq $obfVisibility)
-                Test-Condition "Line $idx : Visibility matches" $visibilityMatch `
-                    "Symbol file: $symVisibility, Obfuscated file: $obfVisibility"
+                # Test: Param size matches
+                $paramSizeMatch = ($symParamSize -eq $obfParamSize)
+                Test-Condition "Line $idx : Param size matches" $paramSizeMatch `
+                    "Symbol file: $symParamSize, Obfuscated file: $obfParamSize"
 
                 # Test: Addresses match
                 $addressesMatch = ($symAddress -eq $obfAddress)
