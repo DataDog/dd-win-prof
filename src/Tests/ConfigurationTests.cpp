@@ -52,6 +52,8 @@ class ConfigurationTest : public ::testing::Test {
     SaveEnvVar(EnvironmentVariables::ServiceName);
     SaveEnvVar(EnvironmentVariables::AgentHost);
     SaveEnvVar(EnvironmentVariables::ApiKey);
+    SaveEnvVar(EnvironmentVariables::Site);
+    SaveEnvVar(EnvironmentVariables::AgentUrl);
   }
 
   void TearDown() override {
@@ -195,8 +197,7 @@ TEST_F(ConfigurationTest, ConfigurationCanBeOverriden) {
   EXPECT_EQ(config.CpuWallTimeSamplingPeriod(), 100ms);
   EXPECT_EQ(config.GetApiKey(), "xxx-xxxx-xxxxx");
   EXPECT_EQ(config.GetSite(), "http://localhost:8126");
-  EXPECT_TRUE(config.IsAgentless())
-      << "Should be in agentless mode when endpoint is set";
+  EXPECT_TRUE(config.IsAgentless()) << "Should be agentless when API key is set";
 }
 
 // ===========================================================================
@@ -471,4 +472,44 @@ TEST_F(ConfigurationTest, InitConfig_NoEnvVars_False_EnvVarsPreserved) {
   EXPECT_EQ(config.GetEnvironment(), "env-env")
       << "Env var value should survive when noEnvVars=false";
   EXPECT_EQ(config.GetServiceName(), "api-svc") << "API override should apply";
+}
+
+// ===========================================================================
+// Agentless mode: derived from DD_API_KEY presence
+// ===========================================================================
+
+TEST_F(ConfigurationTest, Agentless_ApiKeyAndSite) {
+  SetTestEnvVar(EnvironmentVariables::ApiKey, "my-api-key");
+  SetTestEnvVar(EnvironmentVariables::Site, "datadoghq.eu");
+
+  Configuration config;
+  EXPECT_TRUE(config.IsAgentless());
+  EXPECT_EQ(config.GetSite(), "datadoghq.eu");
+}
+
+TEST_F(ConfigurationTest, Agentless_ApiKeyOnly_DefaultSite) {
+  UnsetTestEnvVar(EnvironmentVariables::Site);
+  SetTestEnvVar(EnvironmentVariables::ApiKey, "my-api-key");
+
+  Configuration config;
+  // DD_SITE unset → defaults to datadoghq.com → agentless
+  EXPECT_TRUE(config.IsAgentless());
+  EXPECT_EQ(config.GetSite(), "datadoghq.com");
+}
+
+TEST_F(ConfigurationTest, Agent_NoApiKey) {
+  UnsetTestEnvVar(EnvironmentVariables::ApiKey);
+
+  Configuration config;
+  EXPECT_FALSE(config.IsAgentless());
+}
+
+TEST_F(ConfigurationTest, ValidateTransport_ConflictingConfig_Fails) {
+  SetTestEnvVar(EnvironmentVariables::ApiKey, "my-api-key");
+  SetTestEnvVar(EnvironmentVariables::AgentUrl, "http://localhost:8126");
+
+  Configuration config;
+  EXPECT_TRUE(config.IsAgentless());
+  EXPECT_FALSE(config.ValidateTransportConfig())
+      << "Should reject conflicting agent + agentless settings";
 }
