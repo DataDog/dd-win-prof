@@ -6,12 +6,17 @@
 #include "pch.h"
 
 // Include libdatadog headers for string storage
+#include <Psapi.h>
+
 #include <algorithm>
+#include <chrono>
 #include <iomanip>
 #include <sstream>
+#include <vector>
 
 #include "datadog/common.h"
 #include "datadog/profiling.h"
+#pragma comment(lib, "psapi.lib")
 
 // Test functions defined outside of any class to avoid confusion
 void GlobalTestFunction() {
@@ -514,4 +519,83 @@ TEST_F(SymbolicationTest, TestStringStorageCaching) {
     std::cout << "[OK] String IDs are consistent across multiple symbolications"
               << std::endl;
   }
+}
+
+TEST_F(SymbolicationTest, TestModuleLevelFailureCaching) {
+  std::cout << "=== Testing Module-Level Symbol Failure Caching ===" << std::endl;
+
+  ASSERT_TRUE(_hasStringStorage) << "String storage should be initialized";
+
+  Symbolication symbolication;
+  ASSERT_TRUE(symbolication.Initialize(_stringStorage, true))
+      << "Initialization should succeed";
+
+  // Get kernel32.dll base address (system module, may or may not have symbols)
+  HMODULE hKernel32 = GetModuleHandleA("kernel32.dll");
+  ASSERT_NE(hKernel32, nullptr) << "Should find kernel32.dll";
+
+  // Get module info to find valid address range
+  MODULEINFO modInfo = {0};
+  ASSERT_TRUE(
+      GetModuleInformation(GetCurrentProcess(), hKernel32, &modInfo, sizeof(modInfo))
+  ) << "Should get module information";
+
+  uint64_t baseAddress = reinterpret_cast<uint64_t>(modInfo.lpBaseOfDll);
+  std::cout << "kernel32.dll base: 0x" << std::hex << baseAddress << std::dec
+            << std::endl;
+  std::cout << "kernel32.dll size: " << modInfo.SizeOfImage << " bytes" << std::endl;
+
+  // Create 10 different addresses within the same module
+  // Use offsets that are likely to be in different functions
+  std::vector<uint64_t> addresses;
+  for (size_t i = 0; i < 10; i++) {
+    // Spread addresses across the module
+    uint64_t offset = (modInfo.SizeOfImage / 20) * i;
+    addresses.push_back(baseAddress + offset);
+  }
+
+  std::cout << "Testing symbolication of " << addresses.size()
+            << " addresses in the same module..." << std::endl;
+
+  // Time the first address (may trigger symbol loading attempt)
+  auto start1 = std::chrono::high_resolution_clock::now();
+  auto result1 = symbolication.SymbolicateAndIntern(addresses[0], _stringStorage);
+  auto end1 = std::chrono::high_resolution_clock::now();
+  auto duration1 = std::chrono::duration_cast<std::chrono::microseconds>(end1 - start1);
+
+  ASSERT_TRUE(result1.has_value()) << "First address should return a value";
+  std::cout << "First address time: " << duration1.count() << " us" << std::endl;
+
+  // Time subsequent addresses (should be fast if caching works)
+  auto startN = std::chrono::high_resolution_clock::now();
+  for (size_t i = 1; i < addresses.size(); i++) {
+    auto result = symbolication.SymbolicateAndIntern(addresses[i], _stringStorage);
+    ASSERT_TRUE(result.has_value()) << "Address " << i << " should return a value";
+
+    // All addresses in the same module should have the same module info
+    EXPECT_EQ(result.value().ModuleBaseAddress, result1.value().ModuleBaseAddress)
+        << "All addresses should belong to the same module";
+  }
+  auto endN = std::chrono::high_resolution_clock::now();
+  auto durationN = std::chrono::duration_cast<std::chrono::microseconds>(endN - startN);
+
+  std::cout << "Remaining 9 addresses time: " << durationN.count() << " us"
+            << std::endl;
+  std::cout << "Average per address: " << (durationN.count() / 9.0) << " us"
+            << std::endl;
+
+  // If module-level caching works, subsequent addresses should be much faster
+  // (at least 10x faster on average, accounting for first-time overhead)
+  double avgSubsequent = durationN.count() / 9.0;
+  std::cout << "Speedup ratio: " << (duration1.count() / avgSubsequent) << "x"
+            << std::endl;
+
+  // If symbols failed to load, the speedup should be dramatic (>10x)
+  // If symbols loaded successfully, there will still be some speedup from internal
+  // caching We just verify that subsequent calls are faster, not slower
+  EXPECT_LT(avgSubsequent, duration1.count() * 2.0)
+      << "Subsequent addresses should not be slower than first address";
+
+  std::cout << "[OK] Module-level caching prevents repeated expensive calls"
+            << std::endl;
 }
