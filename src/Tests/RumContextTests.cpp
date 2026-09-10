@@ -77,7 +77,7 @@ TEST(RumViewContextTests, MoveSemantics) {
 
 class ProfilerRumContextTest : public ::testing::Test {
  protected:
-  void SetUp() override { _profiler = std::make_unique<Profiler>(nullptr); }
+  void SetUp() override { _profiler = std::make_unique<Profiler>(); }
 
   void TearDown() override { _profiler.reset(); }
 

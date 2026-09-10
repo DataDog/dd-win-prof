@@ -15,10 +15,9 @@ Profiler* Profiler::_this = nullptr;
 std::unique_ptr<Configuration> Profiler::_pConfiguration =
     std::make_unique<Configuration>();
 
-Profiler::Profiler(HMODULE hModule)
+Profiler::Profiler()
     : _isStarted(false),
       _pThreadList(std::make_unique<ThreadList>()),
-      _hModule(hModule),
       _pStackSamplerLoop(nullptr) {
   _this = this;
 }
@@ -114,19 +113,19 @@ bool Profiler::StartProfiling() {
 
 bool Profiler::MonitorWindowHangs(HWND hWnd)
 {
-  // create the UiHangDetector and pass it _hModule required to register the Windows hook
+  // create the UiHangDetector (hook is thread-specific, so no DLL hMod)
   if (_pUiHangDetector != nullptr) {
     Log::Warn("Impossible to monitor more than one window for UI hang detection.");
     return false;
   }
 
   _pUiHangDetector = std::make_unique<UiHangDetector>(
-    _hModule,
     _hangProbeMessageId,
     _pUiHangProvider.get(),
     this
     );
-  return true;
+  bool result = _pUiHangDetector->MonitorWindowHangs(hWnd, _pThreadList.get());
+  return result;
 }
 
 void Profiler::StopProfiling(bool shutdownOngoing) {

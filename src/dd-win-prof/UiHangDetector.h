@@ -17,7 +17,6 @@ public:
   static UiHangDetector* _this;
 
   UiHangDetector(
-    HMODULE hModule,
     UINT hangProbeMessageId,
     UiHangProvider* pHangProvider,
     IRumViewContextProvider* _pRumViewContextProvider
@@ -47,7 +46,6 @@ private:
 private:
   static const int MaxFrameCount = dd_win_prof::kMaxStackDepth;
 
-  HMODULE _hModule;
   UINT _hangProbeMessageId;
   HWND _hWnd;
   UiHangProvider* _pHangProvider = nullptr;
@@ -71,7 +69,6 @@ private:
   std::chrono::nanoseconds _hangDetectionTimestamp;
 
   // computed when the hang is detected and associated to the start hang sample
-  // --> it will have to be deduced from _processingDuration to compute the duration
-  //     of the stop hang sample
+  // --> don't double count it in the hang stop sample duration
   std::chrono::nanoseconds _initialHangDuration;
 };

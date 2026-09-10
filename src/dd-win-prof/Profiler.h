@@ -22,7 +22,7 @@ class Profiler : public IRumViewContextProvider,
                  public IRumRecordProvider,
                  public IViewVitalsAccumulator {
  public:
-  Profiler(HMODULE hModule);
+  Profiler();
   virtual ~Profiler();
 
   bool StartProfiling();
@@ -92,7 +92,6 @@ class Profiler : public IRumViewContextProvider,
 
   // UI Hang detection
   bool InitializeWindowHangs();
-  HMODULE _hModule = nullptr;  // needed to register the Windows hook
   UINT _hangProbeMessageId = 0;
   std::unique_ptr<UiHangDetector> _pUiHangDetector = nullptr;
 
