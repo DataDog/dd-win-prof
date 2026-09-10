@@ -52,6 +52,11 @@ HINSTANCE g_hInstance = nullptr;
 std::string g_serviceName;
 std::string g_serviceEnv;
 
+// Directory where .pprof files are written, populated from the command line
+// (--pprofdir). Empty means "not provided" (the profiler then falls back to
+// environment variables).
+std::string g_pprofDir;
+
 HFONT g_clockFont       = nullptr;
 int   g_clockTextHeight = 0;
 
@@ -226,6 +231,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
         config.size = sizeof(config);
         config.serviceName = g_serviceName.empty() ? "dd-win-prof-uiapp" : g_serviceName.c_str();
         config.serviceEnvironment = g_serviceEnv.empty() ? nullptr : g_serviceEnv.c_str();
+        config.pprofOutputDirectory = g_pprofDir.empty() ? nullptr : g_pprofDir.c_str();
         if (SetupProfiler(&config))
         {
             StartProfiler();
@@ -406,9 +412,11 @@ std::string ToUtf8(const wchar_t* wide)
 }
 
 // Parses the process command line for the service information flags:
-//   --name <service>   Service name  (config.serviceName)
-//   --env  <environment> Service environment (config.serviceEnvironment)
-// Unknown arguments are ignored. Values are stored into the g_service* globals.
+//   --name <service>       Service name        (config.serviceName)
+//   --env  <environment>   Service environment (config.serviceEnvironment)
+//   --pprofdir <folder>    Output directory for .pprof files
+//                          (config.pprofOutputDirectory)
+// Unknown arguments are ignored. Values are stored into the g_* globals.
 void ParseCommandLine()
 {
     int argc = 0;
@@ -428,6 +436,10 @@ void ParseCommandLine()
         else if (_wcsicmp(argv[i], L"--env") == 0 && hasValue)
         {
             g_serviceEnv = ToUtf8(argv[++i]);
+        }
+        else if (_wcsicmp(argv[i], L"--pprofdir") == 0 && hasValue)
+        {
+            g_pprofDir = ToUtf8(argv[++i]);
         }
     }
 

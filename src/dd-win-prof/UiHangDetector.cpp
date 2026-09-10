@@ -14,19 +14,22 @@ constexpr const wchar_t* ThreadName = L"DD_UIHang";
 UiHangDetector::UiHangDetector(
     HMODULE hModule,
     UINT hangProbeMessageId,
-    ThreadList* pThreadList,
-    UiHangProvider* pHangProvider
+    UiHangProvider* pHangProvider,
+    IRumViewContextProvider* pRumViewContextProvider
 )
   :
   _hModule(hModule),
   _hangProbeMessageId(hangProbeMessageId),
-  _pThreadList(pThreadList),
   _pHangProvider(pHangProvider),
+  _pRumViewContextProvider(pRumViewContextProvider),
   _hWnd(nullptr),
   _hGetMessageHook(nullptr),
   _pWatchdogThread(nullptr),
   _stopEvent(nullptr),
-  _state(WatchdogState::None)
+  _state(WatchdogState::None),
+  _hangDetectionTimestamp(0ns),
+  _postProbeTimestamp(0ns),
+  _processedProbeTimestamp(0ns)
   {
   // manual reset event set to stop the watchdog thread
   _stopEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -51,7 +54,7 @@ LRESULT CALLBACK GetMsgProc(int code, WPARAM wParam, LPARAM lParam) {
   return ::CallNextHookEx(nullptr, code, wParam, lParam);
 }
 
-bool UiHangDetector::MonitorWindowHangs(HWND hWnd) {
+bool UiHangDetector::MonitorWindowHangs(HWND hWnd, ThreadList* pThreadList) {
   if (hWnd == nullptr) {
     return false;
   }
@@ -71,8 +74,8 @@ bool UiHangDetector::MonitorWindowHangs(HWND hWnd) {
     return false;
   }
 
-  if (_pThreadList == nullptr) {
-    Log::Debug("Null ThreadList passed to UiHangDetector.");
+  if (_pRumViewContextProvider == nullptr) {
+    Log::Debug("Null IRumViewContextProvider passed to UiHangDetector.");
     return false;
   }
 
@@ -88,8 +91,12 @@ bool UiHangDetector::MonitorWindowHangs(HWND hWnd) {
 
   _hWnd = hWnd;
 
-  // TODO: get the ThreadInfo corresponding to the hWnd's thread
-  // _pThreadList->GetThreadInfo(tid)
+  // get the ThreadInfo corresponding to the hWnd's thread
+  _pThreadInfo =  pThreadList->GetThread(tid);
+  if (_pThreadInfo == nullptr) {
+    Log::Warn("The window to monitor does not belong to a monitored thread.");
+    return false;
+  }
 
   // register the Windows hook
   HHOOK hGetMessageHook = ::SetWindowsHookExW(WH_GETMESSAGE, GetMsgProc, _hModule, 0);
@@ -134,6 +141,49 @@ void UiHangDetector::Stop() {
   }
 }
 
+void UiHangDetector::AddHangSample(
+  bool startHang,
+  std::chrono::nanoseconds timestamp,
+  std::chrono::nanoseconds duration) {
+  // get the callstack of the hang thread
+  CONTEXT seedContext;
+  if (!_stackFrameCollector.TrySuspendThread(_pThreadInfo, seedContext)) {
+    return;
+  }
+
+  bool isTruncated = false;
+  uint64_t frames[MaxFrameCount];
+  uint16_t framesCount = MaxFrameCount;
+  bool isStackCaptured = _stackFrameCollector.CaptureStack(
+      _pThreadInfo->GetOsThreadHandle(), seedContext, frames, framesCount, isTruncated
+      );
+  // resume the thread before doing any allocation that could cause a deadlock
+  ::ResumeThread(_pThreadInfo->GetOsThreadHandle());
+
+  if (!isStackCaptured) {
+    return;
+  }
+
+  // set a null address for the last frame in case of truncated stack
+  if (isTruncated) {
+    frames[framesCount - 1] = 0;
+  }
+
+  // Snapshot the current RUM view context (shared-lock, fast copy)
+  RumViewContext rumView;
+  bool hasRumView = _pRumViewContextProvider->GetCurrentViewContext(rumView);
+
+  // create the sample
+  Sample sample = Sample(timestamp, _pThreadInfo, frames, framesCount);
+  if (hasRumView) {
+    sample.SetRumViewContext(std::move(rumView));
+  }
+  _pHangProvider->Add(std::move(sample), duration, startHang);
+
+  // TODO: figure out if we want to add a Hang count RUM vital
+}
+
+
 // Run on the monitored window's thread, called from the Windows hook callback
 void UiHangDetector::ProcessHook(int code, WPARAM wParam, LPARAM lParam) {
   // notify the Detector that the probe message has been processed (i.e. the UI should be responsive)
@@ -174,20 +224,23 @@ void UiHangDetector::WatchdogLoop() {
       break;
     }
 
+    WatchdogState state = _state.load();
+
     // post a probe message at startup
-    if (_state == WatchdogState::None) {
+    if (state == WatchdogState::None) {
       PostProbeMessage();
-    }
-    else if (_state == WatchdogState::Probing) {
+    } else if (state == WatchdogState::Probing) {
       auto now = OpSysTools::GetHighPrecisionTimestamp();
       auto probingDuration = now - _postProbeTimestamp;
       if (probingDuration >= dd_win_prof::kHangThresholdMs) {
         _state.store(WatchdogState::Hang);
-        // TODO: add a hang wait sample
-        //       --> need to extract the stackwalk code from StackSamplerLoop::CollectOneThreadSample
-        // _pHangProvider->Add(sample, probingDuration, true)
         _hangDetectionTimestamp = now;
+
+        // we assume that the hang started when the probe message is sent: it is overcounting at most of 1 tick (50ms)
+        // --> it is a tradeoff with reducing the tick down to 10ms (might not even be relevant depending on the
+        //     duration of the scheduling quantum (~15-60ms on a workstation Windows and 120ms on a Server)
         _initialHangDuration = probingDuration;
+        AddHangSample(true, now, probingDuration);
       }
       else {
         // TODO: optimization?
@@ -197,19 +250,24 @@ void UiHangDetector::WatchdogLoop() {
         // but could be a problem if tick is no more a divider of threshold
       }
     }
-    else if (_state == WatchdogState::Processed) {
+    else if (state == WatchdogState::Processed) {
       auto now = OpSysTools::GetHighPrecisionTimestamp();
 
       // we don't want to flood the queue if there was no hang but still keep the same tick
       if (_initialHangDuration == 0ns) {
-        ::Sleep(dd_win_prof::kWatchdogTickMs - (now - _postProbeTimestamp).count() / 1000000);
+        ::Sleep(static_cast<DWORD>(dd_win_prof::kWatchdogTickMs - (now - _postProbeTimestamp).count() / 1000000));
         PostProbeMessage();
         continue;
       }
 
-      // TODO: there was a hang already detected so emit a sample for its ending
+      // there was a hang already detected so emit a sample for its ending
+      std::chrono::nanoseconds timestamp = _processedProbeTimestamp.load();
+      AddHangSample(false, timestamp, timestamp - _hangDetectionTimestamp);
+
+      // wait for the next tick to emit a probe message
+      _state.store(WatchdogState::None);
     }
-    else if (_state == WatchdogState::Hang) {
+    else if (state == WatchdogState::Hang) {
       // nothing to do before the end of the hang...
       // TODO: should we emit a hang sample on a regular basis to avoid missing a looong one in a profile?
     }

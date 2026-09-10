@@ -6,6 +6,8 @@
 
 #include "pch.h"
 
+#include "ProfilingConstants.h"
+#include "StackFrameCollector.h"
 #include "ThreadList.h"
 #include "UiHangProvider.h"
 
@@ -17,17 +19,22 @@ public:
   UiHangDetector(
     HMODULE hModule,
     UINT hangProbeMessageId,
-    ThreadList* pThreadList,
-    UiHangProvider* pHangProvider);
+    UiHangProvider* pHangProvider,
+    IRumViewContextProvider* _pRumViewContextProvider
+  );
   ~UiHangDetector();
 
-  bool MonitorWindowHangs(HWND hWnd);
+  bool MonitorWindowHangs(HWND hWnd, ThreadList* pThreadList);
   void Stop();
   void ProcessHook(int code, WPARAM wParam, LPARAM lParam);
 
 private:
   void WatchdogLoop();
   bool PostProbeMessage();
+  void AddHangSample(
+      bool startHang,
+    std::chrono::nanoseconds timestamp,
+    std::chrono::nanoseconds duration);
 
 private:
   enum class WatchdogState : uint8_t {
@@ -38,11 +45,16 @@ private:
   };
 
 private:
+  static const int MaxFrameCount = dd_win_prof::kMaxStackDepth;
+
   HMODULE _hModule;
   UINT _hangProbeMessageId;
   HWND _hWnd;
-  UiHangProvider* _pHangProvider;
-  ThreadList* _pThreadList = nullptr;
+  UiHangProvider* _pHangProvider = nullptr;
+  IRumViewContextProvider* _pRumViewContextProvider = nullptr;
+
+  StackFrameCollector _stackFrameCollector;
+  std::shared_ptr<ThreadInfo> _pThreadInfo = nullptr;
   HHOOK _hGetMessageHook;
   HANDLE _stopEvent;
   std::unique_ptr<std::thread> _pWatchdogThread = nullptr;

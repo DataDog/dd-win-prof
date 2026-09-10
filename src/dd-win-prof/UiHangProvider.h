@@ -21,12 +21,8 @@ class UiHangProvider : public CollectorBase {
     sample.AddValue(0, offsets[0]);  // no wall time for hang sample
     sample.AddValue(hangDuration.count(), offsets[1]);
 
-    if (hang) {
-    // TODO: add "UIHang=true" label to the sample
-    }
-    else {
-    // TODO: add "UIHang=false" label to the sample
-    }
+    // the "UIHang" label (true/false) is attached at export time in ProfileExporter
+    sample.SetUiHangSampleKind(hang ? UiHangSampleKind::Detected : UiHangSampleKind::Recovered);
 
     CollectorBase::Add(std::move(sample));
   }

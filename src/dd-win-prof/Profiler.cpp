@@ -120,7 +120,12 @@ bool Profiler::MonitorWindowHangs(HWND hWnd)
     return false;
   }
 
-  _pUiHangDetector = std::make_unique<UiHangDetector>(_hModule, _hangProbeMessageId, _pThreadList.get(), _pUiHangProvider.get());
+  _pUiHangDetector = std::make_unique<UiHangDetector>(
+    _hModule,
+    _hangProbeMessageId,
+    _pUiHangProvider.get(),
+    this
+    );
   return true;
 }
 
