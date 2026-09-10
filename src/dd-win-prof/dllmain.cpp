@@ -18,7 +18,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       auto mainThreadId = ::GetCurrentThreadId();
       Log::Debug(">   Main ", mainThreadId);
 
-      auto profiler = new Profiler();
+      auto profiler = new Profiler(hModule);
 
       // we need to keep track of the main thread here even if the profiler is not
       // started yet

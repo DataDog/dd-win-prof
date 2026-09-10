@@ -54,6 +54,24 @@ DD_WIN_PROF_API bool StartProfiler() {
   return profiler->StartProfiling();
 }
 
+
+DD_WIN_PROF_API bool MonitorWindowHangs(HWND hWnd) {
+  auto profiler = Profiler::GetInstance();
+  if (profiler == nullptr) {
+    Log::Warn(
+        "Profiler instance is not created: missing Process Attach event in DllMain."
+    );
+    return false;
+  }
+
+  if (!profiler->IsStarted()) {
+    Log::Warn("Profiler must be started before monitoring window hangs.");
+    return false;
+  }
+
+  return profiler->MonitorWindowHangs(hWnd);
+}
+
 DD_WIN_PROF_API void StopProfiler() {
   auto profiler = Profiler::GetInstance();
   if (profiler == nullptr) {

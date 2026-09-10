@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include "pch.h"
+
 #include "Configuration.h"
 #include "CpuTimeProvider.h"
 #include "ProfileExporter.h"
@@ -13,16 +15,18 @@
 #include "ThreadList.h"
 #include "dd-win-prof.h"
 #include "dd-win-rum-private.h"
-#include "pch.h"
+#include "UiHangDetector.h"
+#include "UiHangProvider.h"
 
 class Profiler : public IRumViewContextProvider,
                  public IRumRecordProvider,
                  public IViewVitalsAccumulator {
  public:
-  Profiler();
+  Profiler(HMODULE hModule);
   virtual ~Profiler();
 
   bool StartProfiling();
+  bool MonitorWindowHangs(HWND hWnd);
   void StopProfiling(bool shutdownOngoing = false);
 
   bool AddCurrentThread();
@@ -65,11 +69,9 @@ class Profiler : public IRumViewContextProvider,
   }
 
  private:
-  // configuration
-  inline static constexpr std::chrono::seconds UploadInterval =
-      std::chrono::seconds(10);
-
   static Profiler* _this;
+
+  // configuration
   static std::unique_ptr<Configuration> _pConfiguration;
 
   std::atomic<bool> _isStarted;
@@ -80,12 +82,19 @@ class Profiler : public IRumViewContextProvider,
   // providers
   std::unique_ptr<CpuTimeProvider> _pCpuTimeProvider = nullptr;
   std::unique_ptr<WallTimeProvider> _pCpuWallTimeProvider = nullptr;
+  std::unique_ptr<UiHangProvider> _pUiHangProvider = nullptr;
 
   // exporter
   std::unique_ptr<ProfileExporter> _pProfileExporter = nullptr;
 
   // samples collector
   std::unique_ptr<SamplesCollector> _pSamplesCollector = nullptr;
+
+  // UI Hang detection
+  bool InitializeWindowHangs();
+  HMODULE _hModule = nullptr;  // needed to register the Windows hook
+  UINT _hangProbeMessageId = 0;
+  std::unique_ptr<UiHangDetector> _pUiHangDetector = nullptr;
 
   // RUM view + session context (dynamic, protected by reader/writer lock)
   mutable std::shared_mutex _rumContextMutex;

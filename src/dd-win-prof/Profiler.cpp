@@ -15,9 +15,10 @@ Profiler* Profiler::_this = nullptr;
 std::unique_ptr<Configuration> Profiler::_pConfiguration =
     std::make_unique<Configuration>();
 
-Profiler::Profiler()
+Profiler::Profiler(HMODULE hModule)
     : _isStarted(false),
       _pThreadList(std::make_unique<ThreadList>()),
+      _hModule(hModule),
       _pStackSamplerLoop(nullptr) {
   _this = this;
 }
@@ -44,6 +45,7 @@ bool Profiler::StartProfiling() {
 
   _pCpuTimeProvider = std::make_unique<CpuTimeProvider>(valueTypeProvider);
   _pCpuWallTimeProvider = std::make_unique<WallTimeProvider>(valueTypeProvider);
+  _pUiHangProvider = std::make_unique<UiHangProvider>(valueTypeProvider);
 
   // create the thread responsible for looping through the thread list
   _pStackSamplerLoop = std::make_unique<StackSamplerLoop>(
@@ -72,6 +74,11 @@ bool Profiler::StartProfiling() {
     return false;
   }
 
+  if (!InitializeWindowHangs()) {
+    Log::Error("Failed to initialize window hangs monitoring.");
+      return false;
+  }
+
   // Flush buffered RUM application ID to the exporter
   {
     std::shared_lock lock(_rumContextMutex);
@@ -94,11 +101,26 @@ bool Profiler::StartProfiling() {
     _pSamplesCollector->Register(_pCpuWallTimeProvider.get());
   }
 
+  // no configuration needed because enabled only when starting to monitor hang
+  _pSamplesCollector->Register(_pUiHangProvider.get());
+
   // start processing
   _pSamplesCollector->Start();
   _pStackSamplerLoop->Start();
 
   _isStarted = true;
+  return true;
+}
+
+bool Profiler::MonitorWindowHangs(HWND hWnd)
+{
+  // create the UiHangDetector and pass it _hModule required to register the Windows hook
+  if (_pUiHangDetector != nullptr) {
+    Log::Warn("Impossible to monitor more than one window for UI hang detection.");
+    return false;
+  }
+
+  _pUiHangDetector = std::make_unique<UiHangDetector>(_hModule, _hangProbeMessageId, _pThreadList.get(), _pUiHangProvider.get());
   return true;
 }
 
@@ -117,6 +139,11 @@ void Profiler::StopProfiling(bool shutdownOngoing) {
     SamplesCollector::SignalShutdown();
   }
 
+  // Stop the UI hang detector first
+  if (_pUiHangDetector != nullptr) {
+    _pUiHangDetector->Stop();
+  }
+
   if (_pStackSamplerLoop != nullptr) {
     _pStackSamplerLoop->Stop();
   }
@@ -131,6 +158,16 @@ void Profiler::StopProfiling(bool shutdownOngoing) {
     _pProfileExporter->Cleanup(shutdownOngoing);
   }
   Log::Info("Profiler stopped...");
+}
+
+bool Profiler::InitializeWindowHangs() {
+  _hangProbeMessageId = ::RegisterWindowMessageW(dd_win_prof::kHangProbeMessageName);
+  if (_hangProbeMessageId == 0) {
+    Log::Warn("Failed to register hang probe message.");
+    return false;
+  }
+
+  return true;
 }
 
 bool Profiler::AddCurrentThread() {
