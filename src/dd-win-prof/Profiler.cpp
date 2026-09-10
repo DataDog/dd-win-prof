@@ -75,7 +75,7 @@ bool Profiler::StartProfiling() {
 
   if (!InitializeWindowHangs()) {
     Log::Error("Failed to initialize window hangs monitoring.");
-      return false;
+    return false;
   }
 
   // Flush buffered RUM application ID to the exporter
@@ -111,8 +111,7 @@ bool Profiler::StartProfiling() {
   return true;
 }
 
-bool Profiler::MonitorWindowHangs(HWND hWnd)
-{
+bool Profiler::MonitorWindowHangs(HWND hWnd) {
   // create the UiHangDetector (hook is thread-specific, so no DLL hMod)
   if (_pUiHangDetector != nullptr) {
     Log::Warn("Impossible to monitor more than one window for UI hang detection.");
@@ -120,10 +119,8 @@ bool Profiler::MonitorWindowHangs(HWND hWnd)
   }
 
   _pUiHangDetector = std::make_unique<UiHangDetector>(
-    _hangProbeMessageId,
-    _pUiHangProvider.get(),
-    this
-    );
+      _hangProbeMessageId, _pUiHangProvider.get(), this
+  );
   bool result = _pUiHangDetector->MonitorWindowHangs(hWnd, _pThreadList.get());
   return result;
 }

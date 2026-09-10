@@ -2,11 +2,11 @@
 // the Apache 2 License. This product includes software developed at Datadog
 // (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
 
-#include "pch.h"
-
 #include "UiHangDetector.h"
-#include "ProfilingConstants.h"
+
 #include "Log.h"
+#include "ProfilingConstants.h"
+#include "pch.h"
 
 UiHangDetector* UiHangDetector::_this = nullptr;
 constexpr const wchar_t* ThreadName = L"DD_UI_Hang";
@@ -16,29 +16,25 @@ UiHangDetector::UiHangDetector(
     UiHangProvider* pHangProvider,
     IRumViewContextProvider* pRumViewContextProvider
 )
-  :
-  _hangProbeMessageId(hangProbeMessageId),
-  _pHangProvider(pHangProvider),
-  _pRumViewContextProvider(pRumViewContextProvider),
-  _hWnd(nullptr),
-  _hGetMessageHook(nullptr),
-  _pWatchdogThread(nullptr),
-  _stopEvent(nullptr),
-  _state(WatchdogState::None),
-  _hangDetectionTimestamp(0ns),
-  _initialHangDuration(0ns),
-  _postProbeTimestamp(0ns),
-  _processedProbeTimestamp(0ns) {
-
+    : _hangProbeMessageId(hangProbeMessageId),
+      _pHangProvider(pHangProvider),
+      _pRumViewContextProvider(pRumViewContextProvider),
+      _hWnd(nullptr),
+      _hGetMessageHook(nullptr),
+      _pWatchdogThread(nullptr),
+      _stopEvent(nullptr),
+      _state(WatchdogState::None),
+      _hangDetectionTimestamp(0ns),
+      _initialHangDuration(0ns),
+      _postProbeTimestamp(0ns),
+      _processedProbeTimestamp(0ns) {
   UiHangDetector::_this = this;
 
   // manual reset event set to stop the watchdog thread
   _stopEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
 }
 
-UiHangDetector::~UiHangDetector() {
-    Stop();
-}
+UiHangDetector::~UiHangDetector() { Stop(); }
 
 LRESULT CALLBACK GetMsgProc(int code, WPARAM wParam, LPARAM lParam) {
   if (UiHangDetector::_this == nullptr) {
@@ -93,7 +89,7 @@ bool UiHangDetector::MonitorWindowHangs(HWND hWnd, ThreadList* pThreadList) {
   _hWnd = hWnd;
 
   // get the ThreadInfo corresponding to the hWnd's thread
-  _pThreadInfo =  pThreadList->GetThread(tid);
+  _pThreadInfo = pThreadList->GetThread(tid);
   if (_pThreadInfo == nullptr) {
     Log::Warn("The window to monitor does not belong to a monitored thread.");
     return false;
@@ -106,7 +102,9 @@ bool UiHangDetector::MonitorWindowHangs(HWND hWnd, ThreadList* pThreadList) {
   _hGetMessageHook = ::SetWindowsHookExW(WH_GETMESSAGE, GetMsgProc, nullptr, tid);
   if (_hGetMessageHook == NULL) {
     DWORD lastError = ::GetLastError();
-    Log::Warn("Failed to set Windows hook for UI hang detection. Error code: %lu", lastError);
+    Log::Warn(
+        "Failed to set Windows hook for UI hang detection. Error code: %lu", lastError
+    );
     return false;
   }
 
@@ -131,8 +129,7 @@ void UiHangDetector::Stop() {
     try {
       _pWatchdogThread->join();
       _pWatchdogThread.reset();
-    }
-    catch (const std::exception&) {
+    } catch (const std::exception&) {
     }
   }
   ::CloseHandle(_stopEvent);
@@ -148,9 +145,10 @@ void UiHangDetector::Stop() {
 }
 
 void UiHangDetector::AddHangSample(
-  bool startHang,
-  std::chrono::nanoseconds timestamp,
-  std::chrono::nanoseconds duration) {
+    bool startHang,
+    std::chrono::nanoseconds timestamp,
+    std::chrono::nanoseconds duration
+) {
   // get the callstack of the hang thread
   CONTEXT seedContext;
   if (!_stackFrameCollector.TrySuspendThread(_pThreadInfo, seedContext)) {
@@ -162,7 +160,7 @@ void UiHangDetector::AddHangSample(
   uint16_t framesCount = MaxFrameCount;
   bool isStackCaptured = _stackFrameCollector.CaptureStack(
       _pThreadInfo->GetOsThreadHandle(), seedContext, frames, framesCount, isTruncated
-      );
+  );
   // resume the thread before doing any allocation that could cause a deadlock
   ::ResumeThread(_pThreadInfo->GetOsThreadHandle());
 
@@ -189,17 +187,13 @@ void UiHangDetector::AddHangSample(
   // TODO: figure out if we want to add a Hang count RUM vital
 }
 
-
 // Run on the monitored window's thread, called from the Windows hook callback
 void UiHangDetector::ProcessHook(int code, WPARAM wParam, LPARAM lParam) {
-  // notify the Detector that the probe message has been processed (i.e. the UI should be responsive)
+  // notify the Detector that the probe message has been processed (i.e. the UI should
+  // be responsive)
   if (code == HC_ACTION && wParam == PM_REMOVE) {
     const MSG* m = reinterpret_cast<const MSG*>(lParam);
-    if (
-        (m != nullptr)
-        && (m->hwnd == _hWnd)
-        && (m->message == _hangProbeMessageId)
-       ) {
+    if ((m != nullptr) && (m->hwnd == _hWnd) && (m->message == _hangProbeMessageId)) {
       auto now = OpSysTools::GetHighPrecisionTimestamp();
       _processedProbeTimestamp.store(now);
 
@@ -209,24 +203,27 @@ void UiHangDetector::ProcessHook(int code, WPARAM wParam, LPARAM lParam) {
 }
 
 bool UiHangDetector::PostProbeMessage() {
-   if (::PostMessageW(_hWnd, _hangProbeMessageId, 0, 0) == FALSE) {
-     // TODO: should be map this to a hang (i.e. queue might be full)?
-     DWORD lastError = ::GetLastError();
-     Log::Debug("Failed to post probe message for UI hang detection. Error code: %lu", lastError);
-     return false;
-   }
+  if (::PostMessageW(_hWnd, _hangProbeMessageId, 0, 0) == FALSE) {
+    // TODO: should be map this to a hang (i.e. queue might be full)?
+    DWORD lastError = ::GetLastError();
+    Log::Debug(
+        "Failed to post probe message for UI hang detection. Error code: %lu", lastError
+    );
+    return false;
+  }
 
-   _postProbeTimestamp = OpSysTools::GetHighPrecisionTimestamp();
-   _state.store(WatchdogState::Probing);
-   return true;
+  _postProbeTimestamp = OpSysTools::GetHighPrecisionTimestamp();
+  _state.store(WatchdogState::Probing);
+  return true;
 }
 
 // implement the watchdog loop to monitor the UI thread responsiveness
 void UiHangDetector::WatchdogLoop() {
-
   for (;;) {
-    // detect if the watchdog thread should stop/detect a hang every dd_win_prof::kWatchdogTickMs
-    if (WaitForSingleObject(_stopEvent, dd_win_prof::kWatchdogTickMs) == WAIT_OBJECT_0) {
+    // detect if the watchdog thread should stop/detect a hang every
+    // dd_win_prof::kWatchdogTickMs
+    if (WaitForSingleObject(_stopEvent, dd_win_prof::kWatchdogTickMs) ==
+        WAIT_OBJECT_0) {
       break;
     }
 
@@ -235,34 +232,36 @@ void UiHangDetector::WatchdogLoop() {
     // post a probe message at startup
     if (state == WatchdogState::None) {
       PostProbeMessage();
-    }
-    else if (state == WatchdogState::Probing) {
+    } else if (state == WatchdogState::Probing) {
       auto now = OpSysTools::GetHighPrecisionTimestamp();
       auto probingDuration = now - _postProbeTimestamp;
       if (probingDuration >= dd_win_prof::kHangThresholdMs) {
         _state.store(WatchdogState::Hang);
         _hangDetectionTimestamp = now;
 
-        // we assume that the hang started when the probe message is sent: it is overcounting at most of 1 tick (50ms)
-        // --> it is a tradeoff with reducing the tick down to 10ms (might not even be relevant depending on the
-        //     duration of the scheduling quantum (~15-60ms on a workstation Windows and 120ms on a Server)
+        // we assume that the hang started when the probe message is sent: it is
+        // overcounting at most of 1 tick (50ms)
+        // --> it is a tradeoff with reducing the tick down to 10ms (might not even be
+        // relevant depending on the
+        //     duration of the scheduling quantum (~15-60ms on a workstation Windows and
+        //     120ms on a Server)
         _initialHangDuration = probingDuration;
         AddHangSample(true, now, probingDuration);
-      }
-      else {
+      } else {
         // TODO: optimization?
         // sleep for the remaining duration before the hang threshold would be reached
         // to avoid missing the first milliseconds of the hang.
-        // with the current implementation, 50 + 50 (= 2x tick) = 100 (=threshold), so should not miss
-        // but could be a problem if tick is no more a divider of threshold
+        // with the current implementation, 50 + 50 (= 2x tick) = 100 (=threshold), so
+        // should not miss but could be a problem if tick is no more a divider of
+        // threshold
       }
-    }
-    else if (state == WatchdogState::Processed) {
+    } else if (state == WatchdogState::Processed) {
       auto now = OpSysTools::GetHighPrecisionTimestamp();
 
       // no hang was detected
       if (_initialHangDuration == 0ns) {
-        // we don't want to flood the queue so wait for the next tick to post a probe message
+        // we don't want to flood the queue so wait for the next tick to post a probe
+        // message
         _state.store(WatchdogState::None);
         continue;
       }
@@ -275,12 +274,13 @@ void UiHangDetector::WatchdogLoop() {
       _initialHangDuration = 0ns;
       _processedProbeTimestamp.store(0ns);
 
-      // since there was a hang, repost the probe message immediately without waiting for the next tick
+      // since there was a hang, repost the probe message immediately without waiting
+      // for the next tick
       PostProbeMessage();
-    }
-    else if (state == WatchdogState::Hang) {
+    } else if (state == WatchdogState::Hang) {
       // nothing to do before the end of the hang...
-      // TODO: should we emit a hang sample on a regular basis to avoid missing a looong one in a profile?
+      // TODO: should we emit a hang sample on a regular basis to avoid missing a looong
+      // one in a profile?
     }
   }
 }

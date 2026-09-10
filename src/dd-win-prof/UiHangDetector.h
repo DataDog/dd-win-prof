@@ -4,22 +4,21 @@
 
 #pragma once
 
-#include "pch.h"
-
 #include "ProfilingConstants.h"
 #include "StackFrameCollector.h"
 #include "ThreadList.h"
 #include "UiHangProvider.h"
+#include "pch.h"
 
 class UiHangDetector {
-public:
+ public:
   // needed by the global Windows Hook callback
   static UiHangDetector* _this;
 
   UiHangDetector(
-    UINT hangProbeMessageId,
-    UiHangProvider* pHangProvider,
-    IRumViewContextProvider* _pRumViewContextProvider
+      UINT hangProbeMessageId,
+      UiHangProvider* pHangProvider,
+      IRumViewContextProvider* _pRumViewContextProvider
   );
   ~UiHangDetector();
 
@@ -27,23 +26,24 @@ public:
   void Stop();
   void ProcessHook(int code, WPARAM wParam, LPARAM lParam);
 
-private:
+ private:
   void WatchdogLoop();
   bool PostProbeMessage();
   void AddHangSample(
       bool startHang,
-    std::chrono::nanoseconds timestamp,
-    std::chrono::nanoseconds duration);
+      std::chrono::nanoseconds timestamp,
+      std::chrono::nanoseconds duration
+  );
 
-private:
+ private:
   enum class WatchdogState : uint8_t {
-    None,       // start
-    Probing,    // a probe message has been posted
-    Hang,       // a hang is detected
-    Processed   // a probe message as been processed
+    None,      // start
+    Probing,   // a probe message has been posted
+    Hang,      // a hang is detected
+    Processed  // a probe message as been processed
   };
 
-private:
+ private:
   static const int MaxFrameCount = dd_win_prof::kMaxStackDepth;
 
   UINT _hangProbeMessageId;

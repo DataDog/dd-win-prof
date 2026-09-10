@@ -9,7 +9,7 @@ namespace dd_win_prof {
 inline constexpr size_t kMaxStackDepth{512};
 
 // name of the registered Windows message used to detect a UI hang
-inline constexpr const wchar_t* kHangProbeMessageName= L"DD_HANG_PROBE_MSG";
+inline constexpr const wchar_t* kHangProbeMessageName = L"DD_HANG_PROBE_MSG";
 
 // TODO: add corresponding configuration settings
 // UI hang watchdog frequency

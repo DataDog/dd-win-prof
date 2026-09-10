@@ -12,11 +12,7 @@
 // - None:      ordinary sample, no "UIHang" label is emitted
 // - Detected:  hang start sample, emitted with "UIHang=true"
 // - Recovered: hang end sample, emitted with "UIHang=false"
-enum class UiHangSampleKind : uint8_t {
-  None = 0,
-  Detected = 1,
-  Recovered = 2
-};
+enum class UiHangSampleKind : uint8_t { None = 0, Detected = 1, Recovered = 2 };
 
 class Sample {
  public:

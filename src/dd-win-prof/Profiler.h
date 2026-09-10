@@ -4,8 +4,6 @@
 
 #pragma once
 
-#include "pch.h"
-
 #include "Configuration.h"
 #include "CpuTimeProvider.h"
 #include "ProfileExporter.h"
@@ -13,10 +11,11 @@
 #include "SamplesCollector.h"
 #include "StackSamplerLoop.h"
 #include "ThreadList.h"
-#include "dd-win-prof.h"
-#include "dd-win-rum-private.h"
 #include "UiHangDetector.h"
 #include "UiHangProvider.h"
+#include "dd-win-prof.h"
+#include "dd-win-rum-private.h"
+#include "pch.h"
 
 class Profiler : public IRumViewContextProvider,
                  public IRumRecordProvider,

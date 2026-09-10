@@ -12,17 +12,15 @@ class UiHangProvider : public CollectorBase {
  public:
   UiHangProvider(SampleValueTypeProvider& valueTypeProvider);
 
-  inline void Add(
-      Sample&& sample,
-      std::chrono::nanoseconds hangDuration,
-      bool hang
-  ) {
+  inline void Add(Sample&& sample, std::chrono::nanoseconds hangDuration, bool hang) {
     auto offsets = GetValueOffsets();
     sample.AddValue(0, offsets[0]);  // no wall time for hang sample
     sample.AddValue(hangDuration.count(), offsets[1]);
 
     // the "UIHang" label (true/false) is attached at export time in ProfileExporter
-    sample.SetUiHangSampleKind(hang ? UiHangSampleKind::Detected : UiHangSampleKind::Recovered);
+    sample.SetUiHangSampleKind(
+        hang ? UiHangSampleKind::Detected : UiHangSampleKind::Recovered
+    );
 
     CollectorBase::Add(std::move(sample));
   }

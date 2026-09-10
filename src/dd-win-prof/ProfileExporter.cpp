@@ -924,8 +924,7 @@ bool ProfileExporter::InternSampleLabels(SampleLabels& labels) {
   // complete labels once so per-sample export only has to pick one of them.
   auto uiHangKeyResult =
       ddog_prof_Profile_intern_string(profile, to_CharSlice(LABEL_UI_HANG));
-  if (uiHangKeyResult.tag !=
-      DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
+  if (uiHangKeyResult.tag != DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
     LogOnce(
         Error,
         "InternSampleLabels: Failed to intern UIHang label key (tag: ",

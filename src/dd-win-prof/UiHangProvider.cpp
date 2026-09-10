@@ -2,10 +2,9 @@
 // the Apache 2 License. This product includes software developed at Datadog
 // (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
 
-#include "pch.h"
-
 #include "UiHangProvider.h"
 
+#include "pch.h"
 
 std::vector<SampleValueType> UiHangProvider::SampleTypeDefinitions(
     {{"wall-time", "nanoseconds"}, {"wait-time", "nanoseconds"}}

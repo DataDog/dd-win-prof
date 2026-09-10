@@ -54,7 +54,6 @@ DD_WIN_PROF_API bool StartProfiler() {
   return profiler->StartProfiling();
 }
 
-
 DD_WIN_PROF_API bool MonitorWindowHangs(HWND hWnd) {
   auto profiler = Profiler::GetInstance();
   if (profiler == nullptr) {
