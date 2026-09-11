@@ -57,6 +57,10 @@ std::string g_serviceEnv;
 // environment variables).
 std::string g_pprofDir;
 
+// Whether to symbolize call stacks, populated from the command line
+// (--symbolize). Defaults to false (obfuscated call stacks).
+bool g_symbolize = false;
+
 HFONT g_clockFont = nullptr;
 int g_clockTextHeight = 0;
 
@@ -256,6 +260,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
           g_serviceName.empty() ? "dd-win-prof-uiapp" : g_serviceName.c_str();
       config.serviceEnvironment = g_serviceEnv.empty() ? nullptr : g_serviceEnv.c_str();
       config.pprofOutputDirectory = g_pprofDir.empty() ? nullptr : g_pprofDir.c_str();
+      config.symbolizeCallstacks = g_symbolize;
       if (SetupProfiler(&config)) {
         StartProfiler();
         MonitorWindowHangs(hwnd);
@@ -421,6 +426,8 @@ std::string ToUtf8(const wchar_t* wide) {
 //   --env  <environment>   Service environment (config.serviceEnvironment)
 //   --pprofdir <folder>    Output directory for .pprof files
 //                          (config.pprofOutputDirectory)
+//   --symbolize            Enable call stack symbolization
+//                          (config.symbolizeCallstacks); no value
 // Unknown arguments are ignored. Values are stored into the g_* globals.
 void ParseCommandLine() {
   int argc = 0;
@@ -431,7 +438,9 @@ void ParseCommandLine() {
 
   for (int i = 1; i < argc; ++i) {
     const bool hasValue = (i + 1 < argc);
-    if (_wcsicmp(argv[i], L"--name") == 0 && hasValue) {
+    if (_wcsicmp(argv[i], L"--symbolize") == 0) {
+      g_symbolize = true;
+    } else if (_wcsicmp(argv[i], L"--name") == 0 && hasValue) {
       g_serviceName = ToUtf8(argv[++i]);
     } else if (_wcsicmp(argv[i], L"--env") == 0 && hasValue) {
       g_serviceEnv = ToUtf8(argv[++i]);
@@ -452,6 +461,10 @@ int APIENTRY wWinMain(
     _In_ int nCmdShow
 ) {
   g_hInstance = hInstance;
+
+  // Name the main (UI) thread so it is easy to identify in the profiler,
+  // which reads thread names via GetThreadDescription.
+  SetThreadDescription(GetCurrentThread(), L"UIApp_Main");
 
   ParseCommandLine();
 

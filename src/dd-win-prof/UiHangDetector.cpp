@@ -141,7 +141,7 @@ void UiHangDetector::Stop() {
     _hGetMessageHook = nullptr;
   }
 
-  _this = nullptr;
+  UiHangDetector::_this = nullptr;
 }
 
 void UiHangDetector::AddHangSample(
@@ -183,6 +183,9 @@ void UiHangDetector::AddHangSample(
     sample.SetRumViewContext(std::move(rumView));
   }
   _pHangProvider->Add(std::move(sample), duration, startHang);
+
+  Log::Debug(
+    "UI hang ", startHang ? "start" : "end", " sample added, duration: ", duration.count() / 1000000," ms");
 
   // TODO: figure out if we want to add a Hang count RUM vital
 }
@@ -240,7 +243,7 @@ void UiHangDetector::WatchdogLoop() {
         _hangDetectionTimestamp = now;
 
         // we assume that the hang started when the probe message is sent: it is
-        // overcounting at most of 1 tick (50ms)
+        // overcounting at most of 1 tick
         // --> it is a tradeoff with reducing the tick down to 10ms (might not even be
         // relevant depending on the
         //     duration of the scheduling quantum (~15-60ms on a workstation Windows and
@@ -248,34 +251,24 @@ void UiHangDetector::WatchdogLoop() {
         _initialHangDuration = probingDuration;
         AddHangSample(true, now, probingDuration);
       } else {
-        // TODO: optimization?
-        // sleep for the remaining duration before the hang threshold would be reached
-        // to avoid missing the first milliseconds of the hang.
-        // with the current implementation, 50 + 50 (= 2x tick) = 100 (=threshold), so
-        // should not miss but could be a problem if tick is no more a divider of
-        // threshold
+        // no hang detected yet, but we are still probing the UI thread responsiveness
       }
     } else if (state == WatchdogState::Processed) {
-      auto now = OpSysTools::GetHighPrecisionTimestamp();
+      // we are here AFTER a tick and the probe message was processed
+      // since the last tick, so we can assume that the UI thread is responsive again
 
-      // no hang was detected
-      if (_initialHangDuration == 0ns) {
-        // we don't want to flood the queue so wait for the next tick to post a probe
-        // message
-        _state.store(WatchdogState::None);
-        continue;
+      // a hang was detected since the last tick...
+      if (_initialHangDuration > 0ns) {
+        // ...so emit a sample for its ending
+        std::chrono::nanoseconds timestamp = _processedProbeTimestamp.load();
+        AddHangSample(false, timestamp, timestamp - _hangDetectionTimestamp);
+
+        // don't forget to reset the state to be ready to detect the next hang
+        _initialHangDuration = 0ns;
+        _processedProbeTimestamp.store(0ns);
       }
 
-      // there was a hang already detected so emit a sample for its ending
-      std::chrono::nanoseconds timestamp = _processedProbeTimestamp.load();
-      AddHangSample(false, timestamp, timestamp - _hangDetectionTimestamp);
-
-      // don't forget to reset the state to be ready to detect the next hang
-      _initialHangDuration = 0ns;
-      _processedProbeTimestamp.store(0ns);
-
-      // since there was a hang, repost the probe message immediately without waiting
-      // for the next tick
+      // post a new probe message to continue monitoring the UI thread responsiveness
       PostProbeMessage();
     } else if (state == WatchdogState::Hang) {
       // nothing to do before the end of the hang...

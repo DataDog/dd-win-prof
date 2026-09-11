@@ -13,10 +13,11 @@ inline constexpr const wchar_t* kHangProbeMessageName = L"DD_HANG_PROBE_MSG";
 
 // TODO: add corresponding configuration settings
 // UI hang watchdog frequency
-constexpr int kWatchdogTickMs = 50;
+// Note: usually workstation Windows scheduling quanta ~15.6ms (120ms for server Windows)
+constexpr int kWatchdogTickMs = 32;
 
 // duration threshold to trigger a hang sample
-constexpr std::chrono::nanoseconds kHangThresholdMs = 100ms;
+constexpr std::chrono::nanoseconds kHangThresholdMs = 96ms;
 
 // Other shared constants can be added here as needed
 }  // namespace dd_win_prof
