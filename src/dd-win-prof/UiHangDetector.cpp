@@ -103,7 +103,7 @@ bool UiHangDetector::MonitorWindowHangs(HWND hWnd, ThreadList* pThreadList) {
   if (_hGetMessageHook == NULL) {
     DWORD lastError = ::GetLastError();
     Log::Warn(
-        "Failed to set Windows hook for UI hang detection. Error code: %lu", lastError
+        "Failed to set Windows hook for UI hang detection. Error code: ", lastError
     );
     return false;
   }
@@ -185,7 +185,12 @@ void UiHangDetector::AddHangSample(
   _pHangProvider->Add(std::move(sample), duration, startHang);
 
   Log::Debug(
-    "UI hang ", startHang ? "start" : "end", " sample added, duration: ", duration.count() / 1000000," ms");
+      "UI hang ",
+      startHang ? "start" : "end",
+      " sample added, duration: ",
+      duration.count() / 1000000,
+      " ms"
+  );
 
   // TODO: figure out if we want to add a Hang count RUM vital
 }
@@ -206,17 +211,18 @@ void UiHangDetector::ProcessHook(int code, WPARAM wParam, LPARAM lParam) {
 }
 
 bool UiHangDetector::PostProbeMessage() {
+  _state.store(WatchdogState::Probing);
+  _postProbeTimestamp = OpSysTools::GetHighPrecisionTimestamp();
+
   if (::PostMessageW(_hWnd, _hangProbeMessageId, 0, 0) == FALSE) {
     // TODO: should be map this to a hang (i.e. queue might be full)?
     DWORD lastError = ::GetLastError();
     Log::Debug(
-        "Failed to post probe message for UI hang detection. Error code: %lu", lastError
+        "Failed to post probe message for UI hang detection. Error code: ", lastError
     );
     return false;
   }
 
-  _postProbeTimestamp = OpSysTools::GetHighPrecisionTimestamp();
-  _state.store(WatchdogState::Probing);
   return true;
 }
 
@@ -230,30 +236,33 @@ void UiHangDetector::WatchdogLoop() {
       break;
     }
 
-    WatchdogState state = _state.load();
-
     // post a probe message at startup
-    if (state == WatchdogState::None) {
+    if (_state.load() == WatchdogState::None) {
       PostProbeMessage();
-    } else if (state == WatchdogState::Probing) {
+    } else if (_state.load() == WatchdogState::Probing) {
       auto now = OpSysTools::GetHighPrecisionTimestamp();
       auto probingDuration = now - _postProbeTimestamp;
       if (probingDuration >= dd_win_prof::kHangThresholdMs) {
-        _state.store(WatchdogState::Hang);
-        _hangDetectionTimestamp = now;
+        // there could be a race condition here if the probe message was just processed
+        if (_state.load() == WatchdogState::Processed) {
+          // TODO: no hang or generate start/stop samples for a short hang?
 
-        // we assume that the hang started when the probe message is sent: it is
-        // overcounting at most of 1 tick
-        // --> it is a tradeoff with reducing the tick down to 10ms (might not even be
-        // relevant depending on the
-        //     duration of the scheduling quantum (~15-60ms on a workstation Windows and
-        //     120ms on a Server)
-        _initialHangDuration = probingDuration;
-        AddHangSample(true, now, probingDuration);
+          // post a new probe message to continue monitoring the UI thread
+          // responsiveness
+          PostProbeMessage();
+        } else {
+          _state.store(WatchdogState::Hang);
+          _hangDetectionTimestamp = now;
+
+          // we assume that the hang started when the probe message is sent: it is
+          // overcounting at most of 1 tick
+          _initialHangDuration = probingDuration;
+          AddHangSample(true, now, probingDuration);
+        }
       } else {
         // no hang detected yet, but we are still probing the UI thread responsiveness
       }
-    } else if (state == WatchdogState::Processed) {
+    } else if (_state.load() == WatchdogState::Processed) {
       // we are here AFTER a tick and the probe message was processed
       // since the last tick, so we can assume that the UI thread is responsive again
 
@@ -270,7 +279,7 @@ void UiHangDetector::WatchdogLoop() {
 
       // post a new probe message to continue monitoring the UI thread responsiveness
       PostProbeMessage();
-    } else if (state == WatchdogState::Hang) {
+    } else if (_state.load() == WatchdogState::Hang) {
       // nothing to do before the end of the hang...
       // TODO: should we emit a hang sample on a regular basis to avoid missing a looong
       // one in a profile?
