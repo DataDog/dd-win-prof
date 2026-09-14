@@ -39,8 +39,7 @@ class UiHangDetector {
   enum class WatchdogState : uint8_t {
     None,      // start
     Probing,   // a probe message has been posted
-    Hang,      // a hang is detected
-    Processed  // a probe message as been processed
+    Hang       // a hang is detected
   };
 
  private:
@@ -57,13 +56,20 @@ class UiHangDetector {
   HANDLE _stopEvent;
   std::unique_ptr<std::thread> _pWatchdogThread = nullptr;
 
-  std::atomic<WatchdogState> _state;
+  // read/write by the watchdog thread and write by the hook
+  std::atomic<bool> _isProcessed;
+
+  // read/write only by the watchdog thread (not touched by the hook)
+  WatchdogState _state;
 
   // timestamp when the probe message was processed
   std::atomic<std::chrono::nanoseconds> _processedProbeTimestamp;
 
   // timestamp when the probe message was posted
   std::chrono::nanoseconds _postProbeTimestamp;
+
+  // timestamp when a tick happened still probing but without hang
+  std::chrono::nanoseconds _lastNoHangTimestamp;
 
   // timestamp when the hang was detected
   std::chrono::nanoseconds _hangDetectionTimestamp;
