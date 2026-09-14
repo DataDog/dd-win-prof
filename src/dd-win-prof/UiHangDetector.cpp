@@ -106,6 +106,9 @@ bool UiHangDetector::MonitorWindowHangs(HWND hWnd, ThreadList* pThreadList) {
     Log::Warn(
         "Failed to set Windows hook for UI hang detection. Error code: ", lastError
     );
+
+    _hWnd = NULL;
+    _pThreadInfo = nullptr;
     return false;
   }
 
@@ -227,6 +230,10 @@ bool UiHangDetector::PostProbeMessage() {
     Log::Debug(
         "Failed to post probe message for UI hang detection. Error code: ", lastError
     );
+
+    _state = WatchdogState::None;
+    _postProbeTimestamp = 0ns;
+    _lastNoHangTimestamp = 0ns;
     return false;
   }
 

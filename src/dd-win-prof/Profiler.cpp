@@ -73,10 +73,9 @@ bool Profiler::StartProfiling() {
     return false;
   }
 
-  if (!InitializeWindowHangs()) {
-    Log::Error("Failed to initialize window hangs monitoring.");
-    return false;
-  }
+  // a failure to register the hang probe message is not fatal, but it will prevent UI
+  // hang detection from working (i.e. MonitorWindowHangs() will fail)
+  InitializeWindowHangs();
 
   // Flush buffered RUM application ID to the exporter
   {
@@ -112,17 +111,27 @@ bool Profiler::StartProfiling() {
 }
 
 bool Profiler::MonitorWindowHangs(HWND hWnd) {
+  if (_hangProbeMessageId == 0) {
+    Log::Warn(
+        "Probe message could not be registered: impossible to monitor window hangs."
+    );
+    return false;
+  }
+
   // create the UiHangDetector (hook is thread-specific, so no DLL hMod)
   if (_pUiHangDetector != nullptr) {
     Log::Warn("Impossible to monitor more than one window for UI hang detection.");
     return false;
   }
 
-  _pUiHangDetector = std::make_unique<UiHangDetector>(
+  auto pUiHangDetector = std::make_unique<UiHangDetector>(
       _hangProbeMessageId, _pUiHangProvider.get(), this
   );
-  bool result = _pUiHangDetector->MonitorWindowHangs(hWnd, _pThreadList.get());
-  return result;
+  bool success = pUiHangDetector->MonitorWindowHangs(hWnd, _pThreadList.get());
+  if (success) {
+    _pUiHangDetector = std::move(pUiHangDetector);
+  }
+  return success;
 }
 
 void Profiler::StopProfiling(bool shutdownOngoing) {
