@@ -2,8 +2,6 @@
 // the Apache 2 License. This product includes software developed at Datadog
 // (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
 
-#include <new>
-
 #include "Log.h"
 #include "Profiler.h"
 #include "dd-win-prof-internal.h"
@@ -73,27 +71,14 @@ DD_WIN_PROF_API void StopProfiler() {
   profiler->StopProfiling();
 }
 
-DD_WIN_PROF_API ProfilerRumContextResult
-SetRumCorrelationContext(const ProfilerRumCorrelationContext* pContext) noexcept {
+DD_WIN_PROF_API bool SetRumCorrelationContext(
+    const ProfilerRumCorrelationContext* pContext
+) {
   try {
-    if (pContext == nullptr) {
-      return PROFILER_RUM_CONTEXT_NULL_ARGUMENT;
-    }
-
-    if (pContext->struct_size < sizeof(ProfilerRumCorrelationContext)) {
-      return PROFILER_RUM_CONTEXT_INVALID_STRUCT_SIZE;
-    }
-
     auto profiler = Profiler::GetInstance();
-    if (profiler == nullptr) {
-      return PROFILER_RUM_CONTEXT_PROFILER_UNAVAILABLE;
-    }
-
-    return profiler->SetRumCorrelationContext(pContext);
-  } catch (const std::bad_alloc&) {
-    return PROFILER_RUM_CONTEXT_OUT_OF_MEMORY;
+    return profiler != nullptr && profiler->SetRumCorrelationContext(pContext);
   } catch (...) {
-    return PROFILER_RUM_CONTEXT_INTERNAL_ERROR;
+    return false;
   }
 }
 

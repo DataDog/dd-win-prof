@@ -5,7 +5,6 @@
 #include "Profiler.h"
 
 #include <random>
-#include <string_view>
 
 #include "Log.h"
 #include "SampleValueTypeProvider.h"
@@ -17,56 +16,6 @@ std::unique_ptr<Configuration> Profiler::_pConfiguration =
     std::make_unique<Configuration>();
 
 namespace {
-bool IsValidUtf8(std::string_view value) {
-  const auto* bytes = reinterpret_cast<const unsigned char*>(value.data());
-  size_t index = 0;
-
-  while (index < value.size()) {
-    uint32_t codePoint = 0;
-    size_t continuationCount = 0;
-    uint32_t minimumCodePoint = 0;
-    const unsigned char first = bytes[index++];
-
-    if (first <= 0x7f) {
-      continue;
-    }
-    if ((first & 0xe0) == 0xc0) {
-      codePoint = first & 0x1f;
-      continuationCount = 1;
-      minimumCodePoint = 0x80;
-    } else if ((first & 0xf0) == 0xe0) {
-      codePoint = first & 0x0f;
-      continuationCount = 2;
-      minimumCodePoint = 0x800;
-    } else if ((first & 0xf8) == 0xf0) {
-      codePoint = first & 0x07;
-      continuationCount = 3;
-      minimumCodePoint = 0x10000;
-    } else {
-      return false;
-    }
-
-    if (index + continuationCount > value.size()) {
-      return false;
-    }
-
-    for (size_t i = 0; i < continuationCount; i++) {
-      const unsigned char continuation = bytes[index++];
-      if ((continuation & 0xc0) != 0x80) {
-        return false;
-      }
-      codePoint = (codePoint << 6) | (continuation & 0x3f);
-    }
-
-    if (codePoint < minimumCodePoint || codePoint > 0x10ffff ||
-        (codePoint >= 0xd800 && codePoint <= 0xdfff)) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
 int64_t CurrentTimeMilliseconds() {
   return std::chrono::duration_cast<std::chrono::milliseconds>(
              std::chrono::system_clock::now().time_since_epoch()
@@ -219,39 +168,30 @@ void Profiler::RemoveCurrentThread() {
   _pThreadList->RemoveThread(tid);
 }
 
-ProfilerRumContextResult Profiler::SetRumCorrelationContext(
+bool Profiler::SetRumCorrelationContext(
     const ProfilerRumCorrelationContext* pContext
 ) {
-  if (pContext->application_id == nullptr || pContext->session_id == nullptr ||
-      pContext->view_id == nullptr || pContext->view_name == nullptr) {
-    return PROFILER_RUM_CONTEXT_NULL_ARGUMENT;
+  if (pContext == nullptr || pContext->application_id == nullptr ||
+      pContext->session_id == nullptr || pContext->view_id == nullptr) {
+    return false;
   }
 
-  const std::string_view applicationIdValue(pContext->application_id);
-  const std::string_view sessionIdValue(pContext->session_id);
-  const std::string_view viewIdValue(pContext->view_id);
-  const std::string_view viewNameValue(pContext->view_name);
+  std::string applicationId(pContext->application_id);
+  std::string sessionId(pContext->session_id);
+  std::string viewId(pContext->view_id);
+  std::string viewName = pContext->view_name == nullptr ? "" : pContext->view_name;
 
-  if (!IsValidUtf8(applicationIdValue) || !IsValidUtf8(sessionIdValue) ||
-      !IsValidUtf8(viewIdValue) || !IsValidUtf8(viewNameValue)) {
-    return PROFILER_RUM_CONTEXT_INVALID_UTF8;
+  if (applicationId.empty() || (sessionId.empty() && !viewId.empty())) {
+    return false;
   }
-
-  if (applicationIdValue.empty() ||
-      (sessionIdValue.empty() && (!viewIdValue.empty() || !viewNameValue.empty())) ||
-      (viewIdValue.empty() && !viewNameValue.empty())) {
-    return PROFILER_RUM_CONTEXT_INVALID_CONTEXT;
+  if (viewId.empty()) {
+    viewName.clear();
   }
-
-  std::string applicationId(applicationIdValue);
-  std::string sessionId(sessionIdValue);
-  std::string viewId(viewIdValue);
-  std::string viewName(viewNameValue);
 
   std::unique_lock lock(_rumContextMutex);
 
   if (!_rumApplicationId.empty() && _rumApplicationId != applicationId) {
-    return PROFILER_RUM_CONTEXT_APPLICATION_ID_MISMATCH;
+    return false;
   }
 
   const bool applicationChanged = _rumApplicationId.empty();
@@ -264,7 +204,7 @@ ProfilerRumContextResult Profiler::SetRumCorrelationContext(
       hasCurrentView && hasIncomingView && _currentRumView.view_name != viewName;
 
   if (!applicationChanged && !sessionChanged && !viewIdChanged && !viewNameChanged) {
-    return PROFILER_RUM_CONTEXT_SUCCESS;
+    return true;
   }
 
   const bool completeView = hasCurrentView && (sessionChanged || viewIdChanged);
@@ -322,7 +262,7 @@ ProfilerRumContextResult Profiler::SetRumCorrelationContext(
     _currentRumView.view_name = std::move(viewName);
   }
 
-  return PROFILER_RUM_CONTEXT_SUCCESS;
+  return true;
 }
 
 static std::string GenerateUuidV4() {
