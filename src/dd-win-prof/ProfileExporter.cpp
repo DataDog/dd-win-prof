@@ -225,8 +225,12 @@ bool ProfileExporter::Add(std::shared_ptr<Sample> const& sample) {
   // Get RUM view context for labeling
   const auto& rumView = sample->GetRumViewContext();
 
+  // Get the UI-hang marker (None for ordinary samples)
+  const UiHangSampleKind uiHangKind = sample->GetUiHangSampleKind();
+
   // Create labelset for this sample (includes thread name and RUM labels if available)
-  ddog_prof_LabelSetId labelsetId = CreateLabelSet(_sampleLabels, threadInfo, rumView);
+  ddog_prof_LabelSetId labelsetId =
+      CreateLabelSet(_sampleLabels, threadInfo, rumView, uiHangKind);
 
   // Add sample to aggregator with labels
   if (!_aggregator->AddSample(locationIds, sampleValues, timestampNs, labelsetId)) {
@@ -916,13 +920,56 @@ bool ProfileExporter::InternSampleLabels(SampleLabels& labels) {
   }
   labels.traceEndpointKeyId = traceEndpointKeyResult.ok;
 
+  // Intern the "UIHang" key plus its two possible values, then build the two
+  // complete labels once so per-sample export only has to pick one of them.
+  auto uiHangKeyResult =
+      ddog_prof_Profile_intern_string(profile, to_CharSlice(LABEL_UI_HANG));
+  if (uiHangKeyResult.tag != DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
+    LogOnce(
+        Error,
+        "InternSampleLabels: Failed to intern UIHang label key (tag: ",
+        uiHangKeyResult.tag,
+        ")"
+    );
+    return false;
+  }
+
+  auto uiHangTrueValueResult =
+      ddog_prof_Profile_intern_string(profile, to_CharSlice(LABEL_UI_HANG_TRUE_VALUE));
+  auto uiHangFalseValueResult =
+      ddog_prof_Profile_intern_string(profile, to_CharSlice(LABEL_UI_HANG_FALSE_VALUE));
+  if (uiHangTrueValueResult.tag !=
+          DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID ||
+      uiHangFalseValueResult.tag !=
+          DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
+    LogOnce(Error, "InternSampleLabels: Failed to intern UIHang label value");
+    return false;
+  }
+
+  auto uiHangTrueLabelResult = ddog_prof_Profile_intern_label_str(
+      profile, uiHangKeyResult.ok, uiHangTrueValueResult.ok
+  );
+  auto uiHangFalseLabelResult = ddog_prof_Profile_intern_label_str(
+      profile, uiHangKeyResult.ok, uiHangFalseValueResult.ok
+  );
+  if (uiHangTrueLabelResult.tag !=
+          DDOG_PROF_LABEL_ID_RESULT_OK_GENERATIONAL_ID_LABEL_ID ||
+      uiHangFalseLabelResult.tag !=
+          DDOG_PROF_LABEL_ID_RESULT_OK_GENERATIONAL_ID_LABEL_ID) {
+    LogOnce(Error, "InternSampleLabels: Failed to intern UIHang label");
+    return false;
+  }
+  labels.uiHangTrueLabelId = uiHangTrueLabelResult.ok;
+  labels.uiHangFalseLabelId = uiHangFalseLabelResult.ok;
+
   return true;
 }
 
 ddog_prof_LabelSetId ProfileExporter::CreateLabelSet(
     const SampleLabels& labels,
     std::shared_ptr<ThreadInfo> threadInfo,
-    const RumViewContext& rumView
+    const RumViewContext& rumView,
+    UiHangSampleKind uiHangKind
 ) {
   // Get profile for interning operations
   ddog_prof_Profile* profile = _aggregator->GetProfile();
@@ -934,6 +981,14 @@ ddog_prof_LabelSetId ProfileExporter::CreateLabelSet(
 
   // Always add process_id label
   labelIdArray.push_back(labels.processIdLabelId);
+
+  // Add the "UIHang" label for hang start/end samples (nothing for ordinary
+  // samples). Both labels were pre-interned in InternSampleLabels.
+  if (uiHangKind == UiHangSampleKind::Detected) {
+    labelIdArray.push_back(labels.uiHangTrueLabelId);
+  } else if (uiHangKind == UiHangSampleKind::Recovered) {
+    labelIdArray.push_back(labels.uiHangFalseLabelId);
+  }
 
   // Add thread_id label if thread info is available
   if (threadInfo) {

@@ -82,5 +82,6 @@ FetchContent_MakeAvailable(googletest)
 
 add_subdirectory(dd-win-prof)
 add_subdirectory(Runner)
+add_subdirectory(UIApp)
 add_subdirectory(Tests)
 add_subdirectory(ProfilerInjector)

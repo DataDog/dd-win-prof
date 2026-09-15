@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <atomic>
+
 #include "OpSysTools.h"
 #include "ScopedHandle.h"
 #include "pch.h"
@@ -46,6 +48,14 @@ class ThreadInfo {
     return prevValue;
   }
 
+  inline bool IsHangDetected() const {
+    return _hangDetected.load(std::memory_order_acquire);
+  }
+
+  inline bool SetHangDetected(bool value) {
+    return _hangDetected.exchange(value, std::memory_order_acq_rel);
+  }
+
   inline bool GetThreadName(std::string& name) {
     if (_hasThreadName) {
       name = _threadName;
@@ -82,6 +92,10 @@ class ThreadInfo {
   //     (i.e. CPU profiler and lock detection part of walltime profiler)
   // since we don't have the start/ end time of the wait, we "jump" from wait to wait
   std::chrono::nanoseconds _lastWaitSampleTimestamp;
+
+  // set when a UI hang has been detected for this thread and reset once the
+  // thread is responsive again
+  std::atomic<bool> _hangDetected{false};
 
   // thread name, if available
   bool _hasThreadName = false;

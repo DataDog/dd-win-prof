@@ -44,6 +44,18 @@ void ThreadList::RemoveThread(uint32_t tid) {
   }
 }
 
+std::shared_ptr<ThreadInfo> ThreadList::GetThread(uint32_t threadId) {
+  std::lock_guard<std::recursive_mutex> lock(_mutex);
+
+  for (auto& pInfo : _threads) {
+    if (pInfo->GetThreadId() == threadId) {
+      return pInfo;
+    }
+  }
+
+  return nullptr;
+}
+
 size_t ThreadList::Count() {
   std::lock_guard<std::recursive_mutex> lock(_mutex);
 
