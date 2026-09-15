@@ -35,6 +35,7 @@ class Profiler : public IRumViewContextProvider,
   }
 
   // RUM context management (called from the C API, thread-safe)
+  bool SetRumCorrelationContext(const ProfilerRumCorrelationContext* pContext);
   bool EnterView(const char* viewName);
   bool LeaveCurrentView();
   bool SetRumSession(const RumSessionContext* pContext);

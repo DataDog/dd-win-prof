@@ -17,6 +17,7 @@ add_executable(Tests
     # implementation details.
     ../dd-win-prof/Configuration.cpp
     ../dd-win-prof/CpuTimeProvider.cpp
+    ../dd-win-prof/dd-win-prof.cpp
     ../dd-win-prof/OsSpecificApi.cpp
     ../dd-win-prof/OsSysTools.cpp
     ../dd-win-prof/PprofAggregator.cpp
@@ -38,6 +39,7 @@ add_executable(Tests
 # Tests has its own pch.h (includes gtest/gtest.h and framework.h).
 # pch.cpp is the "Create PCH" unit in the vcxproj; CMake drives it via pch.h.
 target_precompile_headers(Tests PRIVATE pch.h)
+target_compile_definitions(Tests PRIVATE DD_WIN_PROF_STATIC_LINK)
 
 # The dd-win-prof shared sources include headers by short name relative to their
 # own directory; adding that directory ensures they resolve correctly when
@@ -89,5 +91,4 @@ add_custom_command(TARGET Tests POST_BUILD
 # for arbitrary shells. Helper drops it next to the exe (no-op otherwise).
 dd_win_prof_copy_asan_runtime(Tests)
 
-include(CTest)
 add_test(NAME Tests COMMAND Tests)

@@ -71,6 +71,17 @@ DD_WIN_PROF_API void StopProfiler() {
   profiler->StopProfiling();
 }
 
+DD_WIN_PROF_API bool SetRumCorrelationContext(
+    const ProfilerRumCorrelationContext* pContext
+) {
+  try {
+    auto profiler = Profiler::GetInstance();
+    return profiler != nullptr && profiler->SetRumCorrelationContext(pContext);
+  } catch (...) {
+    return false;
+  }
+}
+
 DD_WIN_PROF_API bool EnterView(const char* viewName) {
   auto profiler = Profiler::GetInstance();
   if (profiler == nullptr) {
@@ -88,18 +99,20 @@ DD_WIN_PROF_API bool LeaveCurrentView() {
 }
 
 DD_WIN_PROF_API bool SetRumSession(const RumSessionContext* pContext) {
-  auto profiler = Profiler::GetInstance();
-  if (profiler == nullptr) {
+  try {
+    auto profiler = Profiler::GetInstance();
+    return profiler != nullptr && profiler->SetRumSession(pContext);
+  } catch (...) {
     return false;
   }
-  return profiler->SetRumSession(pContext);
 }
 
 DD_WIN_PROF_API bool SetRumView(const RumViewValues* pContext) {
-  auto profiler = Profiler::GetInstance();
-  if (profiler == nullptr) {
+  try {
+    auto profiler = Profiler::GetInstance();
+    return profiler != nullptr && profiler->SetRumView(pContext);
+  } catch (...) {
     return false;
   }
-  return profiler->SetRumView(pContext);
 }
 }
