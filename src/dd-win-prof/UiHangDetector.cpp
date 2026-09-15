@@ -291,7 +291,7 @@ void UiHangDetector::WatchdogLoop() {
         AddHangSample(false, timestamp, timestamp - _hangDetectionTimestamp);
 
         // reset the last timestamp to avoid overcounting the next wait sample duration
-        _pThreadInfo->SetLastWalltimeSampleTimestamp(timestamp);
+        _pThreadInfo->SetLastWaitSampleTimestamp(timestamp);
 
         // Wait samples are allowed again after a hang
         _pThreadInfo->SetHangDetected(false);
