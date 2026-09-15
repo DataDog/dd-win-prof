@@ -52,6 +52,28 @@ typedef struct _ProfilerConfig {
                                      // (default: empty = disabled)
 } ProfilerConfig;
 
+typedef enum _ProfilerRumContextResult {
+  PROFILER_RUM_CONTEXT_SUCCESS = 0,
+  PROFILER_RUM_CONTEXT_NULL_ARGUMENT = 1,
+  PROFILER_RUM_CONTEXT_INVALID_STRUCT_SIZE = 2,
+  PROFILER_RUM_CONTEXT_INVALID_UTF8 = 3,
+  PROFILER_RUM_CONTEXT_INVALID_CONTEXT = 4,
+  PROFILER_RUM_CONTEXT_APPLICATION_ID_MISMATCH = 5,
+  PROFILER_RUM_CONTEXT_PROFILER_UNAVAILABLE = 6,
+  PROFILER_RUM_CONTEXT_OUT_OF_MEMORY = 7,
+  PROFILER_RUM_CONTEXT_INTERNAL_ERROR = 8
+} ProfilerRumContextResult;
+
+// Complete RUM state used to correlate profiles with an active session and view.
+// Strings are borrowed, NUL-terminated UTF-8 and copied before the call returns.
+typedef struct _ProfilerRumCorrelationContext {
+  uint32_t struct_size;
+  const char* application_id;
+  const char* session_id;
+  const char* view_id;
+  const char* view_name;
+} ProfilerRumCorrelationContext;
+
 extern "C" {
 DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig* pSettings);
 
@@ -60,6 +82,12 @@ DD_WIN_PROF_API bool StartProfiler();
 
 // Stop profiling manually (safe to call even if not started)
 DD_WIN_PROF_API void StopProfiler();
+
+// Atomically replace the current RUM correlation state. Concurrent calls are
+// serialized. application_id is required and remains bound for the process lifetime.
+// Empty session_id clears the session and view. Empty view_id clears the view.
+DD_WIN_PROF_API ProfilerRumContextResult
+SetRumCorrelationContext(const ProfilerRumCorrelationContext* pContext) noexcept;
 
 // Enter a named view. Generates a unique view_id internally.
 // Updates per-sample pprof labels: rum.view_id and trace endpoint (viewName).

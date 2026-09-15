@@ -84,6 +84,116 @@ class ProfilerRumContextTest : public ::testing::Test {
   std::unique_ptr<Profiler> _profiler;
 };
 
+static ProfilerRumCorrelationContext MakeCorrelationContext(
+    const char* applicationId,
+    const char* sessionId = "",
+    const char* viewId = "",
+    const char* viewName = ""
+) {
+  return {
+      sizeof(ProfilerRumCorrelationContext), applicationId, sessionId, viewId, viewName
+  };
+}
+
+TEST_F(ProfilerRumContextTest, CorrelationContextValidatesAbiAndValues) {
+  EXPECT_EQ(SetRumCorrelationContext(nullptr), PROFILER_RUM_CONTEXT_NULL_ARGUMENT);
+
+  auto context = MakeCorrelationContext("app-1");
+  context.struct_size = sizeof(context) - 1;
+  EXPECT_EQ(
+      SetRumCorrelationContext(&context), PROFILER_RUM_CONTEXT_INVALID_STRUCT_SIZE
+  );
+
+  context = MakeCorrelationContext(nullptr);
+  EXPECT_EQ(SetRumCorrelationContext(&context), PROFILER_RUM_CONTEXT_NULL_ARGUMENT);
+
+  context = MakeCorrelationContext("app-1", "", "view-1", "View");
+  EXPECT_EQ(SetRumCorrelationContext(&context), PROFILER_RUM_CONTEXT_INVALID_CONTEXT);
+
+  context = MakeCorrelationContext("app-1", "session-1", "", "View");
+  EXPECT_EQ(SetRumCorrelationContext(&context), PROFILER_RUM_CONTEXT_INVALID_CONTEXT);
+
+  const char invalidUtf8[] = {static_cast<char>(0xc0), static_cast<char>(0xaf), 0};
+  context = MakeCorrelationContext("app-1", "session-1", "view-1", invalidUtf8);
+  EXPECT_EQ(SetRumCorrelationContext(&context), PROFILER_RUM_CONTEXT_INVALID_UTF8);
+
+  context = MakeCorrelationContext("app-1");
+  context.struct_size = sizeof(context) + 16;
+  EXPECT_EQ(SetRumCorrelationContext(&context), PROFILER_RUM_CONTEXT_SUCCESS);
+}
+
+TEST_F(ProfilerRumContextTest, CorrelationContextUpdatesCompleteSnapshot) {
+  auto context = MakeCorrelationContext("app-1", "session-1", "view-1", "Home");
+  EXPECT_EQ(SetRumCorrelationContext(&context), PROFILER_RUM_CONTEXT_SUCCESS);
+
+  RumViewContext view;
+  EXPECT_TRUE(_profiler->GetCurrentViewContext(view));
+  EXPECT_EQ(view.view_id, "view-1");
+  EXPECT_EQ(view.view_name, "Home");
+  EXPECT_EQ(_profiler->GetCurrentSessionId(), "session-1");
+
+  EXPECT_EQ(SetRumCorrelationContext(&context), PROFILER_RUM_CONTEXT_SUCCESS);
+  std::vector<RumViewRecord> viewRecords;
+  std::vector<RumSessionRecord> sessionRecords;
+  _profiler->ConsumeViewRecords(viewRecords);
+  _profiler->ConsumeSessionRecords(sessionRecords);
+  EXPECT_TRUE(viewRecords.empty());
+  EXPECT_TRUE(sessionRecords.empty());
+
+  EXPECT_TRUE(_profiler->AccumulateViewVitals(ViewVitalKind::CpuTime, 42));
+  context.view_name = "Home renamed";
+  EXPECT_EQ(SetRumCorrelationContext(&context), PROFILER_RUM_CONTEXT_SUCCESS);
+  EXPECT_TRUE(_profiler->GetCurrentViewContext(view));
+  EXPECT_EQ(view.view_name, "Home renamed");
+  _profiler->ConsumeViewRecords(viewRecords);
+  EXPECT_TRUE(viewRecords.empty());
+
+  context = MakeCorrelationContext("app-1");
+  EXPECT_EQ(SetRumCorrelationContext(&context), PROFILER_RUM_CONTEXT_SUCCESS);
+  EXPECT_FALSE(_profiler->GetCurrentViewContext(view));
+  EXPECT_TRUE(_profiler->GetCurrentSessionId().empty());
+  _profiler->ConsumeViewRecords(viewRecords);
+  _profiler->ConsumeSessionRecords(sessionRecords);
+  ASSERT_EQ(viewRecords.size(), 1);
+  ASSERT_EQ(sessionRecords.size(), 1);
+  EXPECT_EQ(viewRecords[0].view_id, "view-1");
+  EXPECT_EQ(viewRecords[0].view_name, "Home renamed");
+  EXPECT_EQ(viewRecords[0].vitals_ns[static_cast<size_t>(ViewVitalKind::CpuTime)], 42);
+  EXPECT_EQ(sessionRecords[0].session_id, "session-1");
+
+  context = MakeCorrelationContext("app-1", "session-2");
+  EXPECT_EQ(SetRumCorrelationContext(&context), PROFILER_RUM_CONTEXT_SUCCESS);
+
+  context = MakeCorrelationContext("app-2", "session-2");
+  EXPECT_EQ(
+      SetRumCorrelationContext(&context), PROFILER_RUM_CONTEXT_APPLICATION_ID_MISMATCH
+  );
+  EXPECT_EQ(_profiler->GetCurrentSessionId(), "session-2");
+}
+
+TEST_F(ProfilerRumContextTest, CorrelationContextCopiesBorrowedStrings) {
+  std::string applicationId = "app-1";
+  std::string sessionId = "session-1";
+  std::string viewId = "view-1";
+  std::string viewName = "Home";
+  auto context = MakeCorrelationContext(
+      applicationId.c_str(), sessionId.c_str(), viewId.c_str(), viewName.c_str()
+  );
+
+  EXPECT_EQ(SetRumCorrelationContext(&context), PROFILER_RUM_CONTEXT_SUCCESS);
+
+  applicationId.clear();
+  sessionId.clear();
+  viewId.clear();
+  viewName.clear();
+
+  RumViewContext view;
+  EXPECT_TRUE(_profiler->GetCurrentViewContext(view));
+  EXPECT_EQ(view.view_id, "view-1");
+  EXPECT_EQ(view.view_name, "Home");
+  EXPECT_EQ(_profiler->GetCurrentSessionId(), "session-1");
+}
+
 TEST_F(ProfilerRumContextTest, SetRumSessionNullEndsSession) {
   RumSessionContext sessionCtx = {};
   sessionCtx.application_id = "app-1";

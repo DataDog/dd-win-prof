@@ -54,6 +54,10 @@ endif()
 include(cmake/asan.cmake)
 dd_win_prof_setup_asan()
 
+if(DD_WIN_PROF_IS_TOPLEVEL)
+    include(CTest)
+endif()
+
 add_subdirectory(src)
 
 if(DD_WIN_PROF_BUILD_OBFUSCATION)
