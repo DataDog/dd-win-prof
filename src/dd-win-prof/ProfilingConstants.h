@@ -13,7 +13,8 @@ inline constexpr const wchar_t* kHangProbeMessageName = L"DD_HANG_PROBE_MSG";
 
 // TODO: add corresponding configuration settings
 // UI hang watchdog frequency
-// Note: usually workstation Windows scheduling quanta ~15.6ms (120ms for server Windows)
+// Note: usually workstation Windows scheduling quanta ~15.6ms (120ms for server
+// Windows)
 constexpr int kWatchdogTickMs = 32;
 
 // duration threshold to trigger a hang sample

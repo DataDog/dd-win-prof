@@ -37,9 +37,9 @@ class UiHangDetector {
 
  private:
   enum class WatchdogState : uint8_t {
-    None,      // start
-    Probing,   // a probe message has been posted
-    Hang       // a hang is detected
+    None,     // start
+    Probing,  // a probe message has been posted
+    Hang      // a hang is detected
   };
 
  private:

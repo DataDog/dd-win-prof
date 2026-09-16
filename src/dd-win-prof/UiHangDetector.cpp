@@ -259,24 +259,23 @@ void UiHangDetector::WatchdogLoop() {
       if (isProcessed) {
         // post a new probe message to continue monitoring the UI thread responsiveness
         PostProbeMessage();
-      }
-      else {
-      // check for hang
+      } else {
+        // check for hang
         auto now = OpSysTools::GetHighPrecisionTimestamp();
         auto probingDuration = now - _postProbeTimestamp;
         if (probingDuration >= dd_win_prof::kHangThresholdMs) {
-            _state = WatchdogState::Hang;
-            _hangDetectionTimestamp = now;
+          _state = WatchdogState::Hang;
+          _hangDetectionTimestamp = now;
 
-            // from now on, we are in a hang state, so we don't want to generate Wait
-            // samples for the hang duration, but we want to generate a sample for the
-            // hang start
-            _pThreadInfo->SetHangDetected(true);
+          // from now on, we are in a hang state, so we don't want to generate Wait
+          // samples for the hang duration, but we want to generate a sample for the
+          // hang start
+          _pThreadInfo->SetHangDetected(true);
 
-            // we assume that the hang started AFTER the last non-hang check
-            // --> it is overcounting at most of 1/2 tick
-            _initialHangDuration = now - _lastNoHangTimestamp;
-            AddHangSample(true, now, _initialHangDuration);
+          // we assume that the hang started AFTER the last non-hang check
+          // --> it is overcounting at most of 1/2 tick
+          _initialHangDuration = now - _lastNoHangTimestamp;
+          AddHangSample(true, now, _initialHangDuration);
         } else {
           // no hang detected yet, but we are still probing the UI thread responsiveness
           _lastNoHangTimestamp = now;
@@ -298,10 +297,9 @@ void UiHangDetector::WatchdogLoop() {
 
         // post a new probe message to continue monitoring the UI thread responsiveness
         PostProbeMessage();
-      }
-      else {
-        // TODO: should we emit a hang sample on a regular basis to avoid missing a looong
-        // one in a profile?
+      } else {
+        // TODO: should we emit a hang sample on a regular basis to avoid missing a
+        // looong one in a profile?
       }
     }
   }

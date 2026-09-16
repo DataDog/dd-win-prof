@@ -223,7 +223,7 @@ void StackSamplerLoop::WalltimeProfilingIteration() {
           duration,
           PROFILING_TYPE::WallTime,
           WAIT_REASON_NONE
-        );
+      );
     } else {
       // in case of a hung thread, don't emit wait samples
       if (!pThreadInfo->IsHangDetected()) {

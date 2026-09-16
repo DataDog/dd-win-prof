@@ -353,8 +353,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
           // Feed the requested duration through the same textbox the manual
           // buttons read, so GetIntervalMs() stays the single source of truth.
           SetDlgItemInt(hwnd, ID_EDIT_INTERVAL, g_autoDurationMs, FALSE);
-          g_autoThread =
-              ::CreateThread(nullptr, 0, AutomationProc, hwnd, 0, nullptr);
+          g_autoThread = ::CreateThread(nullptr, 0, AutomationProc, hwnd, 0, nullptr);
           if (g_autoThread == nullptr) {
             g_exitCode = 11;
             ::PostMessageW(hwnd, WM_CLOSE, 0, 0);
