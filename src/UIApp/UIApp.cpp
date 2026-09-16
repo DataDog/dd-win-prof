@@ -12,11 +12,17 @@
 //
 // The profiler is started on window creation and the main window is registered
 // for hang monitoring; profiling is stopped when the window is destroyed.
+//
+// For CI, an automation mode (--auto-hang sleep|wait|cpu|all, --hang-duration-ms,
+// --hang-cycles) drives the same hangs from a worker thread that posts a private
+// WM_APP_HANG message to the UI thread, then closes the window when done. The
+// process exit code is non-zero if the profiler or hang monitoring failed.
 
 #include <Windows.h>
 #include <shellapi.h>
 
 #include <cstdint>
+#include <cstdlib>
 #include <initializer_list>
 #include <string>
 
@@ -39,6 +45,26 @@ constexpr UINT_PTR ID_CPU_TIMER = 4;
 // Default freeze duration when the interval text box is empty or invalid.
 constexpr UINT DEFAULT_INTERVAL_MS = 1000;
 
+// The kind of hang to reproduce; also used as the wParam of WM_APP_HANG.
+enum class HangKind { Sleep, Wait, Cpu, All };
+
+// Private message posted by the automation worker thread to the UI thread to
+// request a hang. wParam is a HangKind (Sleep/Wait/Cpu); the hang runs on the
+// UI thread inside the handler, which is exactly what the detector must catch.
+constexpr UINT WM_APP_HANG = WM_APP + 1;
+
+// Time the automation worker waits, on top of the hang duration, before posting
+// the next hang. It lets the UI thread pump long enough for the watchdog to
+// observe the probe again and emit the UIHang=false (recovered) sample. Kept as
+// an internal constant so the command line stays limited to the three options.
+constexpr UINT kRecoveryGapMs = 500;
+
+// Time the automation worker waits before posting the very first hang. It lets
+// the initial window paint finish and the watchdog establish a responsive
+// baseline, so the first real hang is detected inside its blocking call rather
+// than merging with startup jank.
+constexpr UINT kWarmupMs = 1000;
+
 HWND g_editInterval = nullptr;
 HWND g_btnSleep = nullptr;
 HWND g_btnWait = nullptr;
@@ -60,6 +86,20 @@ std::string g_pprofDir;
 // Whether to symbolize call stacks, populated from the command line
 // (--symbolize). Defaults to false (obfuscated call stacks).
 bool g_symbolize = false;
+
+// Automation settings, populated from the command line (--auto-hang,
+// --hang-duration-ms, --hang-cycles). When g_autoEnabled is true, a worker
+// thread drives the hangs headlessly and the app exits when done.
+bool g_autoEnabled = false;
+HangKind g_autoKind = HangKind::All;
+UINT g_autoDurationMs = 1500;
+UINT g_autoCycles = 2;
+
+// Worker thread handle (owned; joined in WM_DESTROY) and the process exit code
+// reported through PostQuitMessage so the CI harness can gate on it.
+HANDLE g_autoThread = nullptr;
+bool g_profilerStarted = false;
+int g_exitCode = 0;
 
 HFONT g_clockFont = nullptr;
 int g_clockTextHeight = 0;
@@ -243,6 +283,39 @@ RECT GetClockRect(HWND hwnd) {
   return r;
 }
 
+// Automation worker thread. Runs off the UI thread so it keeps its own clock
+// even while the UI thread is frozen in a hang: it posts WM_APP_HANG, waits for
+// the hang plus a recovery gap, and repeats for the requested cycles/kinds.
+// The hang itself happens on the UI thread inside the WM_APP_HANG handler.
+DWORD WINAPI AutomationProc(LPVOID param) {
+  HWND hwnd = static_cast<HWND>(param);
+
+  // Let the window finish its initial paint and the watchdog see a responsive
+  // baseline before the first hang.
+  ::Sleep(kWarmupMs);
+
+  const HangKind sequence[] = {HangKind::Sleep, HangKind::Wait, HangKind::Cpu};
+
+  auto runKind = [&](HangKind kind) {
+    for (UINT i = 0; i < g_autoCycles; ++i) {
+      ::PostMessageW(hwnd, WM_APP_HANG, static_cast<WPARAM>(kind), 0);
+      ::Sleep(g_autoDurationMs + kRecoveryGapMs);
+    }
+  };
+
+  if (g_autoKind == HangKind::All) {
+    for (HangKind kind : sequence) {
+      runKind(kind);
+    }
+  } else {
+    runKind(g_autoKind);
+  }
+
+  // Ask the UI thread to shut down cleanly (WM_DESTROY -> StopProfiler).
+  ::PostMessageW(hwnd, WM_CLOSE, 0, 0);
+  return 0;
+}
+
 LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
   switch (message) {
     case WM_CREATE: {
@@ -261,9 +334,32 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
       config.serviceEnvironment = g_serviceEnv.empty() ? nullptr : g_serviceEnv.c_str();
       config.pprofOutputDirectory = g_pprofDir.empty() ? nullptr : g_pprofDir.c_str();
       config.symbolizeCallstacks = g_symbolize;
+      bool monitoring = false;
       if (SetupProfiler(&config)) {
-        StartProfiler();
-        MonitorWindowHangs(hwnd);
+        if (StartProfiler()) {
+          g_profilerStarted = true;
+          monitoring = MonitorWindowHangs(hwnd);
+        }
+      }
+
+      // In automation mode, drive the hangs from a worker thread. If the
+      // profiler or hang monitoring failed to start, there is nothing to
+      // measure, so fail fast with a non-zero exit code.
+      if (g_autoEnabled) {
+        if (!monitoring || g_waitEvent == nullptr) {
+          g_exitCode = 10;
+          ::PostMessageW(hwnd, WM_CLOSE, 0, 0);
+        } else {
+          // Feed the requested duration through the same textbox the manual
+          // buttons read, so GetIntervalMs() stays the single source of truth.
+          SetDlgItemInt(hwnd, ID_EDIT_INTERVAL, g_autoDurationMs, FALSE);
+          g_autoThread =
+              ::CreateThread(nullptr, 0, AutomationProc, hwnd, 0, nullptr);
+          if (g_autoThread == nullptr) {
+            g_exitCode = 11;
+            ::PostMessageW(hwnd, WM_CLOSE, 0, 0);
+          }
+        }
       }
       return 0;
     }
@@ -304,6 +400,28 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
         }
       }
       return 0;
+
+    case WM_APP_HANG: {
+      // Freeze the UI thread here, on purpose, using the same primitives the
+      // buttons use. Because we are inside DispatchMessage, GetMessage is not
+      // called for the duration, so the probe message is not dequeued and the
+      // watchdog detects the hang.
+      const UINT milliseconds = GetIntervalMs(hwnd);
+      switch (static_cast<HangKind>(wParam)) {
+        case HangKind::Sleep:
+          Sleep(milliseconds);
+          break;
+        case HangKind::Wait:
+          WaitForSingleObject(g_waitEvent, milliseconds);
+          break;
+        case HangKind::Cpu:
+          BusySpin(milliseconds);
+          break;
+        default:
+          break;
+      }
+      return 0;
+    }
 
     case WM_PAINT: {
       PAINTSTRUCT ps{};
@@ -385,6 +503,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
       KillTimer(hwnd, ID_SLEEP_TIMER);
       KillTimer(hwnd, ID_WAIT_TIMER);
       KillTimer(hwnd, ID_CPU_TIMER);
+
+      // The worker posts WM_CLOSE as its last action, so by the time we get
+      // here it has already finished; join and release it before stopping.
+      if (g_autoThread != nullptr) {
+        ::WaitForSingleObject(g_autoThread, INFINITE);
+        ::CloseHandle(g_autoThread);
+        g_autoThread = nullptr;
+      }
       if (g_clockFont) {
         DeleteObject(g_clockFont);
         g_clockFont = nullptr;
@@ -393,8 +519,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
         CloseHandle(g_waitEvent);
         g_waitEvent = nullptr;
       }
-      StopProfiler();
-      PostQuitMessage(0);
+      if (g_profilerStarted) {
+        StopProfiler();
+      }
+      PostQuitMessage(g_exitCode);
       return 0;
 
     default:
@@ -421,6 +549,34 @@ std::string ToUtf8(const wchar_t* wide) {
   return result;
 }
 
+// Maps the --auto-hang value to a HangKind. Returns false on an unknown value.
+bool ParseHangKind(const wchar_t* value, HangKind& kind) {
+  if (_wcsicmp(value, L"sleep") == 0) {
+    kind = HangKind::Sleep;
+  } else if (_wcsicmp(value, L"wait") == 0) {
+    kind = HangKind::Wait;
+  } else if (_wcsicmp(value, L"cpu") == 0) {
+    kind = HangKind::Cpu;
+  } else if (_wcsicmp(value, L"all") == 0) {
+    kind = HangKind::All;
+  } else {
+    return false;
+  }
+  return true;
+}
+
+// Parses a strictly positive unsigned integer. Returns false on non-numeric or
+// zero/negative input so the caller can reject malformed automation options.
+bool ParsePositiveUInt(const wchar_t* value, UINT& result) {
+  wchar_t* end = nullptr;
+  const long parsed = wcstol(value, &end, 10);
+  if (end == value || *end != L'\0' || parsed <= 0) {
+    return false;
+  }
+  result = static_cast<UINT>(parsed);
+  return true;
+}
+
 // Parses the process command line for the service information flags:
 //   --name <service>       Service name        (config.serviceName)
 //   --env  <environment>   Service environment (config.serviceEnvironment)
@@ -428,14 +584,20 @@ std::string ToUtf8(const wchar_t* wide) {
 //                          (config.pprofOutputDirectory)
 //   --symbolize            Enable call stack symbolization
 //                          (config.symbolizeCallstacks); no value
+// Automation flags (headless CI mode):
+//   --auto-hang <kind>     sleep | wait | cpu | all; enables automation
+//   --hang-duration-ms <n> Freeze duration per hang (positive integer)
+//   --hang-cycles <n>      Number of hangs per kind (positive integer)
 // Unknown arguments are ignored. Values are stored into the g_* globals.
-void ParseCommandLine() {
+// Returns false if an automation option is present but malformed.
+bool ParseCommandLine() {
   int argc = 0;
   LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
   if (!argv) {
-    return;
+    return true;
   }
 
+  bool ok = true;
   for (int i = 1; i < argc; ++i) {
     const bool hasValue = (i + 1 < argc);
     if (_wcsicmp(argv[i], L"--symbolize") == 0) {
@@ -446,10 +608,25 @@ void ParseCommandLine() {
       g_serviceEnv = ToUtf8(argv[++i]);
     } else if (_wcsicmp(argv[i], L"--pprofdir") == 0 && hasValue) {
       g_pprofDir = ToUtf8(argv[++i]);
+    } else if (_wcsicmp(argv[i], L"--auto-hang") == 0) {
+      if (!hasValue || !ParseHangKind(argv[++i], g_autoKind)) {
+        ok = false;
+      } else {
+        g_autoEnabled = true;
+      }
+    } else if (_wcsicmp(argv[i], L"--hang-duration-ms") == 0) {
+      if (!hasValue || !ParsePositiveUInt(argv[++i], g_autoDurationMs)) {
+        ok = false;
+      }
+    } else if (_wcsicmp(argv[i], L"--hang-cycles") == 0) {
+      if (!hasValue || !ParsePositiveUInt(argv[++i], g_autoCycles)) {
+        ok = false;
+      }
     }
   }
 
   LocalFree(argv);
+  return ok;
 }
 
 }  // namespace
@@ -466,7 +643,9 @@ int APIENTRY wWinMain(
   // which reads thread names via GetThreadDescription.
   SetThreadDescription(GetCurrentThread(), L"UIApp_Main");
 
-  ParseCommandLine();
+  if (!ParseCommandLine()) {
+    return 2;  // malformed automation option
+  }
 
   WNDCLASSEXW wcex{};
   wcex.cbSize = sizeof(WNDCLASSEXW);
