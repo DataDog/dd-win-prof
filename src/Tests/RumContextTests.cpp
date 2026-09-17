@@ -84,6 +84,54 @@ class ProfilerRumContextTest : public ::testing::Test {
   std::unique_ptr<Profiler> _profiler;
 };
 
+TEST_F(ProfilerRumContextTest, GranularApplicationIdIsWriteOnce) {
+  EXPECT_TRUE(_profiler->SetRumApplicationId("app-1"));
+  EXPECT_TRUE(_profiler->SetRumApplicationId("app-1"));
+  EXPECT_FALSE(_profiler->SetRumApplicationId("app-2"));
+}
+
+TEST_F(ProfilerRumContextTest, GranularSessionChangeClearsView) {
+  EXPECT_TRUE(_profiler->SetRumSessionId("session-1"));
+
+  RumViewValues view{"view-1", "Home"};
+  EXPECT_TRUE(_profiler->SetRumView(&view));
+  EXPECT_TRUE(_profiler->SetRumSessionId("session-2"));
+
+  RumViewContext currentView;
+  EXPECT_FALSE(_profiler->GetCurrentViewContext(currentView));
+  EXPECT_EQ(_profiler->GetCurrentSessionId(), "session-2");
+
+  std::vector<RumViewRecord> viewRecords;
+  std::vector<RumSessionRecord> sessionRecords;
+  _profiler->ConsumeViewRecords(viewRecords);
+  _profiler->ConsumeSessionRecords(sessionRecords);
+  ASSERT_EQ(viewRecords.size(), 1u);
+  ASSERT_EQ(sessionRecords.size(), 1u);
+  EXPECT_EQ(viewRecords[0].view_id, "view-1");
+  EXPECT_EQ(sessionRecords[0].session_id, "session-1");
+}
+
+TEST_F(ProfilerRumContextTest, GranularViewUpdateDoesNotRestartSameView) {
+  EXPECT_TRUE(_profiler->SetRumSessionId("session-1"));
+
+  RumViewValues view{"view-1", "Home"};
+  EXPECT_TRUE(_profiler->SetRumView(&view));
+  EXPECT_TRUE(_profiler->AccumulateViewVitals(ViewVitalKind::CpuTime, 42));
+
+  view.view_name = "Home renamed";
+  EXPECT_TRUE(_profiler->SetRumView(&view));
+
+  std::vector<RumViewRecord> records;
+  _profiler->ConsumeViewRecords(records);
+  EXPECT_TRUE(records.empty());
+
+  EXPECT_TRUE(_profiler->SetRumView(nullptr));
+  _profiler->ConsumeViewRecords(records);
+  ASSERT_EQ(records.size(), 1u);
+  EXPECT_EQ(records[0].view_name, "Home renamed");
+  EXPECT_EQ(records[0].vitals_ns[static_cast<size_t>(ViewVitalKind::CpuTime)], 42);
+}
+
 TEST_F(ProfilerRumContextTest, SetRumSessionNullEndsSession) {
   RumSessionContext sessionCtx = {};
   sessionCtx.application_id = "app-1";

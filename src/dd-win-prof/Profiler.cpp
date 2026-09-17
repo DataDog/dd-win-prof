@@ -60,24 +60,24 @@ bool Profiler::StartProfiling() {
   Sample::SetValuesCount(sampleTypeDefinitions.size());
 
   //... and pass them to the exporter
-  _pProfileExporter = std::make_unique<ProfileExporter>(
+  auto profileExporter = std::make_unique<ProfileExporter>(
       _pConfiguration.get(), sampleTypeDefinitions, this
   );
 
   // Initialize the ProfileExporter
-  if (!_pProfileExporter->Initialize()) {
+  if (!profileExporter->Initialize()) {
     Log::Error(
-        "Failed to initialize profile exporter: ", _pProfileExporter->GetLastError()
+        "Failed to initialize profile exporter: ", profileExporter->GetLastError()
     );
     return false;
   }
 
-  // Flush buffered RUM application ID to the exporter
   {
-    std::shared_lock lock(_rumContextMutex);
+    std::unique_lock lock(_rumContextMutex);
     if (!_rumApplicationId.empty()) {
-      _pProfileExporter->SetRumApplicationId(_rumApplicationId);
+      profileExporter->SetRumApplicationId(_rumApplicationId);
     }
+    _pProfileExporter = std::move(profileExporter);
   }
 
   // create the samples collector and pass it the exporter
@@ -194,6 +194,46 @@ void Profiler::CompleteCurrentSession() {
   _currentSessionId.clear();
 }
 
+bool Profiler::SetRumApplicationId(const char* applicationId) {
+  if (applicationId == nullptr || applicationId[0] == '\0') {
+    return false;
+  }
+
+  std::string value(applicationId);
+  std::unique_lock lock(_rumContextMutex);
+
+  if (!_rumApplicationId.empty()) {
+    return _rumApplicationId == value;
+  }
+
+  if (_pProfileExporter != nullptr) {
+    _pProfileExporter->SetRumApplicationId(value);
+  }
+  _rumApplicationId = std::move(value);
+  return true;
+}
+
+bool Profiler::SetRumSessionId(const char* sessionId) {
+  std::string value = sessionId == nullptr ? "" : sessionId;
+  std::unique_lock lock(_rumContextMutex);
+
+  if (_currentSessionId == value) {
+    return true;
+  }
+
+  CompleteCurrentView();
+  CompleteCurrentSession();
+
+  if (!value.empty()) {
+    _currentSessionId = std::move(value);
+    _sessionStartMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                          std::chrono::system_clock::now().time_since_epoch()
+    )
+                          .count();
+  }
+  return true;
+}
+
 bool Profiler::SetRumSession(const RumSessionContext* pContext) {
   if (pContext == nullptr) {
     std::unique_lock lock(_rumContextMutex);
@@ -267,25 +307,30 @@ void Profiler::CompleteCurrentView() {
 }
 
 bool Profiler::SetRumView(const RumViewValues* pContext) {
-  std::unique_lock lock(_rumContextMutex);
+  const bool hasViewId = pContext != nullptr && pContext->view_id != nullptr &&
+                         pContext->view_id[0] != '\0';
+  std::string viewId = hasViewId ? pContext->view_id : "";
+  std::string viewName =
+      hasViewId && pContext->view_name != nullptr ? pContext->view_name : "";
 
+  std::unique_lock lock(_rumContextMutex);
   if (_currentSessionId.empty()) {
     return false;
   }
 
-  CompleteCurrentView();
-
-  bool hasViewId = pContext != nullptr && pContext->view_id != nullptr &&
-                   pContext->view_id[0] != '\0';
-
   if (!hasViewId) {
+    CompleteCurrentView();
     return true;
   }
 
-  _currentRumView.view_id = pContext->view_id;
-  _currentRumView.view_name =
-      (pContext->view_name != nullptr) ? pContext->view_name : "";
+  if (_currentRumView.view_id == viewId) {
+    _currentRumView.view_name = std::move(viewName);
+    return true;
+  }
 
+  CompleteCurrentView();
+  _currentRumView.view_id = std::move(viewId);
+  _currentRumView.view_name = std::move(viewName);
   _pendingViewStartMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                             std::chrono::system_clock::now().time_since_epoch()
   )
