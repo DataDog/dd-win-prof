@@ -504,12 +504,13 @@ TEST_F(ConfigurationTest, Agent_NoApiKey) {
   EXPECT_FALSE(config.IsAgentless());
 }
 
-TEST_F(ConfigurationTest, ValidateTransport_ConflictingConfig_Fails) {
+TEST_F(ConfigurationTest, InitConfig_ConflictingTransportConfig_Fails) {
   SetTestEnvVar(EnvironmentVariables::ApiKey, "my-api-key");
   SetTestEnvVar(EnvironmentVariables::AgentUrl, "http://localhost:8126");
 
   Configuration config;
-  EXPECT_TRUE(config.IsAgentless());
-  EXPECT_FALSE(config.ValidateTransportConfig())
-      << "Should reject conflicting agent + agentless settings";
+  ProfilerConfig cfg{};
+  cfg.size = sizeof(ProfilerConfig);
+
+  EXPECT_FALSE(InitializeConfiguration(&config, &cfg));
 }

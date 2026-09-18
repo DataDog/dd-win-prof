@@ -521,5 +521,5 @@ bool InitializeConfiguration(Configuration* pConfig, const ProfilerConfig* pSett
     pConfig->EnableSymbolizedCallstacks();
   }
 
-  return true;
+  return pConfig->ValidateTransportConfig();
 }
