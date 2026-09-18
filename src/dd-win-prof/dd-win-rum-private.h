@@ -16,7 +16,22 @@ typedef struct _RumViewValues {
   const char* view_name;  // human-readable name, e.g. "HomePage"
 } RumViewValues;
 
+// Complete RUM state used to correlate profiles with an active session and view.
+// Strings are borrowed and copied before SetRumCorrelationContext returns.
+typedef struct _ProfilerRumCorrelationContext {
+  const char* application_id;
+  const char* session_id;
+  const char* view_id;
+  const char* view_name;
+} ProfilerRumCorrelationContext;
+
 extern "C" {
+// Atomically replaces the current RUM correlation state. The application ID remains
+// bound for the process lifetime. Empty session and view IDs clear that state.
+DD_WIN_PROF_API bool SetRumCorrelationContext(
+    const ProfilerRumCorrelationContext* pContext
+);
+
 // Set stable RUM session context. Safe to call from any thread.
 // application_id: write-once per process. First non-empty value is stored
 // as a profile-level tag; subsequent calls with a different value return false.

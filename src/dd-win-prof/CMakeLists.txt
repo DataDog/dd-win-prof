@@ -27,6 +27,7 @@ add_library(dd-win-prof SHARED
     CpuTimeProvider.h
     dd-win-prof.h
     dd-win-prof-internal.h
+    dd-win-rum-private.h
     EnvironmentVariables.h
     framework.h
     ISamplesProvider.h
@@ -132,19 +133,17 @@ add_custom_command(TARGET dd-win-prof POST_BUILD
     COMMENT "Copying dd-win-prof binaries to src/reference"
 )
 
-# Install rules used by the release workflow (cmake --install build --config
-# Release --prefix <stage>/dd-win-prof). Mirrors the layout published in the
-# release zip: dd-win-prof/Profiler/{dll,lib,pdb,h, datadog_profiling_ffi.{dll,pdb}}.
-# Config-aware via $<LOWER_CASE:$<CONFIG>> so `--config Debug` would install the
-# debug variant; the release workflow only uses Release.
-install(TARGETS dd-win-prof
-    RUNTIME DESTINATION Profiler
-    ARCHIVE DESTINATION Profiler
-)
-install(FILES $<TARGET_PDB_FILE:dd-win-prof> DESTINATION Profiler OPTIONAL)
-install(FILES dd-win-prof.h DESTINATION Profiler)
-install(FILES
-    "${libdatadog_SOURCE_DIR}/$<LOWER_CASE:$<CONFIG>>/dynamic/datadog_profiling_ffi.dll"
-    "${libdatadog_SOURCE_DIR}/$<LOWER_CASE:$<CONFIG>>/dynamic/datadog_profiling_ffi.pdb"
-    DESTINATION Profiler
-)
+if(DD_WIN_PROF_IS_TOPLEVEL)
+    # Install the standalone release package layout.
+    install(TARGETS dd-win-prof
+        RUNTIME DESTINATION Profiler
+        ARCHIVE DESTINATION Profiler
+    )
+    install(FILES $<TARGET_PDB_FILE:dd-win-prof> DESTINATION Profiler OPTIONAL)
+    install(FILES dd-win-prof.h DESTINATION Profiler)
+    install(FILES
+        "${libdatadog_SOURCE_DIR}/$<LOWER_CASE:$<CONFIG>>/dynamic/datadog_profiling_ffi.dll"
+        "${libdatadog_SOURCE_DIR}/$<LOWER_CASE:$<CONFIG>>/dynamic/datadog_profiling_ffi.pdb"
+        DESTINATION Profiler
+    )
+endif()

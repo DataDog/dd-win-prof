@@ -15,6 +15,15 @@ Profiler* Profiler::_this = nullptr;
 std::unique_ptr<Configuration> Profiler::_pConfiguration =
     std::make_unique<Configuration>();
 
+namespace {
+int64_t CurrentTimeMilliseconds() {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(
+             std::chrono::system_clock::now().time_since_epoch()
+  )
+      .count();
+}
+}  // namespace
+
 Profiler::Profiler()
     : _isStarted(false),
       _pThreadList(std::make_unique<ThreadList>()),
@@ -64,24 +73,24 @@ bool Profiler::StartProfiling() {
   Sample::SetValuesCount(sampleTypeDefinitions.size());
 
   //... and pass them to the exporter
-  _pProfileExporter = std::make_unique<ProfileExporter>(
+  auto profileExporter = std::make_unique<ProfileExporter>(
       _pConfiguration.get(), sampleTypeDefinitions, this
   );
 
   // Initialize the ProfileExporter
-  if (!_pProfileExporter->Initialize()) {
+  if (!profileExporter->Initialize()) {
     Log::Error(
-        "Failed to initialize profile exporter: ", _pProfileExporter->GetLastError()
+        "Failed to initialize profile exporter: ", profileExporter->GetLastError()
     );
     return false;
   }
 
-  // Flush buffered RUM application ID to the exporter
   {
-    std::shared_lock lock(_rumContextMutex);
+    std::unique_lock lock(_rumContextMutex);
     if (!_rumApplicationId.empty()) {
-      _pProfileExporter->SetRumApplicationId(_rumApplicationId);
+      profileExporter->SetRumApplicationId(_rumApplicationId);
     }
+    _pProfileExporter = std::move(profileExporter);
   }
 
   // create the samples collector and pass it the exporter
@@ -161,6 +170,103 @@ bool Profiler::AddCurrentThread() {
 void Profiler::RemoveCurrentThread() {
   auto tid = ::GetCurrentThreadId();
   _pThreadList->RemoveThread(tid);
+}
+
+bool Profiler::SetRumCorrelationContext(
+    const ProfilerRumCorrelationContext* pContext
+) {
+  if (pContext == nullptr || pContext->application_id == nullptr ||
+      pContext->session_id == nullptr || pContext->view_id == nullptr) {
+    return false;
+  }
+
+  std::string applicationId(pContext->application_id);
+  std::string sessionId(pContext->session_id);
+  std::string viewId(pContext->view_id);
+  std::string viewName = pContext->view_name == nullptr ? "" : pContext->view_name;
+
+  if (applicationId.empty() || (sessionId.empty() && !viewId.empty())) {
+    return false;
+  }
+  if (viewId.empty()) {
+    viewName.clear();
+  }
+
+  std::unique_lock lock(_rumContextMutex);
+
+  if (!_rumApplicationId.empty() && _rumApplicationId != applicationId) {
+    return false;
+  }
+
+  const bool applicationChanged = _rumApplicationId.empty();
+  const bool sessionChanged = _currentSessionId != sessionId;
+  const bool hasCurrentView = !_currentRumView.view_id.empty();
+  const bool hasIncomingView = !viewId.empty();
+  const bool viewIdChanged = hasCurrentView != hasIncomingView ||
+                             (hasCurrentView && _currentRumView.view_id != viewId);
+  const bool viewNameChanged =
+      hasCurrentView && hasIncomingView && _currentRumView.view_name != viewName;
+
+  if (!applicationChanged && !sessionChanged && !viewIdChanged && !viewNameChanged) {
+    return true;
+  }
+
+  const bool completeView = hasCurrentView && (sessionChanged || viewIdChanged);
+  const bool completeSession = !_currentSessionId.empty() && sessionChanged;
+  if (completeView) {
+    _completedViewRecords.reserve(_completedViewRecords.size() + 1);
+  }
+  if (completeSession) {
+    _completedSessionRecords.reserve(_completedSessionRecords.size() + 1);
+  }
+
+  if (applicationChanged && _pProfileExporter != nullptr) {
+    _pProfileExporter->SetRumApplicationId(applicationId);
+  }
+
+  const int64_t nowMs = CurrentTimeMilliseconds();
+
+  if (completeView) {
+    RumViewRecord record;
+    record.timestamp_ms = _pendingViewStartMs;
+    record.duration_ms = nowMs - _pendingViewStartMs;
+    record.view_id = std::move(_currentRumView.view_id);
+    record.view_name = std::move(_currentRumView.view_name);
+    for (size_t i = 0; i < MaxViewVitalKind; ++i) {
+      record.vitals_ns[i] = _pendingVitalsNs[i].exchange(0, std::memory_order_relaxed);
+    }
+    _completedViewRecords.push_back(std::move(record));
+  }
+
+  if (completeSession) {
+    _completedSessionRecords.push_back(
+        {_sessionStartMs, nowMs - _sessionStartMs, std::move(_currentSessionId)}
+    );
+  }
+
+  if (applicationChanged) {
+    _rumApplicationId = std::move(applicationId);
+  }
+
+  if (sessionChanged) {
+    _currentSessionId = std::move(sessionId);
+    _sessionStartMs = _currentSessionId.empty() ? 0 : nowMs;
+  }
+
+  if (sessionChanged || viewIdChanged) {
+    _currentRumView.view_id = std::move(viewId);
+    _currentRumView.view_name = std::move(viewName);
+    _pendingViewStartMs = hasIncomingView ? nowMs : 0;
+    if (hasIncomingView && !completeView) {
+      for (auto& vital : _pendingVitalsNs) {
+        vital.store(0, std::memory_order_relaxed);
+      }
+    }
+  } else if (viewNameChanged) {
+    _currentRumView.view_name = std::move(viewName);
+  }
+
+  return true;
 }
 
 static std::string GenerateUuidV4() {

@@ -1029,6 +1029,7 @@ ddog_prof_LabelSetId ProfileExporter::CreateLabelSet(
 }
 
 void ProfileExporter::SetRumApplicationId(const std::string& applicationId) {
+  std::lock_guard lock(_rumApplicationIdMutex);
   _rumApplicationId = applicationId;
 }
 
@@ -1559,9 +1560,13 @@ bool ProfileExporter::PrepareAdditionalTags(ddog_Vec_Tag& tags, uint32_t profile
     return false;
   }
 
-  // Add RUM application ID tag (set once via SetRumApplicationId)
-  if (!_rumApplicationId.empty()) {
-    if (!AddSingleTag(tags, TAG_RUM_APPLICATION_ID, _rumApplicationId)) {
+  std::string rumApplicationId;
+  {
+    std::lock_guard lock(_rumApplicationIdMutex);
+    rumApplicationId = _rumApplicationId;
+  }
+  if (!rumApplicationId.empty()) {
+    if (!AddSingleTag(tags, TAG_RUM_APPLICATION_ID, rumApplicationId)) {
       return false;
     }
   }
