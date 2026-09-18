@@ -76,8 +76,7 @@ ProfileExporter::ProfileExporter(
     _exportEnabled =
         _pConfiguration->IsExportEnabled();  // Use dedicated export setting
     _apiKey = _pConfiguration->GetApiKey();
-    _agentMode = !_pConfiguration
-                      ->IsAgentless();  // Use agent mode unless agentless is specified
+    _agentMode = !_pConfiguration->IsAgentless();
   }
 }
 
