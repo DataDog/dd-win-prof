@@ -320,3 +320,60 @@ TEST_F(ProfileExporterExportTests, ExporterInitializesWithDefaultsAndExportEnabl
   // Explicit cleanup before destruction to avoid potential deadlocks
   exp->Cleanup();
 }
+
+// BuildRumTags is the tag-construction step extracted out of PrepareAdditionalTags
+// for testability (ddog_Tag is opaque, so we can't read entries back out of the
+// resulting ddog_Vec_Tag and have to pin the contract upstream of the push).
+
+TEST(ProfileExporterBuildRumTags, NoApplicationIdNoSessionsProducesEmptyList) {
+  auto tags = ProfileExporter::BuildRumTags("", {});
+  EXPECT_TRUE(tags.empty());
+}
+
+TEST(ProfileExporterBuildRumTags, ApplicationIdOnlyProducesSingleEntry) {
+  auto tags = ProfileExporter::BuildRumTags("app-uuid", {});
+  ASSERT_EQ(tags.size(), 1u);
+  EXPECT_EQ(tags[0].first, "rum.application_id");
+  EXPECT_EQ(tags[0].second, "app-uuid");
+}
+
+TEST(ProfileExporterBuildRumTags, SingleSessionEmitsOneSessionTag) {
+  auto tags = ProfileExporter::BuildRumTags("app-uuid", {"s1"});
+  ASSERT_EQ(tags.size(), 2u);
+  EXPECT_EQ(tags[0].first, "rum.application_id");
+  EXPECT_EQ(tags[0].second, "app-uuid");
+  EXPECT_EQ(tags[1].first, "rum.session_id");
+  EXPECT_EQ(tags[1].second, "s1");
+}
+
+TEST(ProfileExporterBuildRumTags, MultipleSessionsEmitOneEntryEach) {
+  auto tags = ProfileExporter::BuildRumTags("app-uuid", {"s1", "s2", "s3"});
+  ASSERT_EQ(tags.size(), 4u);
+  EXPECT_EQ(tags[0].first, "rum.application_id");
+  EXPECT_EQ(tags[0].second, "app-uuid");
+  // All three session entries reuse the same key and carry distinct values --
+  // this is the "repeated tag entries with the same key" multi-value shape.
+  EXPECT_EQ(tags[1].first, "rum.session_id");
+  EXPECT_EQ(tags[1].second, "s1");
+  EXPECT_EQ(tags[2].first, "rum.session_id");
+  EXPECT_EQ(tags[2].second, "s2");
+  EXPECT_EQ(tags[3].first, "rum.session_id");
+  EXPECT_EQ(tags[3].second, "s3");
+}
+
+TEST(ProfileExporterBuildRumTags, EmptyApplicationIdSuppressesAppEntryOnly) {
+  auto tags = ProfileExporter::BuildRumTags("", {"s1", "s2"});
+  ASSERT_EQ(tags.size(), 2u);
+  EXPECT_EQ(tags[0].first, "rum.session_id");
+  EXPECT_EQ(tags[0].second, "s1");
+  EXPECT_EQ(tags[1].first, "rum.session_id");
+  EXPECT_EQ(tags[1].second, "s2");
+}
+
+TEST(ProfileExporterBuildRumTags, EmptySessionIdsAreSkipped) {
+  auto tags = ProfileExporter::BuildRumTags("app-uuid", {"s1", "", "s2"});
+  ASSERT_EQ(tags.size(), 3u);
+  EXPECT_EQ(tags[0].first, "rum.application_id");
+  EXPECT_EQ(tags[1].second, "s1");
+  EXPECT_EQ(tags[2].second, "s2");
+}
