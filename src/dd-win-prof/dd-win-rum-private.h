@@ -17,6 +17,13 @@ typedef struct _RumViewValues {
 } RumViewValues;
 
 extern "C" {
+// Sets the process-level RUM application ID. The first non-empty value is retained;
+// later calls with a different value fail.
+DD_WIN_PROF_API bool SetRumApplicationId(const char* applicationId);
+
+// Sets the active RUM session ID. A null or empty value clears the session and view.
+DD_WIN_PROF_API bool SetRumSessionId(const char* sessionId);
+
 // Set stable RUM session context. Safe to call from any thread.
 // application_id: write-once per process. First non-empty value is stored
 // as a profile-level tag; subsequent calls with a different value return false.
