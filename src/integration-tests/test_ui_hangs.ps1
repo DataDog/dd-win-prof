@@ -1,3 +1,5 @@
+#Requires -Version 7.0
+
 # Integration test for UIApp UI-hang detection (Sleep / Wait / CPU).
 # Does NOT require an API key or network access -- validates local pprof output only.
 #

@@ -210,7 +210,7 @@ void StackSamplerLoop::WalltimeProfilingIteration() {
         pThreadInfo->SetLastWalltimeSampleTimestamp(thisSampleTimestamp);
     auto duration = ComputeWallTime(thisSampleTimestamp, prevSampleTimestamp);
 
-    // check if the thread is waiting and for for which reason
+    // check if the thread is waiting and for which reason
     auto [isWaiting, waitReason, failure] =
         OsSpecificApi::IsWaiting(pThreadInfo->GetOsThreadHandle());
     if (failure || !isWaiting) {

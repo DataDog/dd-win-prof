@@ -43,9 +43,8 @@ class ThreadInfo {
   inline std::chrono::nanoseconds SetLastWaitSampleTimestamp(
       std::chrono::nanoseconds timestamp
   ) {
-    auto prevValue = _lastWaitSampleTimestamp;
-    _lastWaitSampleTimestamp = timestamp;
-    return prevValue;
+    return _lastWaitSampleTimestamp.exchange(
+      timestamp, std::memory_order_relaxed);
   }
 
   inline bool IsHangDetected() const {
@@ -91,7 +90,7 @@ class ThreadInfo {
   // --> should be reset to 0 when the thread is no more waiting
   //     (i.e. CPU profiler and lock detection part of walltime profiler)
   // since we don't have the start/ end time of the wait, we "jump" from wait to wait
-  std::chrono::nanoseconds _lastWaitSampleTimestamp;
+  std::atomic<std::chrono::nanoseconds> _lastWaitSampleTimestamp;
 
   // set when a UI hang has been detected for this thread and reset once the
   // thread is responsive again

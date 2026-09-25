@@ -8,6 +8,7 @@ Unlike the unit tests in `src/Tests/` (C++ / Google Test), these tests exercise 
 
 - **Runner.exe** built (Debug or Release) -- see [`src/Runner/README.md`](../Runner/README.md)
 - **UIApp.exe** built (only for the UI-hang test) -- `cmake --build build --config Debug --target UIApp`
+- **PowerShell 7.0+** (`pwsh`, only for the UI-hang test); Windows PowerShell 5.1 is not supported by that test
 - **Python 3.9+** with pip, accessible via `python` or `py -3` (Windows launcher)
 
 ### Python dependencies
@@ -57,8 +58,8 @@ pairs exist on `UIApp_Main` with the expected reason stack and durations, and no
 ordinary wait sample overlaps a detected hang. **This is what CI runs.**
 
 ```powershell
-.\test_ui_hangs.ps1 -Config Debug -KeepArtifacts
-.\test_ui_hangs.ps1 -Config Release
+pwsh .\test_ui_hangs.ps1 -Config Debug -KeepArtifacts
+pwsh .\test_ui_hangs.ps1 -Config Release
 ```
 
 | Parameter | Default | Description |
