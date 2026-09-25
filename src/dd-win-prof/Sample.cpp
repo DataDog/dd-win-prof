@@ -12,7 +12,7 @@ size_t Sample::ValuesCount = 16;  // should be set BEFORE any sample gets create
 Sample::Sample(
     std::chrono::nanoseconds timestamp,
     std::shared_ptr<ThreadInfo> threadInfo,
-    uint64_t* pFrames,
+    const uint64_t* pFrames,
     size_t framesCount
 )
     : _timestamp(timestamp),

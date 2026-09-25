@@ -148,6 +148,35 @@ Call [StartProfiler](./src/dd-win-prof/dd-win-prof.h) when ready; [StopProfiler]
 **NOTE:** Method names are obfuscated by default. Add `DD_PROFILING_INTERNAL_SYMBOLIZE_CALLSTACKS=1` to enable symbolization.
 
 
+## Window hang monitoring
+
+After starting the profiler and creating the window, call
+`MonitorWindowHangs(hwnd)` and check its boolean result. The profiler monitors
+one window in the current process, on its owning thread. That thread must
+already be tracked by the profiler DLL, which should be loaded at process startup.
+No per-frame call or custom window-message handler is required.
+
+The watchdog posts a probe approximately every 32 ms. A probe not removed by the
+message pump within 96 ms triggers a hang detection. These timings are fixed.
+The detection stack is captured by briefly suspending the window thread.
+While a detected hang is waiting, ordinary wall-time sampling reuses that stack
+without another suspension and does not add duplicate wait time. These wall-time
+samples approximate the stack during the hang. Runnable wall-time and CPU sampling
+continue normally. Recovery reuses the detection stack rather than capturing an
+unrelated stack after the thread resumes processing messages.
+
+Call `StopMonitoringWindowHangs()` before destroying or replacing the window.
+It is safe to call repeatedly, leaves profiling running, and permits registering
+another window. `StopProfiler()` also unregisters the window; after restarting
+profiling, call `MonitorWindowHangs()` again.
+
+This detects message-pump stalls, not frame progress. A separate render thread
+can stall while the window thread keeps processing messages. If the window thread
+waits for rendering, the captured stack shows that wait, not the render thread's
+root cause. Intentional pauses in message processing can also trigger detection.
+
+See [UIApp](src/UIApp/UIApp.cpp) for a Win32 integration example.
+
 ## How to build dd-win-prof
 
 ### Prerequisites

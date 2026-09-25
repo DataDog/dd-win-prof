@@ -48,12 +48,31 @@ class ThreadInfo {
     return prevValue;
   }
 
-  inline bool IsHangDetected() const {
-    return _hangDetected.load(std::memory_order_acquire);
+  using HangCallstack = std::vector<uint64_t>;
+
+  std::shared_ptr<const HangCallstack> GetHangCallstack() const {
+    return _hangCallstack.load();
   }
 
-  inline bool SetHangDetected(bool value) {
-    return _hangDetected.exchange(value, std::memory_order_acq_rel);
+  void SetHangCallstack(std::shared_ptr<const HangCallstack> callstack) {
+    _hangCallstack.store(std::move(callstack));
+  }
+
+  void EndHang(std::chrono::nanoseconds timestamp) {
+    _lastHangEndTimestamp.store(timestamp);
+    _hangCallstack.store(nullptr);
+  }
+
+  std::chrono::nanoseconds ComputeWaitDuration(
+      std::chrono::nanoseconds timestamp, std::chrono::nanoseconds samplingPeriod
+  ) {
+    auto previous = SetLastWaitSampleTimestamp(timestamp);
+    auto duration = previous == 0ns ? samplingPeriod : timestamp - previous;
+    auto hangEnd = _lastHangEndTimestamp.load();
+    if (hangEnd != 0ns) {
+      duration = (std::min)(duration, timestamp - hangEnd);
+    }
+    return (std::max)(0ns, duration);
   }
 
   inline bool GetThreadName(std::string& name) {
@@ -93,9 +112,11 @@ class ThreadInfo {
   // since we don't have the start/ end time of the wait, we "jump" from wait to wait
   std::chrono::nanoseconds _lastWaitSampleTimestamp;
 
-  // set when a UI hang has been detected for this thread and reset once the
-  // thread is responsive again
-  std::atomic<bool> _hangDetected{false};
+  // Published after the detection capture; reused without suspending the thread.
+  std::atomic<std::shared_ptr<const HangCallstack>> _hangCallstack;
+  // Only the sampler modifies _lastWaitSampleTimestamp. The watchdog publishes
+  // recovery separately to exclude hang intervals from subsequent wait samples.
+  std::atomic<std::chrono::nanoseconds> _lastHangEndTimestamp{0ns};
 
   // thread name, if available
   bool _hasThreadName = false;

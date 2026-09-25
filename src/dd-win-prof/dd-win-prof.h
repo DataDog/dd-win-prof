@@ -58,8 +58,12 @@ DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig* pSettings);
 // Start profiling manually (returns false if already started or explicitly disabled)
 DD_WIN_PROF_API bool StartProfiler();
 
-// Start automatic detection of UI hangs
+// Monitor message-pump responsiveness on the window's owning thread.
+// Requires a started profiler; only one window can be monitored at a time.
 DD_WIN_PROF_API bool MonitorWindowHangs(HWND hWnd);
+
+// Unregister the window without stopping profiling. Safe to call repeatedly.
+DD_WIN_PROF_API void StopMonitoringWindowHangs();
 
 // Stop profiling manually (safe to call even if not started)
 DD_WIN_PROF_API void StopProfiler();

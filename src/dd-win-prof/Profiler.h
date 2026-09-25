@@ -26,6 +26,7 @@ class Profiler : public IRumViewContextProvider,
 
   bool StartProfiling();
   bool MonitorWindowHangs(HWND hWnd);
+  void StopMonitoringWindowHangs();
   void StopProfiling(bool shutdownOngoing = false);
 
   bool AddCurrentThread();
@@ -93,6 +94,7 @@ class Profiler : public IRumViewContextProvider,
   bool InitializeWindowHangs();
   UINT _hangProbeMessageId = 0;
   std::unique_ptr<UiHangDetector> _pUiHangDetector = nullptr;
+  std::mutex _uiHangMutex;
 
   // RUM view + session context (dynamic, protected by reader/writer lock)
   mutable std::shared_mutex _rumContextMutex;

@@ -130,6 +130,8 @@ foreach ($kind in $kinds) {
     # CPU sampling does not independently reset wait state for Sleep/Wait and
     # make the no-overlap check flaky.
     $psi.EnvironmentVariables["DD_INTERNAL_PROFILING_EXPORT_ENABLED"] = "0"
+    # Exercise hangs that span profile exports while keeping all output local.
+    $psi.EnvironmentVariables["DD_PROFILING_UPLOAD_PERIOD"] = "2"
     $psi.EnvironmentVariables["DD_PROFILING_WALLTIME_ENABLED"] = "1"
     $psi.EnvironmentVariables["DD_INTERNAL_PROFILING_SAMPLING_RATE"] = "$SamplingMs"
     $psi.EnvironmentVariables["DD_INTERNAL_PROFILING_WALLTIME_THREADS_THRESHOLD"] = "64"

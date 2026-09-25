@@ -71,6 +71,13 @@ DD_WIN_PROF_API bool MonitorWindowHangs(HWND hWnd) {
   return profiler->MonitorWindowHangs(hWnd);
 }
 
+DD_WIN_PROF_API void StopMonitoringWindowHangs() {
+  auto profiler = Profiler::GetInstance();
+  if (profiler != nullptr) {
+    profiler->StopMonitoringWindowHangs();
+  }
+}
+
 DD_WIN_PROF_API void StopProfiler() {
   auto profiler = Profiler::GetInstance();
   if (profiler == nullptr) {

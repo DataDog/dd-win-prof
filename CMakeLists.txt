@@ -11,6 +11,7 @@ set(WINDOWSPROFILER_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 # Determine if this is the top-level project or included as a dependency
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set(DD_WIN_PROF_IS_TOPLEVEL ON)
+    enable_testing()
 else()
     set(DD_WIN_PROF_IS_TOPLEVEL OFF)
 endif()

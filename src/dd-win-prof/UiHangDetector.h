@@ -12,9 +12,6 @@
 
 class UiHangDetector {
  public:
-  // needed by the global Windows Hook callback
-  static UiHangDetector* _this;
-
   UiHangDetector(
       UINT hangProbeMessageId,
       UiHangProvider* pHangProvider,
@@ -27,8 +24,18 @@ class UiHangDetector {
   void ProcessHook(int code, WPARAM wParam, LPARAM lParam);
 
  private:
+  friend class UiHangTestPeer;
+
+  static UiHangDetector* _this;
+  static std::mutex _instanceMutex;
+  static std::atomic<WPARAM> _nextProbeId;
+  static LRESULT CALLBACK GetMsgProc(int code, WPARAM wParam, LPARAM lParam);
+
   void WatchdogLoop();
   bool PostProbeMessage();
+  bool TryDetectHang(std::chrono::nanoseconds now);
+  void EndHang(std::chrono::nanoseconds timestamp);
+  std::shared_ptr<const ThreadInfo::HangCallstack> CaptureHangCallstack();
   void AddHangSample(
       bool startHang,
       std::chrono::nanoseconds timestamp,
@@ -46,6 +53,7 @@ class UiHangDetector {
   static const int MaxFrameCount = dd_win_prof::kMaxStackDepth;
 
   UINT _hangProbeMessageId;
+  std::atomic<WPARAM> _probeId{0};
   HWND _hWnd;
   UiHangProvider* _pHangProvider = nullptr;
   IRumViewContextProvider* _pRumViewContextProvider = nullptr;
@@ -56,8 +64,9 @@ class UiHangDetector {
   HANDLE _stopEvent;
   std::unique_ptr<std::thread> _pWatchdogThread = nullptr;
 
-  // read/write by the watchdog thread and write by the hook
-  std::atomic<bool> _isProcessed;
+  // Only held for probe acknowledgment and the detection transition, never unwinding.
+  std::mutex _probeMutex;
+  std::shared_ptr<const ThreadInfo::HangCallstack> _hangCallstack;
 
   // read/write only by the watchdog thread (not touched by the hook)
   WatchdogState _state;
@@ -69,7 +78,7 @@ class UiHangDetector {
   std::chrono::nanoseconds _postProbeTimestamp;
 
   // timestamp when a tick happened still probing but without hang
-  std::chrono::nanoseconds _lastNoHangTimestamp;
+  std::chrono::nanoseconds _lastNoHangTimestamp{0ns};
 
   // timestamp when the hang was detected
   std::chrono::nanoseconds _hangDetectionTimestamp;

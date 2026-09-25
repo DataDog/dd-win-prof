@@ -54,7 +54,9 @@ Exercises the UI hang detector via **UIApp** in headless automation mode. For
 each hang kind (Sleep, Wait, CPU) it launches `UIApp.exe`, waits for it to
 finish, and validates the pprof with `validate_ui_hangs.py`: `UIHang=true/false`
 pairs exist on `UIApp_Main` with the expected reason stack and durations, and no
-ordinary wait sample overlaps a detected hang. **This is what CI runs.**
+ordinary wait sample overlaps a detected hang. Wall-time must cover the hang
+without disappearing or double-counting. Profiles export every two seconds to
+exercise hangs across export boundaries. **This is what CI runs.**
 
 ```powershell
 .\test_ui_hangs.ps1 -Config Debug -KeepArtifacts
@@ -68,6 +70,11 @@ ordinary wait sample overlaps a detected hang. **This is what CI runs.**
 | `-Cycles` | `2` | Number of hangs per kind |
 | `-OutputRoot` | `%TEMP%\dd-ui-hang-test` | Parent folder; each run creates a `yyyyMMdd_HHmmss` subfolder holding per-kind `pprof`/`logs` |
 | `-KeepArtifacts` | *(off)* | Keep artifacts even on success (kept automatically on failure) |
+
+For a full local build, native tests, and short/long hang validation, run
+`test_ui_hang_suite.ps1 -Config Release`. It installs Python dependencies into an
+isolated environment under `build`. See [test-instructions.md](../../test-instructions.md)
+for sync and Windows worker commands.
 
 For a quick visual smoke run without validation:
 

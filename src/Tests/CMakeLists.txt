@@ -8,6 +8,7 @@ add_executable(Tests
     RumContextTests.cpp
     SymbolicationTests.cpp
     ThreadListTests.cpp
+    UiHangTests.cpp
     UuidTests.cpp
     pch.h
     targetver.h

@@ -33,10 +33,17 @@ class StackSamplerLoop {
   void Stop();
 
  private:
+  friend class UiHangTestPeer;
+
   void MainLoop();
   void MainLoopIteration();
   void CpuProfilingIteration();
   void WalltimeProfilingIteration();
+  bool CollectHungThreadWallSample(
+      const std::shared_ptr<ThreadInfo>& thread,
+      std::chrono::nanoseconds timestamp,
+      std::chrono::nanoseconds duration
+  );
   void CollectOneThreadSample(
       std::shared_ptr<ThreadInfo>& pThreadInfo,
       std::chrono::nanoseconds thisSampleTimestamp,

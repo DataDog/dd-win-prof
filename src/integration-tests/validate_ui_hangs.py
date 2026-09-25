@@ -15,6 +15,7 @@ For a directory of .pprof files captured from a single hang kind
   * no ordinary wait sample (no UIHang label, wait-time > 0) overlaps the
     interior of a detected hang interval -- i.e. the profiler suppresses
     ordinary wait accounting while a hang is in progress;
+  * wall-time covers each hang without disappearing or being counted twice;
   * for the cpu kind, positive cpu-time is attributed during each hang.
 
 Usage:
@@ -239,6 +240,28 @@ def validate(pprof_dir, kind, cycles, duration_ms, sampling_ms):
                     "ordinary wait sample overlaps a detected hang interval "
                     f"[{protected_start}, {protected_end}]: {_describe(wait)}"
                 )
+
+    # -- Wall-time coverage during hangs --------------------------------------
+    wall_samples = [
+        s for s in ui_samples
+        if s.timestamp_ns is not None and s.values.get("wall-time", 0) > 0
+    ]
+    for detected, recovered in matching:
+        start = detected.timestamp_ns + grace_ns
+        end = recovered.timestamp_ns - grace_ns
+        if end <= start:
+            raise ValidationError("hang is too short to validate wall-time coverage")
+        wall_ns = sum(
+            max(0, min(s.timestamp_ns, end)
+                - max(s.timestamp_ns - s.values["wall-time"], start))
+            for s in wall_samples
+        )
+        coverage = wall_ns / (end - start)
+        if not 0.8 <= coverage <= 1.2:
+            raise ValidationError(
+                f"wall-time coverage during {kind} hang is {coverage:.1%}, "
+                f"expected 80%-120% for [{start}, {end}]"
+            )
 
     # -- CPU attribution during CPU hangs -------------------------------------
     if kind == "cpu":

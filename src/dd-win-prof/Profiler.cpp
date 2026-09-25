@@ -111,6 +111,10 @@ bool Profiler::StartProfiling() {
 }
 
 bool Profiler::MonitorWindowHangs(HWND hWnd) {
+  std::lock_guard<std::mutex> lock(_uiHangMutex);
+  if (!IsStarted()) {
+    return false;
+  }
   if (_hangProbeMessageId == 0) {
     Log::Warn(
         "Probe message could not be registered: impossible to monitor window hangs."
@@ -134,6 +138,11 @@ bool Profiler::MonitorWindowHangs(HWND hWnd) {
   return success;
 }
 
+void Profiler::StopMonitoringWindowHangs() {
+  std::lock_guard<std::mutex> lock(_uiHangMutex);
+  _pUiHangDetector.reset();
+}
+
 void Profiler::StopProfiling(bool shutdownOngoing) {
   // avoid being stopped multiple times
   if (!_isStarted) {
@@ -150,9 +159,7 @@ void Profiler::StopProfiling(bool shutdownOngoing) {
   }
 
   // Stop the UI hang detector first
-  if (_pUiHangDetector != nullptr) {
-    _pUiHangDetector->Stop();
-  }
+  StopMonitoringWindowHangs();
 
   if (_pStackSamplerLoop != nullptr) {
     _pStackSamplerLoop->Stop();

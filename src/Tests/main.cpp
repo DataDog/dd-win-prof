@@ -48,8 +48,5 @@ int main(int argc, char** argv) {
   std::cout << "\n==================================================" << std::endl;
   std::cout << "Test suite completed with result: "
             << (result == 0 ? "SUCCESS" : "FAILURE") << std::endl;
-  std::cout << "Press any key to continue..." << std::endl;
-  std::cin.get();
-
   return result;
 }

@@ -224,28 +224,44 @@ void StackSamplerLoop::WalltimeProfilingIteration() {
           PROFILING_TYPE::WallTime,
           WAIT_REASON_NONE
       );
-    } else {
-      // in case of a hung thread, don't emit wait samples
-      if (!pThreadInfo->IsHangDetected()) {
-        // hangs endings are taken into account because otherwise, we overcount the
-        // wait time. For example, a long hang happened between two wait samples, so the
-        // next wait duration would count the duration of the hang as well.
-        //
-        // get callstack and create sample with wait information
-        CollectOneThreadSample(
-            pThreadInfo,
-            thisSampleTimestamp,
-            duration,
-            PROFILING_TYPE::WallTime,
-            waitReason
-        );
-      }
+    } else if (!CollectHungThreadWallSample(
+                   pThreadInfo, thisSampleTimestamp, duration
+               )) {
+      CollectOneThreadSample(
+          pThreadInfo,
+          thisSampleTimestamp,
+          duration,
+          PROFILING_TYPE::WallTime,
+          waitReason
+      );
     }
 
     pThreadInfo.reset();
     i++;
 
   } while (i < sampledThreadsCount && !_shutdownRequested);
+}
+
+bool StackSamplerLoop::CollectHungThreadWallSample(
+    const std::shared_ptr<ThreadInfo>& thread,
+    std::chrono::nanoseconds timestamp,
+    std::chrono::nanoseconds duration
+) {
+  auto callstack = thread->GetHangCallstack();
+  if (!callstack) {
+    return false;
+  }
+
+  // Preserve each skipped wall interval without another suspension. Wait time is
+  // accounted by the hang provider, not by these cached-stack samples.
+  Sample sample(timestamp, thread, callstack->data(), callstack->size());
+  RumViewContext rumView;
+  if (_pRumViewContextProvider != nullptr &&
+      _pRumViewContextProvider->GetCurrentViewContext(rumView)) {
+    sample.SetRumViewContext(std::move(rumView));
+  }
+  _pWallTimeProvider->Add(std::move(sample), duration, 0ns, WAIT_REASON_NONE);
+  return true;
 }
 
 void StackSamplerLoop::CollectOneThreadSample(
@@ -306,17 +322,8 @@ void StackSamplerLoop::CollectOneThreadSample(
 
       // check if the thread is waiting
       if (waitingReason != WAIT_REASON_NONE) {
-        // compute the "current" wait duration
-        // since we don't have the start/ end time of the wait, we "jump" from wait to
-        // wait
-        auto lastWaitTimestamp =
-            pThreadInfo->SetLastWaitSampleTimestamp(thisSampleTimestamp);
-        if (lastWaitTimestamp != 0ns) {
-          waitDuration = thisSampleTimestamp - lastWaitTimestamp;
-        } else {
-          waitDuration = _samplingPeriod;  // at least one sampling period has elapsed
-                                           // since the last wait sample
-        }
+        waitDuration =
+            pThreadInfo->ComputeWaitDuration(thisSampleTimestamp, _samplingPeriod);
       }
 
       Sample sample = Sample(thisSampleTimestamp, pThreadInfo, frames, framesCount);

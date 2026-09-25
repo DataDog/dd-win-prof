@@ -22,7 +22,7 @@ class Sample {
   Sample(
       std::chrono::nanoseconds timestamp,
       std::shared_ptr<ThreadInfo> threadInfo,
-      uint64_t* pFrames,
+      const uint64_t* pFrames,
       size_t framesCount
   );
 
