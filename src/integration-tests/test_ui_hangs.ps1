@@ -72,10 +72,19 @@ function Invoke-Validator([string]$pprofDir, [string]$kind) {
         "--duration-ms", "$HangDurationMs",
         "--sampling-ms", "$SamplingMs"
     )
-    if ($pythonCmd -eq "py -3") {
-        $output = & py -3 @validatorArgs 2>&1
-    } else {
-        $output = & $pythonCmd @validatorArgs 2>&1
+    # Temporarily relax ErrorActionPreference so stderr from the Python
+    # process (e.g. protobuf generation logs) is not treated as a terminating
+    # error under Windows PowerShell 5.1.
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        if ($pythonCmd -eq "py -3") {
+            $output = & py -3 @validatorArgs 2>&1
+        } else {
+            $output = & $pythonCmd @validatorArgs 2>&1
+        }
+    } finally {
+        $ErrorActionPreference = $prevEAP
     }
     $code = $LASTEXITCODE
     $output | ForEach-Object { Write-Host "    $_" }
