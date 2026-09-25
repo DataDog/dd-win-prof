@@ -38,6 +38,10 @@ bool Profiler::StartProfiling() {
     return false;
   }
 
+  if (!_pConfiguration->ValidateTransportConfig()) {
+    return false;
+  }
+
   Log::Info("Starting profiler...");
 
   auto valueTypeProvider = SampleValueTypeProvider();
