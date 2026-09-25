@@ -101,29 +101,36 @@ foreach ($kind in $kinds) {
     $psi.UseShellExecute = $false
     $psi.WorkingDirectory = Split-Path -Parent $uiApp
 
-    foreach ($arg in @(
+    # Build the argument string manually for Windows PowerShell 5.1
+    # compatibility (ProcessStartInfo.ArgumentList is .NET 5+ only).
+    $argList = @(
         "--auto-hang", $kind,
         "--hang-duration-ms", "$HangDurationMs",
         "--hang-cycles", "$Cycles",
         "--pprofdir", $pprofDir,
         "--symbolize"
-    )) { $psi.ArgumentList.Add($arg) }
+    )
+    $argParts = @()
+    foreach ($a in $argList) {
+        $argParts += '"' + ($a -replace '"', '""') + '"'
+    }
+    $psi.Arguments = ($argParts -join ' ')
 
     # No backend upload; local debug pprof only. Small sampling period so short
     # hangs still yield samples. CPU profiling only for the CPU kind, so that
     # CPU sampling does not independently reset wait state for Sleep/Wait and
     # make the no-overlap check flaky.
-    $psi.Environment["DD_INTERNAL_PROFILING_EXPORT_ENABLED"] = "0"
-    $psi.Environment["DD_PROFILING_WALLTIME_ENABLED"] = "1"
-    $psi.Environment["DD_INTERNAL_PROFILING_SAMPLING_RATE"] = "$SamplingMs"
-    $psi.Environment["DD_INTERNAL_PROFILING_WALLTIME_THREADS_THRESHOLD"] = "64"
-    $psi.Environment["DD_TRACE_LOG_DIRECTORY"] = $logDir
-    $psi.Environment["DD_PROFILING_CPU_ENABLED"] = if ($kind -eq "cpu") { "1" } else { "0" }
+    $psi.EnvironmentVariables["DD_INTERNAL_PROFILING_EXPORT_ENABLED"] = "0"
+    $psi.EnvironmentVariables["DD_PROFILING_WALLTIME_ENABLED"] = "1"
+    $psi.EnvironmentVariables["DD_INTERNAL_PROFILING_SAMPLING_RATE"] = "$SamplingMs"
+    $psi.EnvironmentVariables["DD_INTERNAL_PROFILING_WALLTIME_THREADS_THRESHOLD"] = "64"
+    $psi.EnvironmentVariables["DD_TRACE_LOG_DIRECTORY"] = $logDir
+    $psi.EnvironmentVariables["DD_PROFILING_CPU_ENABLED"] = if ($kind -eq "cpu") { "1" } else { "0" }
 
     $proc = [System.Diagnostics.Process]::Start($psi)
     $exited = $proc.WaitForExit($processTimeoutMs)
     if (-not $exited) {
-        try { $proc.Kill($true) } catch {}
+        try { $proc.Kill() } catch {}
         Assert $false "[$kind] UIApp exited within ${processTimeoutMs}ms (timed out)"
         continue
     }
