@@ -1,0 +1,29 @@
+// Unless explicitly stated otherwise all files in this repository are licensed under
+// the Apache 2 License. This product includes software developed at Datadog
+// (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
+
+#pragma once
+
+#include "CollectorBase.h"
+#include "SampleValueTypeProvider.h"
+#include "pch.h"
+
+class UiHangProvider : public CollectorBase {
+ public:
+  UiHangProvider(SampleValueTypeProvider& valueTypeProvider);
+
+  inline void Add(Sample&& sample, std::chrono::nanoseconds hangDuration, bool hang) {
+    auto offsets = GetValueOffsets();
+    sample.AddValue(0, offsets[0]);  // no wall time for hang sample
+    sample.AddValue(hangDuration.count(), offsets[1]);
+
+    // the "UIHang" label (true/false) is attached at export time in ProfileExporter
+    sample.SetUiHangSampleKind(
+        hang ? UiHangSampleKind::Detected : UiHangSampleKind::Recovered
+    );
+
+    CollectorBase::Add(std::move(sample));
+  }
+
+  static std::vector<SampleValueType> SampleTypeDefinitions;
+};

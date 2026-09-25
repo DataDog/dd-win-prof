@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <atomic>
+
 #include "OpSysTools.h"
 #include "ScopedHandle.h"
 #include "pch.h"
@@ -41,9 +43,16 @@ class ThreadInfo {
   inline std::chrono::nanoseconds SetLastWaitSampleTimestamp(
       std::chrono::nanoseconds timestamp
   ) {
-    auto prevValue = _lastWaitSampleTimestamp;
-    _lastWaitSampleTimestamp = timestamp;
-    return prevValue;
+    return _lastWaitSampleTimestamp.exchange(
+      timestamp, std::memory_order_relaxed);
+  }
+
+  inline bool IsHangDetected() const {
+    return _hangDetected.load(std::memory_order_acquire);
+  }
+
+  inline bool SetHangDetected(bool value) {
+    return _hangDetected.exchange(value, std::memory_order_acq_rel);
   }
 
   inline bool GetThreadName(std::string& name) {
@@ -81,7 +90,11 @@ class ThreadInfo {
   // --> should be reset to 0 when the thread is no more waiting
   //     (i.e. CPU profiler and lock detection part of walltime profiler)
   // since we don't have the start/ end time of the wait, we "jump" from wait to wait
-  std::chrono::nanoseconds _lastWaitSampleTimestamp;
+  std::atomic<std::chrono::nanoseconds> _lastWaitSampleTimestamp;
+
+  // set when a UI hang has been detected for this thread and reset once the
+  // thread is responsive again
+  std::atomic<bool> _hangDetected{false};
 
   // thread name, if available
   bool _hasThreadName = false;

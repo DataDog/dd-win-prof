@@ -271,7 +271,7 @@ See [`src/Runner/README.md`](src/Runner/README.md) for full CLI reference and ex
 
 ### Optional: Run Integration Tests
 
-Integration tests exercise the full profiling pipeline (Runner execution, pprof output, log validation). They require **Python 3.9+** with a few packages.
+Integration tests exercise the full profiling pipeline (Runner execution, pprof output, log validation). They require **Python 3.9+** with a few packages. The UI-hang test additionally requires **PowerShell 7.0+** (`pwsh`); Windows PowerShell 5.1 is not supported by that test.
 
 ```powershell
 # Install Python dependencies (one-time)
