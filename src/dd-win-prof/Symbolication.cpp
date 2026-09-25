@@ -77,6 +77,10 @@ std::optional<CachedSymbolInfo> Symbolication::SymbolicateAndIntern(
   IMAGEHLP_MODULE64 moduleInfo = {0};
   moduleInfo.SizeOfStruct = sizeof(IMAGEHLP_MODULE64);
 
+  uint64_t moduleCacheKey = 0;
+  bool moduleSymbolLoadAttempted = false;
+  bool moduleHasFullSymbols = false;
+
   if (SymGetModuleInfo64(GetCurrentProcess(), address, &moduleInfo)) {
     // Get or create cached module information
     auto moduleInfoOpt = GetOrCreateModuleInfo(
@@ -92,6 +96,10 @@ std::optional<CachedSymbolInfo> Symbolication::SymbolicateAndIntern(
       result.BuildIdId = cachedModule.BuildIdId;
       result.ModuleBaseAddress = cachedModule.ModuleBaseAddress;
       result.ModuleSize = cachedModule.ModuleSize;
+      moduleSymbolLoadAttempted = cachedModule.symbolLoadAttempted;
+      moduleHasFullSymbols = cachedModule.hasFullSymbols;
+      moduleCacheKey =
+          ComputeModuleCacheKey(moduleInfo.BaseOfImage, moduleInfo.ImageSize);
 
       if (result.ModuleBaseAddress != 0 && result.ModuleSize != 0) {
         if (address < result.ModuleBaseAddress ||
@@ -122,8 +130,48 @@ std::optional<CachedSymbolInfo> Symbolication::SymbolicateAndIntern(
     return result;
   }
 
+  // Skip expensive SymFromAddr if we already know this module only has export
+  // symbols (no PDB). SymFromAddr triggers SymLoadModuleExW -> SymFindFileInPath
+  // -> GetSymLoadError on every call for such modules, even when it succeeds
+  // (returning export symbols). This is extremely expensive.
+  if (moduleSymbolLoadAttempted && !moduleHasFullSymbols) {
+    result.FunctionNameId = _emptyStringId;
+    result.isValid = true;
+    return result;
+  }
+
   DWORD64 displacement64 = 0;
   if (SymFromAddr(GetCurrentProcess(), address, &displacement64, pSymbol)) {
+    // After the first SymFromAddr call for a module, check what symbol type
+    // was actually loaded. If it's only exports (no PDB), record that so we
+    // skip future expensive calls for other addresses in the same module.
+    if (!moduleSymbolLoadAttempted && moduleCacheKey != 0) {
+      auto it = _moduleCache.find(moduleCacheKey);
+      if (it != _moduleCache.end()) {
+        it->second.symbolLoadAttempted = true;
+
+        // Re-query module info to see what DbgHelp actually loaded
+        IMAGEHLP_MODULE64 updatedModuleInfo = {0};
+        updatedModuleInfo.SizeOfStruct = sizeof(IMAGEHLP_MODULE64);
+        if (SymGetModuleInfo64(GetCurrentProcess(), address, &updatedModuleInfo)) {
+          // SymPdb, SymDia = full symbols; SymExport, SymNone, SymDeferred = no PDB
+          it->second.hasFullSymbols =
+              (updatedModuleInfo.SymType == SymPdb ||
+               updatedModuleInfo.SymType == SymDia);
+          if (!it->second.hasFullSymbols) {
+            LogOnce(
+                Debug,
+                "Module '",
+                updatedModuleInfo.ModuleName,
+                "' has no full symbols (SymType=",
+                static_cast<int>(updatedModuleInfo.SymType),
+                "), skipping SymFromAddr for future addresses"
+            );
+          }
+        }
+      }
+    }
+
     // Intern function name
     ddog_CharSlice functionNameSlice = {pSymbol->Name, strlen(pSymbol->Name)};
     auto functionNameResult =
@@ -136,7 +184,7 @@ std::optional<CachedSymbolInfo> Symbolication::SymbolicateAndIntern(
     result.FunctionNameId = functionNameResult.ok;
     result.displacement = static_cast<uint64_t>(displacement64);
 
-    // Try to get line information
+    // Try to get line information (only worthwhile if we have full symbols)
     IMAGEHLP_LINE64 line = {0};
     line.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
     DWORD displacement32 = 0;
@@ -153,8 +201,10 @@ std::optional<CachedSymbolInfo> Symbolication::SymbolicateAndIntern(
       // Note: If file name interning fails, we still return the function symbol
     }
   } else {
-    // SymFromAddr failed - address not found, return unknown symbol
-    // Note: module info was already populated above if available
+    // SymFromAddr failed for this specific address (could be a gap/header region).
+    // Do NOT mark the module — other addresses may still resolve. The module-level
+    // symbolLoadAttempted flag is only set in the success path where we can
+    // reliably check SymType.
     result.FunctionNameId = _emptyStringId;
   }
 
@@ -165,6 +215,12 @@ std::optional<CachedSymbolInfo> Symbolication::SymbolicateAndIntern(
 bool Symbolication::RefreshModules() {
   if (!_isInitialized) return false;
 
+  // Clear symbol load flags to allow retry after refresh
+  for (auto& entry : _moduleCache) {
+    entry.second.symbolLoadAttempted = false;
+    entry.second.hasFullSymbols = false;
+  }
+
   // This will refresh the module list by re-enumerating all loaded modules
   return SymRefreshModuleList(GetCurrentProcess()) != FALSE;
 }
@@ -172,7 +228,11 @@ bool Symbolication::RefreshModules() {
 bool Symbolication::InitializeSymbolHandler() {
   // Set symbol options for better debugging
   // todo: does order matter between init and set options ?
-  DWORD options = SYMOPT_LOAD_LINES | SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS;
+  // Note: SYMOPT_DEFERRED_LOADS is intentionally omitted. With deferred loads,
+  // SymFromAddr triggers SymLoadModuleExW -> SymFindFileInPath -> GetSymLoadError
+  // on every call for modules without PDB symbols, which is extremely expensive.
+  // Loading all symbols upfront at SymInitialize avoids this repeated cost.
+  DWORD options = SYMOPT_LOAD_LINES | SYMOPT_UNDNAME;
 #ifdef _DEBUG
   // Enable debug output only in debug builds
   options |= SYMOPT_DEBUG;
