@@ -28,6 +28,13 @@ Profiler::~Profiler() {
 }
 
 bool Profiler::StartProfiling() {
+  std::lock_guard<std::mutex> lock(_lifecycleMutex);
+
+  if (_isStarted.load(std::memory_order_relaxed)) {
+    Log::Warn("Profiler is already running.");
+    return false;
+  }
+
   // no needed to look at env var to enable profiler
   // --> used only as kill switch to disable it
   if (_pConfiguration->IsProfilerExplicitlyDisabled()) {
@@ -43,6 +50,11 @@ bool Profiler::StartProfiling() {
   }
 
   Log::Info("Starting profiler...");
+
+  // ThreadInfo objects live for the lifetime of the process. Clear the
+  // previous session's timestamps, hang marker, CPU baseline, and sampler
+  // iterators before creating a new sampling loop.
+  _pThreadList->ResetProfilingState();
 
   auto valueTypeProvider = SampleValueTypeProvider();
 
@@ -74,6 +86,11 @@ bool Profiler::StartProfiling() {
     Log::Error(
         "Failed to initialize profile exporter: ", _pProfileExporter->GetLastError()
     );
+    _pProfileExporter.reset();
+    _pStackSamplerLoop.reset();
+    _pUiHangProvider.reset();
+    _pCpuWallTimeProvider.reset();
+    _pCpuTimeProvider.reset();
     return false;
   }
 
@@ -115,6 +132,13 @@ bool Profiler::StartProfiling() {
 }
 
 bool Profiler::MonitorWindowHangs(HWND hWnd) {
+  std::lock_guard<std::mutex> lock(_lifecycleMutex);
+
+  if (!_isStarted.load(std::memory_order_relaxed)) {
+    Log::Warn("Profiler must be started before monitoring window hangs.");
+    return false;
+  }
+
   if (_hangProbeMessageId == 0) {
     Log::Warn(
         "Probe message could not be registered: impossible to monitor window hangs."
@@ -139,8 +163,11 @@ bool Profiler::MonitorWindowHangs(HWND hWnd) {
 }
 
 void Profiler::StopProfiling(bool shutdownOngoing) {
+  std::lock_guard<std::mutex> lock(_lifecycleMutex);
+
   // avoid being stopped multiple times
-  if (!_isStarted) {
+  if (!_isStarted.load(std::memory_order_relaxed)) {
+    Log::Warn("Profiler is not running.");
     return;
   }
 
@@ -156,21 +183,30 @@ void Profiler::StopProfiling(bool shutdownOngoing) {
   // Stop the UI hang detector first
   if (_pUiHangDetector != nullptr) {
     _pUiHangDetector->Stop();
+    _pUiHangDetector.reset();
   }
 
   if (_pStackSamplerLoop != nullptr) {
     _pStackSamplerLoop->Stop();
+    _pStackSamplerLoop.reset();
   }
 
   if (_pSamplesCollector != nullptr) {
     _pSamplesCollector->Stop(shutdownOngoing);
+    _pSamplesCollector.reset();
   }
 
   // Explicitly clean up ProfileExporter with shutdown detection
   if (_pProfileExporter != nullptr) {
     // Use the parameter to decide cleanup approach
     _pProfileExporter->Cleanup(shutdownOngoing);
+    _pProfileExporter.reset();
   }
+
+  _pUiHangProvider.reset();
+  _pCpuWallTimeProvider.reset();
+  _pCpuTimeProvider.reset();
+
   Log::Info("Profiler stopped...");
 }
 

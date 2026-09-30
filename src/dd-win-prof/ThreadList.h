@@ -21,6 +21,10 @@ class ThreadList {
   // we can't use a lock in a const method so... don't make it const
   size_t Count();
 
+  // Reset process-scoped ThreadInfo objects and sampling iterators before a
+  // new profiling session starts.
+  void ResetProfilingState();
+
   uint32_t CreateIterator();
   std::shared_ptr<ThreadInfo> LoopNext(uint32_t iterator);
 

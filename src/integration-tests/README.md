@@ -55,7 +55,11 @@ Exercises the UI hang detector via **UIApp** in headless automation mode. For
 each hang kind (Sleep, Wait, CPU) it launches `UIApp.exe`, waits for it to
 finish, and validates the pprof with `validate_ui_hangs.py`: `UIHang=true/false`
 pairs exist on `UIApp_Main` with the expected reason stack and durations, and no
-ordinary wait sample overlaps a detected hang. **This is what CI runs.**
+ordinary wait sample overlaps a detected hang. A dedicated lifecycle case also
+runs two start/monitor/stop sessions in the same process and verifies that stop
+without start, monitor outside a running session, and repeated start are
+rejected. Each session uses a distinct synthetic RUM view, and the validator
+requires one complete hang pair under each view. **This is what CI runs.**
 
 ```powershell
 pwsh .\test_ui_hangs.ps1 -Config Debug -KeepArtifacts
@@ -99,7 +103,7 @@ Validates everything in the local test **plus** that the profile was successfull
 |--------|----------|-------------------|
 | `test_rum_scenario.ps1` | Runner scenario 5 (local) | Log messages; pprof samples carry expected `rum.view_id` / `trace endpoint` labels; samples without RUM labels exist during "no active view" gaps; `.rum-views.json` files contain view and session records with valid timestamps and durations |
 | `test_rum_scenario_send.ps1` | Runner scenario 5 (with send) | Everything above **plus** successful profile upload to the backend (HTTP 200, no send errors) |
-| `test_ui_hangs.ps1` | UIApp Sleep / Wait / CPU hangs (local) | Per kind: UIApp exits cleanly, final export logged, and `UIHang=true/false` pairs on `UIApp_Main` have the expected reason stack, `wall-time == 0`, `wait-time > 0`, ordered timestamps, no ordinary wait overlapping a detected hang, and (CPU) positive `cpu-time` during the hang |
+| `test_ui_hangs.ps1` | UIApp Sleep / Wait / CPU hangs and profiler restart (local) | Per kind: UIApp exits cleanly, final export logged, and `UIHang=true/false` pairs on `UIApp_Main` have the expected reason stack, `wall-time == 0`, `wait-time > 0`, ordered timestamps, no ordinary wait overlapping a detected hang, and (CPU) positive `cpu-time` during the hang. The lifecycle case verifies invalid API calls and one hang pair in each of two session-specific RUM views. |
 
 ## Utilities
 

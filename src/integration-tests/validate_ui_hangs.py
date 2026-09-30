@@ -12,6 +12,8 @@ For a directory of .pprof files captured from a single hang kind
   * each detected sample's stack contains the expected blocking frame;
   * hang samples carry wall-time == 0 and wait-time > 0;
   * detected precedes recovered in time;
+  * when expected views are provided, each requested profiling session has one
+    complete hang pair carrying its distinct RUM view;
   * no ordinary wait sample (no UIHang label, wait-time > 0) overlaps the
     interior of a detected hang interval -- i.e. the profiler suppresses
     ordinary wait accounting while a hang is in progress;
@@ -141,7 +143,7 @@ def _describe(sample):
     )
 
 
-def validate(pprof_dir, kind, cycles, duration_ms, sampling_ms):
+def validate(pprof_dir, kind, cycles, duration_ms, sampling_ms, expected_views):
     all_samples, files = _load_all_samples(pprof_dir)
 
     ui_samples = [s for s in all_samples if s.label("thread_name") == UI_THREAD_NAME]
@@ -194,6 +196,39 @@ def validate(pprof_dir, kind, cycles, duration_ms, sampling_ms):
             f"too many non-{kind} hang pairs ({len(nonmatching)}); "
             f"expected at most one startup-jank pair"
         )
+
+    if expected_views:
+        observed_views = []
+        observed_view_ids = []
+        for detected, recovered in matching:
+            detected_view = detected.label("trace endpoint")
+            recovered_view = recovered.label("trace endpoint")
+            detected_view_id = detected.label("rum.view_id")
+            recovered_view_id = recovered.label("rum.view_id")
+
+            if not detected_view_id or detected_view_id != recovered_view_id:
+                raise ValidationError(
+                    "hang pair does not have one consistent RUM view_id: "
+                    f"{_describe(detected)} | {_describe(recovered)}"
+                )
+            if not detected_view or detected_view != recovered_view:
+                raise ValidationError(
+                    "hang pair does not have one consistent trace endpoint: "
+                    f"{_describe(detected)} | {_describe(recovered)}"
+                )
+
+            observed_views.append(detected_view)
+            observed_view_ids.append(detected_view_id)
+
+        if observed_views != expected_views:
+            raise ValidationError(
+                f"expected hang views {expected_views}, found {observed_views}"
+            )
+        if len(set(observed_view_ids)) != len(expected_views):
+            raise ValidationError(
+                "expected a distinct rum.view_id for each profiling session, "
+                f"found {observed_view_ids}"
+            )
 
     for detected, recovered in matching:
         if detected.values.get("wall-time", -1) != 0:
@@ -269,6 +304,12 @@ def main():
     parser.add_argument("--cycles", required=True, type=int)
     parser.add_argument("--duration-ms", required=True, type=int)
     parser.add_argument("--sampling-ms", required=True, type=int)
+    parser.add_argument(
+        "--expected-view",
+        action="append",
+        default=[],
+        help="Expected trace endpoint for one hang pair; repeat in session order",
+    )
     args = parser.parse_args()
 
     try:
@@ -278,6 +319,7 @@ def main():
             args.cycles,
             args.duration_ms,
             args.sampling_ms,
+            args.expected_view,
         )
     except ValidationError as err:
         print(f"FAILED: {err}", file=sys.stderr)

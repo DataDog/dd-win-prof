@@ -15,8 +15,10 @@
 //
 // For CI, an automation mode (--auto-hang sleep|wait|cpu|all, --hang-duration-ms,
 // --hang-cycles) drives the same hangs from a worker thread that posts a private
-// WM_APP_HANG message to the UI thread, then closes the window when done. The
-// process exit code is non-zero if the profiler or hang monitoring failed.
+// WM_APP_HANG message to the UI thread, then closes the window when done.
+// --test-profiler-lifecycle additionally exercises invalid API calls and runs
+// two complete start/monitor/stop sessions in the same process. The process
+// exit code is non-zero if any profiler operation fails unexpectedly.
 
 #include <Windows.h>
 #include <shellapi.h>
@@ -27,6 +29,7 @@
 #include <string>
 
 #include "../dd-win-prof/dd-win-prof.h"
+#include "../dd-win-prof/dd-win-rum-private.h"
 
 namespace {
 
@@ -65,6 +68,11 @@ constexpr UINT kRecoveryGapMs = 500;
 // than merging with startup jank.
 constexpr UINT kWarmupMs = 1000;
 
+constexpr const char* kLifecycleApplicationId = "00000000-0000-4000-8000-000000000001";
+constexpr const char* kLifecycleRumSessionId = "00000000-0000-4000-8000-000000000002";
+constexpr const char* kLifecycleFirstView = "ProfilerSession1";
+constexpr const char* kLifecycleSecondView = "ProfilerSession2";
+
 HWND g_editInterval = nullptr;
 HWND g_btnSleep = nullptr;
 HWND g_btnWait = nullptr;
@@ -94,6 +102,7 @@ bool g_autoEnabled = false;
 HangKind g_autoKind = HangKind::All;
 UINT g_autoDurationMs = 1500;
 UINT g_autoCycles = 2;
+bool g_testProfilerLifecycle = false;
 
 // Worker thread handle (owned; joined in WM_DESTROY) and the process exit code
 // reported through PostQuitMessage so the CI harness can gate on it.
@@ -303,12 +312,70 @@ DWORD WINAPI AutomationProc(LPVOID param) {
     }
   };
 
-  if (g_autoKind == HangKind::All) {
-    for (HangKind kind : sequence) {
-      runKind(kind);
+  auto runRequestedHangs = [&]() {
+    if (g_autoKind == HangKind::All) {
+      for (HangKind kind : sequence) {
+        runKind(kind);
+      }
+    } else {
+      runKind(g_autoKind);
     }
-  } else {
-    runKind(g_autoKind);
+  };
+
+  runRequestedHangs();
+
+  if (g_testProfilerLifecycle) {
+    if (!LeaveCurrentView()) {
+      g_exitCode = 12;
+      ::PostMessageW(hwnd, WM_CLOSE, 0, 0);
+      return 0;
+    }
+
+    StopProfiler();
+    g_profilerStarted = false;
+
+    // Monitoring is invalid between sessions.
+    if (MonitorWindowHangs(hwnd)) {
+      g_exitCode = 13;
+      ::PostMessageW(hwnd, WM_CLOSE, 0, 0);
+      return 0;
+    }
+
+    if (!StartProfiler()) {
+      g_exitCode = 14;
+      ::PostMessageW(hwnd, WM_CLOSE, 0, 0);
+      return 0;
+    }
+    g_profilerStarted = true;
+
+    // Starting an already-running profiler must be rejected.
+    if (StartProfiler()) {
+      g_exitCode = 15;
+      ::PostMessageW(hwnd, WM_CLOSE, 0, 0);
+      return 0;
+    }
+
+    if (!MonitorWindowHangs(hwnd)) {
+      g_exitCode = 16;
+      ::PostMessageW(hwnd, WM_CLOSE, 0, 0);
+      return 0;
+    }
+
+    if (!EnterView(kLifecycleSecondView)) {
+      g_exitCode = 17;
+      ::PostMessageW(hwnd, WM_CLOSE, 0, 0);
+      return 0;
+    }
+
+    // Establish a fresh responsive baseline for the second detector.
+    ::Sleep(kWarmupMs);
+    runRequestedHangs();
+
+    if (!LeaveCurrentView() || !SetRumSession(nullptr)) {
+      g_exitCode = 18;
+      ::PostMessageW(hwnd, WM_CLOSE, 0, 0);
+      return 0;
+    }
   }
 
   // Ask the UI thread to shut down cleanly (WM_DESTROY -> StopProfiler).
@@ -334,11 +401,42 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
       config.serviceEnvironment = g_serviceEnv.empty() ? nullptr : g_serviceEnv.c_str();
       config.pprofOutputDirectory = g_pprofDir.empty() ? nullptr : g_pprofDir.c_str();
       config.symbolizeCallstacks = g_symbolize;
+
+      if (g_testProfilerLifecycle) {
+        // Stop has no return value, so the integration test verifies its warning
+        // in the profiler log. Monitor must report the invalid state directly.
+        StopProfiler();
+        if (MonitorWindowHangs(hwnd)) {
+          g_exitCode = 19;
+          ::PostMessageW(hwnd, WM_CLOSE, 0, 0);
+          return 0;
+        }
+
+        RumSessionContext rumSession{
+            .application_id = kLifecycleApplicationId,
+            .session_id = kLifecycleRumSessionId
+        };
+        if (!SetRumSession(&rumSession)) {
+          g_exitCode = 20;
+          ::PostMessageW(hwnd, WM_CLOSE, 0, 0);
+          return 0;
+        }
+      }
+
       bool monitoring = false;
       if (SetupProfiler(&config)) {
         if (StartProfiler()) {
           g_profilerStarted = true;
-          monitoring = MonitorWindowHangs(hwnd);
+          if (g_testProfilerLifecycle && StartProfiler()) {
+            g_exitCode = 21;
+          } else {
+            monitoring = MonitorWindowHangs(hwnd);
+            if (monitoring && g_testProfilerLifecycle &&
+                !EnterView(kLifecycleFirstView)) {
+              g_exitCode = 22;
+              monitoring = false;
+            }
+          }
         }
       }
 
@@ -347,7 +445,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
       // measure, so fail fast with a non-zero exit code.
       if (g_autoEnabled) {
         if (!monitoring || g_waitEvent == nullptr) {
-          g_exitCode = 10;
+          if (g_exitCode == 0) {
+            g_exitCode = 10;
+          }
           ::PostMessageW(hwnd, WM_CLOSE, 0, 0);
         } else {
           // Feed the requested duration through the same textbox the manual
@@ -587,6 +687,8 @@ bool ParsePositiveUInt(const wchar_t* value, UINT& result) {
 //   --auto-hang <kind>     sleep | wait | cpu | all; enables automation
 //   --hang-duration-ms <n> Freeze duration per hang (positive integer)
 //   --hang-cycles <n>      Number of hangs per kind (positive integer)
+//   --test-profiler-lifecycle
+//                          Exercise invalid calls and restart once
 // Unknown arguments are ignored. Values are stored into the g_* globals.
 // Returns false if an automation option is present but malformed.
 bool ParseCommandLine() {
@@ -601,6 +703,8 @@ bool ParseCommandLine() {
     const bool hasValue = (i + 1 < argc);
     if (_wcsicmp(argv[i], L"--symbolize") == 0) {
       g_symbolize = true;
+    } else if (_wcsicmp(argv[i], L"--test-profiler-lifecycle") == 0) {
+      g_testProfilerLifecycle = true;
     } else if (_wcsicmp(argv[i], L"--name") == 0 && hasValue) {
       g_serviceName = ToUtf8(argv[++i]);
     } else if (_wcsicmp(argv[i], L"--env") == 0 && hasValue) {

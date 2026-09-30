@@ -43,8 +43,7 @@ class ThreadInfo {
   inline std::chrono::nanoseconds SetLastWaitSampleTimestamp(
       std::chrono::nanoseconds timestamp
   ) {
-    return _lastWaitSampleTimestamp.exchange(
-      timestamp, std::memory_order_relaxed);
+    return _lastWaitSampleTimestamp.exchange(timestamp, std::memory_order_relaxed);
   }
 
   inline bool IsHangDetected() const {
@@ -53,6 +52,17 @@ class ThreadInfo {
 
   inline bool SetHangDetected(bool value) {
     return _hangDetected.exchange(value, std::memory_order_acq_rel);
+  }
+
+  // Called between profiling sessions, after all sampler/watchdog threads have
+  // stopped. ThreadInfo itself is process-scoped, so none of these values may
+  // carry over into the next session.
+  inline void ResetProfilingState(std::chrono::milliseconds cpuConsumption) {
+    _lastWalltimeSampleTimestamp = 0ns;
+    _cpuConsumption = cpuConsumption;
+    _timestamp = 0ns;
+    _lastWaitSampleTimestamp.store(0ns, std::memory_order_relaxed);
+    _hangDetected.store(false, std::memory_order_release);
   }
 
   inline bool GetThreadName(std::string& name) {

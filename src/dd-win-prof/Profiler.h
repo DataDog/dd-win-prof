@@ -73,6 +73,8 @@ class Profiler : public IRumViewContextProvider,
   // configuration
   static std::unique_ptr<Configuration> _pConfiguration;
 
+  // protect the lifecycle of the profiler (start/stop/monitor) and the resources below
+  mutable std::mutex _lifecycleMutex;
   std::atomic<bool> _isStarted;
 
   std::unique_ptr<ThreadList> _pThreadList;

@@ -28,6 +28,7 @@ UiHangDetector::UiHangDetector(
       _hangDetectionTimestamp(0ns),
       _initialHangDuration(0ns),
       _postProbeTimestamp(0ns),
+      _lastNoHangTimestamp(0ns),
       _processedProbeTimestamp(0ns) {
   UiHangDetector::_this = this;
 

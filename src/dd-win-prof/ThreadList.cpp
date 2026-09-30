@@ -4,6 +4,7 @@
 
 #include "ThreadList.h"
 
+#include "OsSpecificApi.h"
 #include "pch.h"
 
 const std::uint32_t ThreadList::DefaultThreadListSize = 50;
@@ -62,7 +63,23 @@ size_t ThreadList::Count() {
   return _threads.size();
 }
 
+void ThreadList::ResetProfilingState() {
+  std::lock_guard<std::recursive_mutex> lock(_mutex);
+
+  // StackSamplerLoop creates two iterators per session. The previous loop has
+  // already stopped, so its iterator slots can be discarded.
+  _iterators.clear();
+
+  for (auto& pInfo : _threads) {
+    auto cpuConsumption =
+        std::get<1>(OsSpecificApi::IsRunning(pInfo->GetOsThreadHandle()));
+    pInfo->ResetProfilingState(cpuConsumption);
+  }
+}
+
 uint32_t ThreadList::CreateIterator() {
+  std::lock_guard<std::recursive_mutex> lock(_mutex);
+
   uint32_t iterator = static_cast<uint32_t>(_iterators.size());
   _iterators.push_back(0);
   return iterator;
