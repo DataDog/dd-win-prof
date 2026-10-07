@@ -51,6 +51,8 @@ cmake --build build --config Release
 
 To omit obfuscation tools from the build, pass `-DDD_WIN_PROF_BUILD_OBFUSCATION=OFF` when configuring.
 
+Unit tests (`DD_WIN_PROF_BUILD_TESTS`, which also fetches GoogleTest), the Runner test application (`DD_WIN_PROF_BUILD_RUNNER`), and the ProfilerInjector utility (`DD_WIN_PROF_BUILD_INJECTOR`) are built by default when dd-win-prof is the top-level project, and are skipped when it is included as a dependency of another project via `FetchContent` or `add_subdirectory`. Set any of these options explicitly to override.
+
 To open the project in Visual Studio, use the helper script:
 
 ```powershell

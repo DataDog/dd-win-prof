@@ -20,6 +20,14 @@ endif()
 # Disabled by default when used as a dependency.
 option(DD_WIN_PROF_BUILD_OBFUSCATION "Build obfuscation tools (requires DIA SDK)" ${DD_WIN_PROF_IS_TOPLEVEL})
 
+# Options to build the unit tests (which also fetches GoogleTest), the Runner
+# test application, and the ProfilerInjector utility. These are only needed for
+# developing dd-win-prof itself, so they default to OFF when dd-win-prof is
+# included as a dependency of another project.
+option(DD_WIN_PROF_BUILD_TESTS "Build unit tests (fetches GoogleTest)" ${DD_WIN_PROF_IS_TOPLEVEL})
+option(DD_WIN_PROF_BUILD_RUNNER "Build the Runner test application" ${DD_WIN_PROF_IS_TOPLEVEL})
+option(DD_WIN_PROF_BUILD_INJECTOR "Build the ProfilerInjector utility" ${DD_WIN_PROF_IS_TOPLEVEL})
+
 # Enable MSVC AddressSanitizer for the whole project (compiler + linker).
 # Mostly intended for unit tests in CI; see src/Tests/CMakeLists.txt for the
 # runtime DLL deployment that lets Tests.exe actually launch with ASan on.
