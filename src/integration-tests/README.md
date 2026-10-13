@@ -54,8 +54,12 @@ Uses a dummy URL so no network access or API key is needed. **This is what CI ru
 Exercises the UI hang detector via **UIApp** in headless automation mode. For
 each hang kind (Sleep, Wait, CPU) it launches `UIApp.exe`, waits for it to
 finish, and validates the pprof with `validate_ui_hangs.py`: `UIHang=true/false`
-pairs exist on `UIApp_Main` with the expected reason stack and durations, and no
-ordinary wait sample overlaps a detected hang. A dedicated lifecycle case also
+pairs exist on `UIApp_Main` with the expected reason stack and durations. Ordinary
+wall-time sampling continues during blocked hangs. Wait durations must be
+nonnegative, and ordinary waits must not overlap either hang marker's interval,
+including the initial duration before detection. A marker may have zero duration
+when that interval was already accounted for; each test hang pair must still
+carry positive total wait-time. A dedicated lifecycle case also
 runs two start/monitor/stop sessions in the same process and verifies that stop
 without start, monitor outside a running session, and repeated start are
 rejected. Each session uses a distinct synthetic RUM view, and the validator
@@ -73,6 +77,17 @@ pwsh .\test_ui_hangs.ps1 -Config Release
 | `-Cycles` | `2` | Number of hangs per kind |
 | `-OutputRoot` | `%TEMP%\dd-ui-hang-test` | Parent folder; each run creates a `yyyyMMdd_HHmmss` subfolder holding per-kind `pprof`/`logs` |
 | `-KeepArtifacts` | *(off)* | Keep artifacts even on success (kept automatically on failure) |
+
+The native `ThreadInfoWaitAccountingTests` cover late sampler updates, late
+watchdog updates, CPU baseline resets, and disjoint wait/hang accounting. From
+the repository root on Windows:
+
+```powershell
+cmake --build build --config Release --target Tests UIApp
+cmd.exe /d /c "build\src\Tests\Release\Tests.exe --gtest_filter=ThreadInfoWaitAccountingTests.*:ThreadListTests.* < NUL"
+```
+
+Redirecting stdin avoids the test executable's final interactive prompt.
 
 For a quick visual smoke run without validation:
 
@@ -103,7 +118,7 @@ Validates everything in the local test **plus** that the profile was successfull
 |--------|----------|-------------------|
 | `test_rum_scenario.ps1` | Runner scenario 5 (local) | Log messages; pprof samples carry expected `rum.view_id` / `trace endpoint` labels; samples without RUM labels exist during "no active view" gaps; `.rum-views.json` files contain view and session records with valid timestamps and durations |
 | `test_rum_scenario_send.ps1` | Runner scenario 5 (with send) | Everything above **plus** successful profile upload to the backend (HTTP 200, no send errors) |
-| `test_ui_hangs.ps1` | UIApp Sleep / Wait / CPU hangs and profiler restart (local) | Per kind: UIApp exits cleanly, final export logged, and `UIHang=true/false` pairs on `UIApp_Main` have the expected reason stack, `wall-time == 0`, `wait-time > 0`, ordered timestamps, no ordinary wait overlapping a detected hang, and (CPU) positive `cpu-time` during the hang. The lifecycle case verifies invalid API calls and one hang pair in each of two session-specific RUM views. |
+| `test_ui_hangs.ps1` | UIApp Sleep / Wait / CPU hangs and profiler restart (local) | Per kind: UIApp exits cleanly, final export logged, and `UIHang=true/false` pairs on `UIApp_Main` have the expected reason stack, `wall-time == 0`, nonnegative `wait-time` with a positive total per pair, ordered timestamps, ordinary wall-time during the hang, no negative or overlapping ordinary waits, and (CPU) positive `cpu-time` during the hang. The lifecycle case verifies invalid API calls and one hang pair in each of two session-specific RUM views. |
 
 ## Utilities
 

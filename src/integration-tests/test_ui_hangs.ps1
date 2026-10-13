@@ -45,8 +45,7 @@ $uiAppDir  = Join-Path $scriptDir "..\UIApp"
 . (Join-Path $scriptDir "rum_test_helpers.ps1")
 . (Join-Path $uiAppDir "find-uiapp.ps1")
 
-# Wall-time sampling period (ms). Passed to the profiler and reused as the
-# validator's boundary slack unit.
+# Wall-time sampling period (ms).
 $SamplingMs = 5
 
 Write-Host "`n=== UIApp UI-Hang Integration Test (local) ===" -ForegroundColor Cyan
@@ -141,16 +140,13 @@ foreach ($case in $cases) {
     }
     foreach ($arg in $appArgs) { $psi.ArgumentList.Add($arg) }
 
-    # No backend upload; local debug pprof only. Small sampling period so short
-    # hangs still yield samples. CPU profiling only for the CPU kind, so that
-    # CPU sampling does not independently reset wait state for Sleep/Wait and
-    # make the no-overlap check flaky.
+    # Keep CPU sampling enabled to exercise wait baseline resets alongside the watchdog.
     $psi.Environment["DD_INTERNAL_PROFILING_EXPORT_ENABLED"] = "0"
     $psi.Environment["DD_PROFILING_WALLTIME_ENABLED"] = "1"
     $psi.Environment["DD_INTERNAL_PROFILING_SAMPLING_RATE"] = "$SamplingMs"
     $psi.Environment["DD_INTERNAL_PROFILING_WALLTIME_THREADS_THRESHOLD"] = "64"
     $psi.Environment["DD_TRACE_LOG_DIRECTORY"] = $logDir
-    $psi.Environment["DD_PROFILING_CPU_ENABLED"] = if ($kind -eq "cpu") { "1" } else { "0" }
+    $psi.Environment["DD_PROFILING_CPU_ENABLED"] = "1"
     $psi.Environment["DD_PROFILING_AUTO_START"] = "0"
     foreach ($name in @(
         "DD_API_KEY",

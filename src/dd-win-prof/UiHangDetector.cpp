@@ -25,8 +25,6 @@ UiHangDetector::UiHangDetector(
       _stopEvent(nullptr),
       _isProcessed(false),
       _state(WatchdogState::None),
-      _hangDetectionTimestamp(0ns),
-      _initialHangDuration(0ns),
       _postProbeTimestamp(0ns),
       _lastNoHangTimestamp(0ns),
       _processedProbeTimestamp(0ns) {
@@ -221,7 +219,6 @@ bool UiHangDetector::PostProbeMessage() {
   _lastNoHangTimestamp = _postProbeTimestamp;
 
   // don't forget to reset the state to be ready to detect the next hang
-  _initialHangDuration = 0ns;
   _processedProbeTimestamp.store(0ns);
   _isProcessed.store(false);
 
@@ -266,17 +263,8 @@ void UiHangDetector::WatchdogLoop() {
         auto probingDuration = now - _postProbeTimestamp;
         if (probingDuration >= dd_win_prof::kHangThresholdMs) {
           _state = WatchdogState::Hang;
-          _hangDetectionTimestamp = now;
-
-          // from now on, we are in a hang state, so we don't want to generate Wait
-          // samples for the hang duration, but we want to generate a sample for the
-          // hang start
-          _pThreadInfo->SetHangDetected(true);
-
-          // we assume that the hang started AFTER the last non-hang check
-          // --> it is overcounting at most of 1/2 tick
-          _initialHangDuration = now - _lastNoHangTimestamp;
-          AddHangSample(true, now, _initialHangDuration);
+          auto interval = _pThreadInfo->StartUiHang(now, _lastNoHangTimestamp);
+          AddHangSample(true, interval.timestamp, interval.duration);
         } else {
           // no hang detected yet, but we are still probing the UI thread responsiveness
           _lastNoHangTimestamp = now;
@@ -286,15 +274,8 @@ void UiHangDetector::WatchdogLoop() {
       // check if hang is over
       auto isProcessed = _isProcessed.load();
       if (isProcessed) {
-        // so, emit a sample for its ending
-        std::chrono::nanoseconds timestamp = _processedProbeTimestamp.load();
-        AddHangSample(false, timestamp, timestamp - _hangDetectionTimestamp);
-
-        // reset the last timestamp to avoid overcounting the next wait sample duration
-        _pThreadInfo->SetLastWaitSampleTimestamp(timestamp);
-
-        // Wait samples are allowed again after a hang
-        _pThreadInfo->SetHangDetected(false);
+        auto interval = _pThreadInfo->EndUiHang(_processedProbeTimestamp.load());
+        AddHangSample(false, interval.timestamp, interval.duration);
 
         // post a new probe message to continue monitoring the UI thread responsiveness
         PostProbeMessage();

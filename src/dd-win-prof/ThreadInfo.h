@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include <atomic>
+#include <mutex>
 
 #include "OpSysTools.h"
 #include "ScopedHandle.h"
@@ -40,18 +40,23 @@ class ThreadInfo {
     return prevValue;
   }
 
-  inline std::chrono::nanoseconds SetLastWaitSampleTimestamp(
-      std::chrono::nanoseconds timestamp
-  ) {
-    return _lastWaitSampleTimestamp.exchange(timestamp, std::memory_order_relaxed);
-  }
+  struct HangSampleInterval {
+    std::chrono::nanoseconds timestamp;
+    std::chrono::nanoseconds duration;
+  };
+
+  void ResetWaitSampleTimestamp();
+  std::chrono::nanoseconds RecordWaitSample(
+      std::chrono::nanoseconds timestamp, std::chrono::nanoseconds samplingPeriod
+  );
+  HangSampleInterval StartUiHang(
+      std::chrono::nanoseconds timestamp, std::chrono::nanoseconds earliestStart
+  );
+  HangSampleInterval EndUiHang(std::chrono::nanoseconds timestamp);
 
   inline bool IsHangDetected() const {
-    return _hangDetected.load(std::memory_order_acquire);
-  }
-
-  inline bool SetHangDetected(bool value) {
-    return _hangDetected.exchange(value, std::memory_order_acq_rel);
+    std::lock_guard lock(_waitAccountingMutex);
+    return _hangDetected;
   }
 
   // Called between profiling sessions, after all sampler/watchdog threads have
@@ -61,8 +66,9 @@ class ThreadInfo {
     _lastWalltimeSampleTimestamp = 0ns;
     _cpuConsumption = cpuConsumption;
     _timestamp = 0ns;
-    _lastWaitSampleTimestamp.store(0ns, std::memory_order_relaxed);
-    _hangDetected.store(false, std::memory_order_release);
+    _lastWaitSampleTimestamp = 0ns;
+    _waitAccountingTimestamp = 0ns;
+    _hangDetected = false;
   }
 
   inline bool GetThreadName(std::string& name) {
@@ -96,15 +102,12 @@ class ThreadInfo {
   // timestamp of the last CPU consumption sample
   std::chrono::nanoseconds _timestamp;
 
-  // keep track of the last time this thread was seen as waiting
-  // --> should be reset to 0 when the thread is no more waiting
-  //     (i.e. CPU profiler and lock detection part of walltime profiler)
-  // since we don't have the start/ end time of the wait, we "jump" from wait to wait
-  std::atomic<std::chrono::nanoseconds> _lastWaitSampleTimestamp;
-
-  // set when a UI hang has been detected for this thread and reset once the
-  // thread is responsive again
-  std::atomic<bool> _hangDetected{false};
+  // Never hold this mutex while suspending or unwinding a thread.
+  mutable std::mutex _waitAccountingMutex;
+  std::chrono::nanoseconds _lastWaitSampleTimestamp{0ns};
+  // End of the last accounted wait/hang interval; CPU activity must not reset it.
+  std::chrono::nanoseconds _waitAccountingTimestamp{0ns};
+  bool _hangDetected = false;
 
   // thread name, if available
   bool _hasThreadName = false;

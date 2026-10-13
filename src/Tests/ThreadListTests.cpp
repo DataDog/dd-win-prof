@@ -415,9 +415,9 @@ TEST(ThreadListTests, ResetProfilingState_ClearsSessionStateAndIterators) {
   ASSERT_NE(thread, nullptr);
 
   thread->SetLastWalltimeSampleTimestamp(123ns);
-  thread->SetLastWaitSampleTimestamp(456ns);
+  thread->RecordWaitSample(456ns, 10ns);
   thread->SetCpuConsumption(std::chrono::milliseconds::max(), 789ns);
-  thread->SetHangDetected(true);
+  thread->StartUiHang(500ns, 480ns);
 
   uint32_t previousSessionIterator = threadList.CreateIterator();
   ASSERT_NE(threadList.LoopNext(previousSessionIterator), nullptr);
@@ -426,7 +426,7 @@ TEST(ThreadListTests, ResetProfilingState_ClearsSessionStateAndIterators) {
 
   EXPECT_FALSE(thread->IsHangDetected());
   EXPECT_EQ(thread->SetLastWalltimeSampleTimestamp(1ns), 0ns);
-  EXPECT_EQ(thread->SetLastWaitSampleTimestamp(1ns), 0ns);
+  EXPECT_EQ(thread->RecordWaitSample(1ns, 1ns), 1ns);
   EXPECT_EQ(thread->GetCpuTimestamp(), 0ns);
   EXPECT_NE(thread->GetCpuConsumption(), std::chrono::milliseconds::max());
 
@@ -435,4 +435,77 @@ TEST(ThreadListTests, ResetProfilingState_ClearsSessionStateAndIterators) {
   uint32_t nextSessionIterator = threadList.CreateIterator();
   EXPECT_EQ(nextSessionIterator, 0u);
   EXPECT_NE(threadList.LoopNext(nextSessionIterator), nullptr);
+}
+
+TEST(ThreadInfoWaitAccountingTests, HangClaimsOnlyUnaccountedWaitTime) {
+  ThreadInfo thread(1, MakeTestHandle());
+  EXPECT_EQ(thread.RecordWaitSample(90ms, 10ms), 10ms);
+
+  auto detected = thread.StartUiHang(100ms, 68ms);
+  EXPECT_EQ(detected.timestamp, 100ms);
+  EXPECT_EQ(detected.duration, 10ms);
+  EXPECT_EQ(thread.RecordWaitSample(120ms, 10ms), 0ns);
+
+  auto recovered = thread.EndUiHang(200ms);
+  EXPECT_EQ(recovered.timestamp, 200ms);
+  EXPECT_EQ(recovered.duration, 100ms);
+  EXPECT_EQ(thread.RecordWaitSample(210ms, 10ms), 10ms);
+}
+
+TEST(ThreadInfoWaitAccountingTests, LateWaitSamplesDoNotRewindRecovery) {
+  ThreadInfo thread(1, MakeTestHandle());
+  thread.RecordWaitSample(90ms, 10ms);
+  thread.StartUiHang(100ms, 68ms);
+  thread.EndUiHang(200ms);
+
+  EXPECT_EQ(thread.RecordWaitSample(95ms, 10ms), 0ns);
+  EXPECT_EQ(thread.RecordWaitSample(195ms, 10ms), 0ns);
+  EXPECT_EQ(thread.RecordWaitSample(200ms, 10ms), 0ns);
+  EXPECT_EQ(thread.RecordWaitSample(210ms, 10ms), 10ms);
+}
+
+TEST(ThreadInfoWaitAccountingTests, LateDetectionDoesNotRecountPublishedWait) {
+  ThreadInfo thread(1, MakeTestHandle());
+  thread.RecordWaitSample(90ms, 10ms);
+  EXPECT_EQ(thread.RecordWaitSample(110ms, 10ms), 20ms);
+
+  auto detected = thread.StartUiHang(100ms, 68ms);
+  EXPECT_EQ(detected.timestamp, 110ms);
+  EXPECT_EQ(detected.duration, 0ns);
+  EXPECT_EQ(thread.RecordWaitSample(120ms, 10ms), 0ns);
+
+  auto recovered = thread.EndUiHang(200ms);
+  EXPECT_EQ(recovered.duration, 90ms);
+  EXPECT_EQ(thread.RecordWaitSample(210ms, 10ms), 10ms);
+}
+
+TEST(ThreadInfoWaitAccountingTests, CpuResetPreservesAccountingBoundary) {
+  ThreadInfo thread(1, MakeTestHandle());
+  thread.RecordWaitSample(90ms, 10ms);
+  thread.ResetWaitSampleTimestamp();
+  auto detected = thread.StartUiHang(100ms, 68ms);
+  EXPECT_EQ(detected.duration, 10ms);
+
+  thread.ResetWaitSampleTimestamp();
+  EXPECT_EQ(thread.RecordWaitSample(120ms, 10ms), 0ns);
+  EXPECT_EQ(thread.EndUiHang(200ms).duration, 100ms);
+
+  thread.ResetWaitSampleTimestamp();
+  EXPECT_EQ(thread.RecordWaitSample(195ms, 10ms), 0ns);
+  EXPECT_EQ(thread.RecordWaitSample(205ms, 10ms), 5ms);
+  EXPECT_EQ(thread.RecordWaitSample(225ms, 10ms), 20ms);
+  thread.ResetWaitSampleTimestamp();
+  EXPECT_EQ(thread.RecordWaitSample(250ms, 10ms), 10ms);
+}
+
+TEST(ThreadInfoWaitAccountingTests, RecoveryBeforeDetectionDoesNotRewindBoundary) {
+  ThreadInfo thread(1, MakeTestHandle());
+  auto detected = thread.StartUiHang(100ms, 68ms);
+  EXPECT_EQ(detected.duration, 32ms);
+
+  auto recovered = thread.EndUiHang(95ms);
+  EXPECT_EQ(recovered.timestamp, 100ms);
+  EXPECT_EQ(recovered.duration, 0ns);
+  EXPECT_EQ(thread.RecordWaitSample(99ms, 10ms), 0ns);
+  EXPECT_EQ(thread.RecordWaitSample(105ms, 10ms), 5ms);
 }

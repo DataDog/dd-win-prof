@@ -10,13 +10,13 @@ For a directory of .pprof files captured from a single hang kind
   * UIHang=true / UIHang=false samples alternate and form the expected number
     of detected/recovered pairs on the UIApp_Main thread;
   * each detected sample's stack contains the expected blocking frame;
-  * hang samples carry wall-time == 0 and wait-time > 0;
-  * detected precedes recovered in time;
+  * hang samples carry wall-time == 0 and nonnegative wait-time, with positive
+    total wait-time per pair;
+  * detected is not later than recovered; ordinary wall-time sampling continues;
   * when expected views are provided, each requested profiling session has one
     complete hang pair carrying its distinct RUM view;
-  * no ordinary wait sample (no UIHang label, wait-time > 0) overlaps the
-    interior of a detected hang interval -- i.e. the profiler suppresses
-    ordinary wait accounting while a hang is in progress;
+  * no negative wait duration or ordinary wait overlapping a hang interval,
+    including the initial duration before detection;
   * for the cpu kind, positive cpu-time is attributed during each hang.
 
 Usage:
@@ -235,21 +235,41 @@ def validate(pprof_dir, kind, cycles, duration_ms, sampling_ms, expected_views):
             raise ValidationError(f"detected hang wall-time != 0: {_describe(detected)}")
         if recovered.values.get("wall-time", -1) != 0:
             raise ValidationError(f"recovered hang wall-time != 0: {_describe(recovered)}")
-        if detected.values.get("wait-time", 0) <= 0:
-            raise ValidationError(f"detected hang wait-time <= 0: {_describe(detected)}")
-        if recovered.values.get("wait-time", 0) <= 0:
-            raise ValidationError(f"recovered hang wait-time <= 0: {_describe(recovered)}")
-        if not detected.timestamp_ns < recovered.timestamp_ns:
+        if detected.values.get("wait-time", 0) < 0:
+            raise ValidationError(f"detected hang wait-time < 0: {_describe(detected)}")
+        if recovered.values.get("wait-time", 0) < 0:
+            raise ValidationError(f"recovered hang wait-time < 0: {_describe(recovered)}")
+        if detected.values.get("wait-time", 0) + recovered.values.get("wait-time", 0) <= 0:
+            raise ValidationError("hang pair has no wait-time")
+        if detected.timestamp_ns > recovered.timestamp_ns:
             raise ValidationError(
-                "detected timestamp not before recovered timestamp: "
+                "detected timestamp after recovered timestamp: "
                 f"{_describe(detected)} | {_describe(recovered)}"
             )
 
+        wall_ns = sum(
+            max(
+                0,
+                min(recovered.timestamp_ns, s.timestamp_ns)
+                - max(detected.timestamp_ns, s.timestamp_ns - s.values["wall-time"]),
+            )
+            for s in ui_samples
+            if s.timestamp_ns is not None and s.values.get("wall-time", 0) > 0
+        )
+        hang_ns = recovered.timestamp_ns - detected.timestamp_ns
+        # Allow missed captures up to 10% of the interval or four sampling periods.
+        wall_slack_ns = max(hang_ns // 10, 4 * sampling_ms * 1_000_000)
+        if wall_ns + wall_slack_ns < hang_ns:
+            raise ValidationError(
+                f"missing wall-time during hang: {wall_ns}ns accounted for {hang_ns}ns"
+            )
+
+    for sample in ui_samples:
+        if sample.values.get("wait-time", 0) < 0:
+            raise ValidationError(f"negative wait-time: {_describe(sample)}")
+
     # -- No ordinary wait accounting during a detected hang -------------------
-    # An ordinary wait sample's interval is [end_timestamp - wait-time, end_timestamp].
-    # Allow two sampling periods of slack at each boundary to absorb cross-thread
-    # timestamp ordering between the sampler and the hang watchdog.
-    grace_ns = 2 * sampling_ms * 1_000_000
+    # Include the initial duration carried by the detected sample, not just recovery.
 
     ordinary_waits = [
         s
@@ -267,8 +287,8 @@ def validate(pprof_dir, kind, cycles, duration_ms, sampling_ms, expected_views):
     for wait in ordinary_waits:
         wait_start = wait.timestamp_ns - wait.values["wait-time"]
         for detected, recovered in pairs:
-            protected_start = detected.timestamp_ns + grace_ns
-            protected_end = recovered.timestamp_ns - grace_ns
+            protected_start = detected.timestamp_ns - detected.values["wait-time"]
+            protected_end = recovered.timestamp_ns
             if wait_start < protected_end and wait.timestamp_ns > protected_start:
                 raise ValidationError(
                     "ordinary wait sample overlaps a detected hang interval "

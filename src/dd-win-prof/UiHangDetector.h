@@ -70,11 +70,4 @@ class UiHangDetector {
 
   // timestamp when a tick happened still probing but without hang
   std::chrono::nanoseconds _lastNoHangTimestamp;
-
-  // timestamp when the hang was detected
-  std::chrono::nanoseconds _hangDetectionTimestamp;
-
-  // computed when the hang is detected and associated to the start hang sample
-  // --> don't double count it in the hang stop sample duration
-  std::chrono::nanoseconds _initialHangDuration;
 };

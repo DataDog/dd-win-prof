@@ -123,7 +123,7 @@ void StackSamplerLoop::CpuProfilingIteration() {
         // TODO: not sure if a wait sample should be generated in case it was waiting
         // when we detect that it is now running...
         //       maybe the cpu iteration should happen before the walltime iteration?
-        pThreadInfo->SetLastWaitSampleTimestamp(0ns);
+        pThreadInfo->ResetWaitSampleTimestamp();
 
         auto cpuDelta = currentConsumption - lastConsumption;
 
@@ -215,32 +215,12 @@ void StackSamplerLoop::WalltimeProfilingIteration() {
         OsSpecificApi::IsWaiting(pThreadInfo->GetOsThreadHandle());
     if (failure || !isWaiting) {
       waitReason = WAIT_REASON_NONE;
-
-      // get callstack and create sample
-      CollectOneThreadSample(
-          pThreadInfo,
-          thisSampleTimestamp,
-          duration,
-          PROFILING_TYPE::WallTime,
-          WAIT_REASON_NONE
-      );
-    } else {
-      // in case of a hung thread, don't emit wait samples
-      if (!pThreadInfo->IsHangDetected()) {
-        // hangs endings are taken into account because otherwise, we overcount the
-        // wait time. For example, a long hang happened between two wait samples, so the
-        // next wait duration would count the duration of the hang as well.
-        //
-        // get callstack and create sample with wait information
-        CollectOneThreadSample(
-            pThreadInfo,
-            thisSampleTimestamp,
-            duration,
-            PROFILING_TYPE::WallTime,
-            waitReason
-        );
-      }
     }
+
+    // Hang detection replaces wait accounting, not wall-time samples.
+    CollectOneThreadSample(
+        pThreadInfo, thisSampleTimestamp, duration, PROFILING_TYPE::WallTime, waitReason
+    );
 
     pThreadInfo.reset();
     i++;
@@ -306,17 +286,8 @@ void StackSamplerLoop::CollectOneThreadSample(
 
       // check if the thread is waiting
       if (waitingReason != WAIT_REASON_NONE) {
-        // compute the "current" wait duration
-        // since we don't have the start/ end time of the wait, we "jump" from wait to
-        // wait
-        auto lastWaitTimestamp =
-            pThreadInfo->SetLastWaitSampleTimestamp(thisSampleTimestamp);
-        if (lastWaitTimestamp != 0ns) {
-          waitDuration = thisSampleTimestamp - lastWaitTimestamp;
-        } else {
-          waitDuration = _samplingPeriod;  // at least one sampling period has elapsed
-                                           // since the last wait sample
-        }
+        waitDuration =
+            pThreadInfo->RecordWaitSample(thisSampleTimestamp, _samplingPeriod);
       }
 
       Sample sample = Sample(thisSampleTimestamp, pThreadInfo, frames, framesCount);
