@@ -4,6 +4,9 @@
 
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
+
 #ifdef DD_WIN_PROF_STATIC_LINK
 #define DD_WIN_PROF_API
 #elif defined(DD_WIN_PROF_EXPORTS)
@@ -12,75 +15,74 @@
 #define DD_WIN_PROF_API __declspec(dllimport)
 #endif
 
-// define a struct that will hold configuration parameters
+// API proposal only. Implementation and callers have not been updated.
+// The RUM SDK owns collection cadence, application tags, persistence, and upload.
+typedef struct Profiler Profiler;
+
+typedef enum _ProfilingStatus {
+  PROFILING_OK = 0,
+  PROFILING_NO_DATA,
+  PROFILING_INVALID_ARGUMENT,
+  PROFILING_INVALID_STATE,
+  PROFILING_ERROR
+} ProfilingStatus;
+
+// Configuration is explicit; environment variables do not supply these settings.
 typedef struct _ProfilerConfig {
-  uint32_t size;  // size of this struct, for versioning
+  uint32_t size;  // sizeof(ProfilerConfig)
 
-  // env vars usage
-  bool noEnvVars;  // if true, ignore all environment variables and use only the values
-                   // provided in this struct (default: false)
-
-  // application information
-  const char* serviceEnvironment;
-  const char* serviceName;
-  const char* serviceVersion;
-
-  // Datadog endpoint: these are MANDATORY if noEnvVars is true, otherwise they can be
-  // set via environment variables instead
-  const char* url;
-  const char* apiKey;
-
-  // profiling tuning parameters
-  uint64_t cpuWallTimeSamplingPeriodNs;  // sampling period in nanoseconds (default:
-                                         // 20ms = 20,000,000ns)
-  int32_t walltimeThreadsThreshold;      // number of threads to sample for wall time
-                                         // (default: 5, min: 5, max: 64)
-  int32_t cpuThreadsThreshold;    // number of threads to sample for CPU time (default:
-                                  // 64, min: 5, max: 128)
-  int32_t uploadIntervalSeconds;  // how often to upload profiles in seconds (default:
-                                  // 60s or 20s in dev mode)
-  const char* tags;  // additional tags to attach to profiles as comma separated list
-                     // (default: empty)
-
-  // symbolization
-  bool symbolizeCallstacks;  // whether to symbolize stack traces (default: false)
-
-  // debug / test settings (normally set via environment variables)
-  // NOTE: log directory is NOT configurable here -- it is set at DLL load time
-  //       via DD_TRACE_LOG_DIRECTORY (default: %PROGRAMDATA%\Datadog Tracer\logs)
-  const char* pprofOutputDirectory;  // override for pprof debug output directory
-                                     // (default: empty = disabled)
+  // Zero selects the default for numeric tuning settings.
+  uint64_t cpuWallTimeSamplingPeriodNs;  // default: 20,000,000ns
+  int32_t walltimeThreadsThreshold;     // default: 5, min: 5, max: 64
+  int32_t cpuThreadsThreshold;          // default: 64, min: 5, max: 128
+  uint8_t symbolizeCallstacks;          // default: 0
 } ProfilerConfig;
 
+typedef struct _ProfilingData {
+  const uint8_t* data;
+  size_t size;
+} ProfilingData;
+
+#ifdef __cplusplus
 extern "C" {
-DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig* pSettings);
+#endif
 
-// Start profiling manually (returns false if already started or explicitly disabled)
-DD_WIN_PROF_API bool StartProfiler();
+// Creates one stopped profiler; only one live handle is allowed per process.
+// NULL config selects defaults. On failure, a non-NULL out is set to NULL.
+DD_WIN_PROF_API ProfilingStatus SetupProfiler(
+    const ProfilerConfig* config, Profiler** out
+);
 
-// Stop profiling manually (safe to call even if not started)
-DD_WIN_PROF_API void StopProfiler();
+// Returns INVALID_STATE if already started.
+DD_WIN_PROF_API ProfilingStatus StartProfiler(Profiler* profiler);
 
-// Enter a named view. Generates a unique view_id internally.
-// Updates per-sample pprof labels: rum.view_id and trace endpoint (viewName).
-// If a view is already active, it is completed first (record produced).
-// Returns false if no session is active (a view requires an app+session).
-DD_WIN_PROF_API bool EnterView(const char* viewName);
+// Stops sampling and drains pending samples without discarding collected data.
+// Safe to call when already stopped. Retrieve the final batch before destroying.
+DD_WIN_PROF_API ProfilingStatus StopProfiler(Profiler* profiler);
 
-// Leave the current view (signals "between views").
-// Completes the active view record. No-op if no view is active.
-// Returns true if a view was active and is now cleared, false if no view was active.
-DD_WIN_PROF_API bool LeaveCurrentView();
+// Returns accumulated data since the last successful retrieval and starts a new
+// collection window. Also callable after StopProfiler to retrieve the final batch.
+// The payload contains pprof and profile/RUM metadata; encoding is to be agreed
+// with the RUM SDK. It is not an HTTP request body.
+// Borrowed bytes remain valid until the next GetProfilingData call on this handle
+// or DestroyProfiler, including across StopProfiler and background sampling.
+// NO_DATA and errors clear a non-NULL out to {NULL, 0}; errors retain pending data.
+// The caller must serialize setup/start/stop/get/destroy calls and copy the bytes
+// before asynchronous persistence or upload. The profiler does not upload data.
+DD_WIN_PROF_API ProfilingStatus GetProfilingData(
+    Profiler* profiler, ProfilingData* out
+);
 
-// Environment Variables (independent controls):
-// DD_PROFILING_ENABLED: Controls whether profiler CAN be started
-//   - false/0: Blocks all profiling (security override)
-//   - true/1 or not set: Allows profiling
-//
-// Test setting ONLY
-// Zero-code profiling: Use ProfilerInjector.exe to inject the DLL with auto-start
-// DD_PROFILING_AUTO_START: Controls whether profiler auto-starts when DLL loads
-//   - true/1: Auto-start when DLL is injected/loaded
-//   - false/0 or not set: Manual control only
-//
+// Stops sampling and frees the handle and borrowed data. NULL is a no-op.
+DD_WIN_PROF_API void DestroyProfiler(Profiler* profiler);
+
+// Generates a view_id and completes any active view first.
+// Returns INVALID_STATE if no session is active.
+DD_WIN_PROF_API ProfilingStatus EnterView(Profiler* profiler, const char* viewName);
+
+// Completes the active view. Safe to call when no view is active.
+DD_WIN_PROF_API ProfilingStatus LeaveCurrentView(Profiler* profiler);
+
+#ifdef __cplusplus
 }
+#endif
