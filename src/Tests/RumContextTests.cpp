@@ -14,8 +14,8 @@
 #include "../dd-win-prof/Sample.h"
 #include "../dd-win-prof/SampleValueType.h"
 #include "../dd-win-prof/ThreadInfo.h"
-#include "../dd-win-prof/dd-win-prof.h"
 #include "../dd-win-prof/dd-win-rum-private.h"
+#include "../dd-win-prof/include/dd-win-prof.h"
 #include "pch.h"
 
 // Helper: build a RumViewRecord with optional per-vital values.
