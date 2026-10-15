@@ -66,21 +66,32 @@ FetchContent_MakeAvailable(spdlog)
 add_library(spdlog_includes INTERFACE)
 target_link_libraries(spdlog_includes INTERFACE spdlog::spdlog_header_only)
 
-# Google Test v1.14.0 fetched at configure time. gtest_force_shared_crt ensures
-# GTest links the same CRT variant as the rest of the project (/MD vs /MDd).
-FetchContent_Declare(
-    googletest
-    URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz
-)
-set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-# Suppress googletest's install() rules. Without this, `cmake --install`
-# for the release package tries to install gtest headers + .lib into our
-# prefix (and fails on the .lib path), and would pollute the zip with
-# test-only artifacts.
-set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(googletest)
+if(DD_WIN_PROF_BUILD_TESTS)
+    # Google Test v1.14.0 fetched at configure time. gtest_force_shared_crt ensures
+    # GTest links the same CRT variant as the rest of the project (/MD vs /MDd).
+    FetchContent_Declare(
+        googletest
+        URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz
+    )
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    # Suppress googletest's install() rules. Without this, `cmake --install`
+    # for the release package tries to install gtest headers + .lib into our
+    # prefix (and fails on the .lib path), and would pollute the zip with
+    # test-only artifacts.
+    set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(googletest)
+endif()
 
 add_subdirectory(dd-win-prof)
-add_subdirectory(Runner)
-add_subdirectory(Tests)
-add_subdirectory(ProfilerInjector)
+
+if(DD_WIN_PROF_BUILD_RUNNER)
+    add_subdirectory(Runner)
+endif()
+
+if(DD_WIN_PROF_BUILD_TESTS)
+    add_subdirectory(Tests)
+endif()
+
+if(DD_WIN_PROF_BUILD_INJECTOR)
+    add_subdirectory(ProfilerInjector)
+endif()
