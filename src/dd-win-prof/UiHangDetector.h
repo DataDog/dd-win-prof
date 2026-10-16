@@ -12,9 +12,6 @@
 
 class UiHangDetector {
  public:
-  // needed by the global Windows Hook callback
-  static UiHangDetector* _this;
-
   UiHangDetector(
       UINT hangProbeMessageId,
       UiHangProvider* pHangProvider,
@@ -27,6 +24,10 @@ class UiHangDetector {
   void ProcessHook(int code, WPARAM wParam, LPARAM lParam);
 
  private:
+  static UiHangDetector* _this;
+  static std::mutex _instanceMutex;
+  static LRESULT CALLBACK GetMsgProc(int code, WPARAM wParam, LPARAM lParam);
+
   void WatchdogLoop();
   bool PostProbeMessage();
   void AddHangSample(
@@ -55,6 +56,9 @@ class UiHangDetector {
   HHOOK _hGetMessageHook;
   HANDLE _stopEvent;
   std::unique_ptr<std::thread> _pWatchdogThread = nullptr;
+
+  // Keep probe acknowledgment and the hang transition mutually exclusive.
+  std::mutex _probeMutex;
 
   // read/write by the watchdog thread and write by the hook
   std::atomic<bool> _isProcessed;
