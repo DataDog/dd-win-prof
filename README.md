@@ -145,6 +145,44 @@ DD_ENV=production
 
 Call [StartProfiler](./src/dd-win-prof/dd-win-prof.h) when ready; [StopProfiler](./src/dd-win-prof/dd-win-prof.h) when done. Use `DD_PROFILING_ENABLED=0` to disable profiling even if `StartProfiler` is called.
 
+### Public API lifecycle
+
+The DLL creates one process-wide profiler instance. Each successful
+`StartProfiler()` begins a new profiling session, and `StopProfiler()` ends that
+session. Starting another session in the same process is supported:
+
+```C++
+if (StartProfiler()) {
+    MonitorWindowHangs(hwnd);  // Optional; at most one window per session
+    // ...
+    StopProfiler();
+}
+
+if (StartProfiler()) {
+    // UI-hang monitoring is session-scoped and must be registered again.
+    MonitorWindowHangs(hwnd);
+    // ...
+    StopProfiler();
+}
+```
+
+The supported API behavior is:
+
+- `SetupProfiler()` is optional when environment variables provide the
+  configuration. When used, call it while profiling is stopped, before the
+  session it configures.
+- `StartProfiler()` succeeds while stopped, including after a previous
+  `StopProfiler()`.
+- Calling `StartProfiler()` while already running emits a warning and returns
+  `false`.
+- `MonitorWindowHangs()` succeeds only while profiling is running. Calling it
+  before the first start or after a stop emits a warning and returns `false`.
+- Only one window can be registered in a profiling session. A second
+  registration attempt after one succeeds emits a warning and returns `false`.
+- `StopProfiler()` ends and exports the current session. Calling it before a
+  start or after the session is already stopped emits a warning and otherwise
+  has no effect.
+
 **NOTE:** Method names are obfuscated by default. Add `DD_PROFILING_INTERNAL_SYMBOLIZE_CALLSTACKS=1` to enable symbolization.
 
 
@@ -271,7 +309,7 @@ See [`src/Runner/README.md`](src/Runner/README.md) for full CLI reference and ex
 
 ### Optional: Run Integration Tests
 
-Integration tests exercise the full profiling pipeline (Runner execution, pprof output, log validation). They require **Python 3.9+** with a few packages.
+Integration tests exercise the full profiling pipeline (Runner execution, pprof output, log validation). They require **Python 3.9+** with a few packages. The UI-hang test additionally requires **PowerShell 7.0+** (`pwsh`); Windows PowerShell 5.1 is not supported by that test.
 
 ```powershell
 # Install Python dependencies (one-time)

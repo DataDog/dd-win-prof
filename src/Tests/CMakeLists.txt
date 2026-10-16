@@ -31,6 +31,8 @@ add_executable(Tests
     ../dd-win-prof/TagsHelper.cpp
     ../dd-win-prof/ThreadInfo.cpp
     ../dd-win-prof/ThreadList.cpp
+    ../dd-win-prof/UiHangDetector.cpp
+    ../dd-win-prof/UiHangProvider.cpp
     ../dd-win-prof/Uuid.cpp
     ../dd-win-prof/WalltimeProvider.cpp
 )
