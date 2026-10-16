@@ -108,7 +108,7 @@ set_property(TARGET dd-win-prof PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE ON
 # consumed as a dependency.
 if(DD_WIN_PROF_DEVELOPMENT OR DD_WIN_PROF_BUILD_RUNNER)
     set(_ref_dir "${WINDOWSPROFILER_ROOT_DIR}/src/reference")
-    set(_ld_dyn  "${libdatadog_SOURCE_DIR}/$<LOWER_CASE:$<CONFIG>>/dynamic")
+    set(_ld_dyn  "${libdatadog_SOURCE_DIR}/${DD_WIN_PROF_LIBDATADOG_CONFIG_DIR}/dynamic")
 
     # Copy the public header before compilation so that Runner (and any other
     # consumer) always has a current copy of the API surface.
@@ -141,8 +141,8 @@ endif()
 # Install rules used by the release workflow (cmake --install build --config
 # Release --prefix <stage>/dd-win-prof). Mirrors the layout published in the
 # release zip: dd-win-prof/Profiler/{dll,lib,pdb,h, datadog_profiling_ffi.{dll,pdb}}.
-# Config-aware via $<LOWER_CASE:$<CONFIG>> so `--config Debug` would install the
-# debug variant; the release workflow only uses Release.
+# Config-aware (see DD_WIN_PROF_LIBDATADOG_CONFIG_DIR) so `--config Debug` would install
+# the debug variant; the release workflow only uses Release.
 if(DD_WIN_PROF_BUILD_INSTALL)
     install(TARGETS dd-win-prof
         RUNTIME DESTINATION Profiler
@@ -151,8 +151,8 @@ if(DD_WIN_PROF_BUILD_INSTALL)
     install(FILES $<TARGET_PDB_FILE:dd-win-prof> DESTINATION Profiler OPTIONAL)
     install(FILES dd-win-prof.h DESTINATION Profiler)
     install(FILES
-        "${libdatadog_SOURCE_DIR}/$<LOWER_CASE:$<CONFIG>>/dynamic/datadog_profiling_ffi.dll"
-        "${libdatadog_SOURCE_DIR}/$<LOWER_CASE:$<CONFIG>>/dynamic/datadog_profiling_ffi.pdb"
+        "${libdatadog_SOURCE_DIR}/${DD_WIN_PROF_LIBDATADOG_CONFIG_DIR}/dynamic/datadog_profiling_ffi.dll"
+        "${libdatadog_SOURCE_DIR}/${DD_WIN_PROF_LIBDATADOG_CONFIG_DIR}/dynamic/datadog_profiling_ffi.pdb"
         DESTINATION Profiler
     )
 endif()

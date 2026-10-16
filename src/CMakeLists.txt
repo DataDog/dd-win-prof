@@ -15,6 +15,11 @@ FetchContent_MakeAvailable(libdatadog)
 # Expose libdatadog source directory so other targets can access DLL paths etc.
 set(DD_WIN_PROF_LIBDATADOG_DIR "${libdatadog_SOURCE_DIR}" CACHE INTERNAL "")
 
+# The libdatadog package only has debug/ and release/ directories. Debug maps to
+# debug; every other configuration (Release, RelWithDebInfo, MinSizeRel, or none with a
+# single-config generator) maps to release, matching the imported targets below.
+set(DD_WIN_PROF_LIBDATADOG_CONFIG_DIR "$<IF:$<CONFIG:Debug>,debug,release>" CACHE INTERNAL "")
+
 set(_LD_ROOT "${libdatadog_SOURCE_DIR}")
 
 # libdatadog static import library — used by dd-win-prof.dll at link time. Paths

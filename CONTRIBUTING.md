@@ -64,8 +64,6 @@ To omit obfuscation tools from the build, pass `-DDD_WIN_PROF_BUILD_OBFUSCATION=
 
 Outputs are also staged into `src/reference` in development mode, or whenever the Runner is built (it consumes that directory). `DD_WIN_PROF_BUILD_INSTALL` (default: top-level only) controls all install rules: the release-package layout and the ObfSymbols install. Set any of these explicitly to override the umbrella.
 
-These are ordinary CMake options, so their defaults are only computed the first time a build directory is configured; after that the cached values win. To switch an existing build directory to or from development mode, either use a fresh build directory or pass each option explicitly (e.g. `-DDD_WIN_PROF_DEVELOPMENT=OFF -DDD_WIN_PROF_BUILD_TESTS=OFF -DDD_WIN_PROF_BUILD_RUNNER=OFF -DDD_WIN_PROF_BUILD_INJECTOR=OFF -DDD_WIN_PROF_BUILD_OBFUSCATION=OFF`).
-
 A project that only needs the profiler library can therefore just do `FetchContent_MakeAvailable(dd-win-prof)`: it won't download GoogleTest, define test/tool targets, write into dd-win-prof's source tree, or add install rules. Consumers that need the runtime DLLs next to their own binaries should use `dd_win_prof_copy_runtime_deps()` rather than reading `src/reference`, which is no longer populated for them. Opting a consumer into `DD_WIN_PROF_BUILD_TESTS=ON` also brings in GoogleTest and CTest's cache entries.
 
 To open the project in Visual Studio, use the helper script:

@@ -116,7 +116,7 @@ function(dd_win_prof_copy_runtime_deps TARGET_NAME)
     cmake_parse_arguments(ARG "${options}" "" "" ${ARGN})
 
     # Determine libdatadog DLL directory based on build configuration
-    set(_ld_dyn "${DD_WIN_PROF_LIBDATADOG_DIR}/$<LOWER_CASE:$<CONFIG>>/dynamic")
+    set(_ld_dyn "${DD_WIN_PROF_LIBDATADOG_DIR}/${DD_WIN_PROF_LIBDATADOG_CONFIG_DIR}/dynamic")
 
     # Copy DLLs (always)
     add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
