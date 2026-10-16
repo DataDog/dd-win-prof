@@ -63,8 +63,11 @@ target_precompile_headers(dd-win-prof PRIVATE pch.h)
 
 # Only include/ (dd-win-prof.h) is public. Everything else in this directory is
 # private, so consumers don't get Log.h, Uuid.h, version.h etc. on their include path.
+# INSTALL_INTERFACE is for projects that export this target in their own install set
+# (see README): they install dd-win-prof.h to <prefix>/include.
 target_include_directories(dd-win-prof
     PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    PUBLIC $<INSTALL_INTERFACE:include>
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
 )
 

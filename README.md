@@ -56,7 +56,12 @@ Finally, if you're generating installed builds of your CMake project, you'll als
 install(TARGETS dd-win-prof
    EXPORT YourApplicationTargets
    RUNTIME DESTINATION bin
+   ARCHIVE DESTINATION lib
 )
+# The exported target's include path is <prefix>/include, so install the public header
+# there too. ${dd-win-prof_SOURCE_DIR} is set by FetchContent; with add_subdirectory
+# use the path you added.
+install(FILES "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/dd-win-prof.h" DESTINATION include)
 install(FILES "$<TARGET_FILE:dd_win_prof_libdatadog_dynamic>" DESTINATION bin)
 ```
 

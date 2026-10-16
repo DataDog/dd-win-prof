@@ -23,3 +23,14 @@ FetchContent_MakeAvailable(dd-win-prof)
 add_executable(consumer main.cpp)
 target_link_libraries(consumer PRIVATE dd-win-prof)
 install(TARGETS consumer RUNTIME DESTINATION bin)
+
+# Export dd-win-prof from this project's own install set, as the README documents
+# (minus the libdatadog DLL, which isn't what is being tested here). The "downstream"
+# project then consumes the installed export; see scripts/test-consumer.ps1.
+install(TARGETS dd-win-prof
+    EXPORT ConsumerTargets
+    RUNTIME DESTINATION bin
+    ARCHIVE DESTINATION lib
+)
+install(FILES "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/dd-win-prof.h" DESTINATION include)
+install(EXPORT ConsumerTargets DESTINATION lib/cmake/consumer)

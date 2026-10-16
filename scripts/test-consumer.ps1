@@ -11,10 +11,15 @@
         were generated
       - dd-win-prof's source tree was not modified (e.g. no files staged into
         src/reference)
-      - `cmake --install` installs only the consumer's own executable
+      - `cmake --install` installs only what the consumer asked for (its executable and
+        the dd-win-prof export it declares, as the README documents), none of
+        dd-win-prof's own install rules (Profiler/, Obfuscation/, licenses)
       - none of the cache variables dd-win-prof sets for spdlog / GoogleTest leaked
         into the consumer's CMake cache
-    The compile step additionally fails if dd-win-prof exposes internal headers (see
+      - a separate project (consumer-test/downstream) can configure, compile and link
+        against the installed, exported dd-win-prof target (include path, header
+        install and import library)
+    The compile steps additionally fail if dd-win-prof exposes internal headers (see
     consumer-test/main.cpp) or if dd-win-prof.h isn't self-contained.
 
     Run by the "Consume as dependency" job in .github/workflows/test.yml.
@@ -53,6 +58,12 @@ function Invoke-Checked {
     }
 }
 
+# Like Invoke-Checked, but returns whether the command succeeded instead of exiting.
+function Invoke-Soft {
+    & $args[0] $args[1..($args.Length - 1)] | Out-Host
+    return ($LASTEXITCODE -eq 0)
+}
+
 # Snapshot of the working tree, ignoring the dependency cache CI keeps inside it.
 function Get-SourceTreeState {
     git -C $repoRoot status --porcelain --untracked-files=all -- . ':(exclude).deps'
@@ -77,6 +88,18 @@ Invoke-Checked cmake --build $buildDir --config $Config
 Invoke-Checked cmake --install $buildDir --config $Config --prefix $installDir
 
 $failures = @()
+
+# A project that only has the installed prefix must be able to use the exported target:
+# the include path has to resolve (dd-win-prof.h installed under <prefix>/include) and
+# the import library has to be present.
+$downstreamDir = Join-Path $WorkDir 'downstream'
+$ok = Invoke-Soft cmake -G 'Visual Studio 17 2022' -A x64 `
+    -S (Join-Path $PSScriptRoot 'consumer-test/downstream') -B $downstreamDir `
+    ('-DDD_WIN_PROF_CONSUMER_PREFIX=' + ($installDir -replace '\\', '/'))
+if ($ok) { $ok = Invoke-Soft cmake --build $downstreamDir --config $Config }
+if (-not $ok) {
+    $failures += 'A project using the installed, exported dd-win-prof target failed to configure or build (include path, header install or import library)'
+}
 
 # GoogleTest must not have been fetched.
 $gtest = @(Get-ChildItem $depsDir -Directory -Filter 'googletest*' -ErrorAction SilentlyContinue)
@@ -103,12 +126,22 @@ if ($changed.Count -gt 0) {
     $failures += "The source tree was modified by the consumer build:`n  $($changed -join "`n  ")"
 }
 
-# Only the consumer's own executable may be installed.
+# Only what the consumer's own install rules ask for may be installed; anything else
+# (e.g. Profiler/, Obfuscation/, licenses) comes from dd-win-prof's own install rules.
+$expectedInstalled = @(
+    'bin/consumer.exe',
+    'bin/dd-win-prof.dll',
+    'include/dd-win-prof.h',
+    'lib/cmake/consumer/ConsumerTargets.cmake',
+    "lib/cmake/consumer/ConsumerTargets-$($Config.ToLower()).cmake",
+    'lib/dd-win-prof.lib'
+) | Sort-Object
 $installed = @(
     Get-ChildItem $installDir -Recurse -File |
-        ForEach-Object { $_.FullName.Substring($installDir.Length + 1) -replace '\\', '/' }
+        ForEach-Object { $_.FullName.Substring($installDir.Length + 1) -replace '\\', '/' } |
+        Sort-Object
 )
-if (($installed -join ',') -ne 'bin/consumer.exe') {
+if (($installed -join ',') -ne ($expectedInstalled -join ',')) {
     $failures += "Unexpected install contents: $($installed -join ', ')"
 }
 
