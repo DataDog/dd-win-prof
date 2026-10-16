@@ -48,6 +48,7 @@ $uiAppDir  = Join-Path $scriptDir "..\UIApp"
 # Wall-time sampling period (ms). Passed to the profiler and reused as the
 # validator's boundary slack unit.
 $SamplingMs = 5
+$WalltimeThreadsThreshold = 64
 
 Write-Host "`n=== UIApp UI-Hang Integration Test (local) ===" -ForegroundColor Cyan
 Write-Host ""
@@ -80,7 +81,8 @@ function Invoke-Validator(
         "--kind", $kind,
         "--cycles", "$expectedCycles",
         "--duration-ms", "$HangDurationMs",
-        "--sampling-ms", "$SamplingMs"
+        "--sampling-ms", "$SamplingMs",
+        "--walltime-threads-threshold", "$WalltimeThreadsThreshold"
     )
     foreach ($view in $expectedViews) {
         $validatorArgs += @("--expected-view", $view)
@@ -148,7 +150,7 @@ foreach ($case in $cases) {
     $psi.Environment["DD_INTERNAL_PROFILING_EXPORT_ENABLED"] = "0"
     $psi.Environment["DD_PROFILING_WALLTIME_ENABLED"] = "1"
     $psi.Environment["DD_INTERNAL_PROFILING_SAMPLING_RATE"] = "$SamplingMs"
-    $psi.Environment["DD_INTERNAL_PROFILING_WALLTIME_THREADS_THRESHOLD"] = "64"
+    $psi.Environment["DD_INTERNAL_PROFILING_WALLTIME_THREADS_THRESHOLD"] = "$WalltimeThreadsThreshold"
     $psi.Environment["DD_TRACE_LOG_DIRECTORY"] = $logDir
     $psi.Environment["DD_PROFILING_CPU_ENABLED"] = if ($kind -eq "cpu") { "1" } else { "0" }
     $psi.Environment["DD_PROFILING_AUTO_START"] = "0"

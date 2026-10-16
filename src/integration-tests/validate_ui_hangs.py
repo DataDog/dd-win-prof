@@ -17,11 +17,14 @@ For a directory of .pprof files captured from a single hang kind
   * no ordinary wait sample (no UIHang label, wait-time > 0) overlaps the
     interior of a detected hang interval -- i.e. the profiler suppresses
     ordinary wait accounting while a hang is in progress;
+  * ordinary wall-time samples cover at least 90% of each hang interval after
+    allowing for one effective per-thread sampling interval at each boundary;
   * for the cpu kind, positive cpu-time is attributed during each hang.
 
 Usage:
     python validate_ui_hangs.py --pprof-dir <dir> --kind sleep|wait|cpu \
-        --cycles <n> --duration-ms <n> --sampling-ms <n>
+        --cycles <n> --duration-ms <n> --sampling-ms <n> \
+        --walltime-threads-threshold <n>
 """
 
 import argparse
@@ -143,7 +146,15 @@ def _describe(sample):
     )
 
 
-def validate(pprof_dir, kind, cycles, duration_ms, sampling_ms, expected_views):
+def validate(
+    pprof_dir,
+    kind,
+    cycles,
+    duration_ms,
+    sampling_ms,
+    walltime_threads_threshold,
+    expected_views,
+):
     all_samples, files = _load_all_samples(pprof_dir)
 
     ui_samples = [s for s in all_samples if s.label("thread_name") == UI_THREAD_NAME]
@@ -151,6 +162,21 @@ def validate(pprof_dir, kind, cycles, duration_ms, sampling_ms, expected_views):
         raise ValidationError(
             f"no samples on thread '{UI_THREAD_NAME}' across {len(files)} file(s)"
         )
+
+    thread_ids = {
+        s.label("thread id")
+        for s in all_samples
+        if s.label("thread id") is not None
+        and s.values.get("wall-time", 0) > 0
+    }
+    thread_count = len(thread_ids)
+    if thread_count == 0:
+        raise ValidationError("no thread_id labels found; cannot estimate sampling interval")
+
+    iterations_per_thread = (
+        thread_count + walltime_threads_threshold - 1
+    ) // walltime_threads_threshold
+    effective_sampling_ns = iterations_per_thread * sampling_ms * 1_000_000
 
     # -- UIHang event pairs ---------------------------------------------------
     events = sorted(
@@ -275,6 +301,34 @@ def validate(pprof_dir, kind, cycles, duration_ms, sampling_ms, expected_views):
                     f"[{protected_start}, {protected_end}]: {_describe(wait)}"
                 )
 
+    # -- Wall-time coverage during hangs --------------------------------------
+    # Samples are attributed to their end timestamp. The samples crossing the
+    # hang boundaries may therefore end just outside the interval. Allow one
+    # effective per-thread sampling interval at each boundary, accounting for
+    # round-robin sampling when the thread count exceeds the per-iteration limit.
+    for detected, recovered in matching:
+        hang_duration_ns = recovered.timestamp_ns - detected.timestamp_ns
+        boundary_allowance_ns = min(
+            hang_duration_ns, 2 * effective_sampling_ns
+        )
+        expected_walltime_ns = hang_duration_ns - boundary_allowance_ns
+        walltime_ns = sum(
+            s.values.get("wall-time", 0)
+            for s in ui_samples
+            if s.label("UIHang") is None
+            and s.timestamp_ns is not None
+            and detected.timestamp_ns < s.timestamp_ns < recovered.timestamp_ns
+        )
+        minimum_walltime_ns = 0.90 * expected_walltime_ns
+        if walltime_ns < minimum_walltime_ns:
+            raise ValidationError(
+                "insufficient ordinary wall-time coverage during hang: "
+                f"observed={walltime_ns}ns minimum={minimum_walltime_ns:.0f}ns "
+                f"hang={hang_duration_ns}ns effective_sampling="
+                f"{effective_sampling_ns}ns thread_count={thread_count} "
+                f"threshold={walltime_threads_threshold}"
+            )
+
     # -- CPU attribution during CPU hangs -------------------------------------
     if kind == "cpu":
         for detected, recovered in matching:
@@ -304,6 +358,7 @@ def main():
     parser.add_argument("--cycles", required=True, type=int)
     parser.add_argument("--duration-ms", required=True, type=int)
     parser.add_argument("--sampling-ms", required=True, type=int)
+    parser.add_argument("--walltime-threads-threshold", required=True, type=int)
     parser.add_argument(
         "--expected-view",
         action="append",
@@ -319,6 +374,7 @@ def main():
             args.cycles,
             args.duration_ms,
             args.sampling_ms,
+            args.walltime_threads_threshold,
             args.expected_view,
         )
     except ValidationError as err:
