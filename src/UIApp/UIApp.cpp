@@ -28,8 +28,8 @@
 #include <initializer_list>
 #include <string>
 
-#include "../dd-win-prof/dd-win-prof.h"
-#include "../dd-win-prof/dd-win-rum-private.h"
+#include "dd-win-prof.h"
+#include "dd-win-rum-private.h"
 
 namespace {
 

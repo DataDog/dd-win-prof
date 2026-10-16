@@ -5,6 +5,9 @@ add_executable(UIApp WIN32
     UIApp.cpp
 )
 
+target_include_directories(UIApp PRIVATE
+    "${WINDOWSPROFILER_ROOT_DIR}/src/dd-win-prof"
+)
 target_link_libraries(UIApp PRIVATE dd-win-prof shell32.lib)
 
 # Link-time code generation (whole-program optimisation) in Release builds only.
