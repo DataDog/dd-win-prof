@@ -69,7 +69,7 @@ target_link_libraries(Tests PRIVATE
 # Link-time code generation (whole-program optimisation) in Release builds only.
 set_property(TARGET Tests PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
 
-set(_ld_dyn "${libdatadog_SOURCE_DIR}/$<LOWER_CASE:$<CONFIG>>/dynamic")
+set(_ld_dyn "${libdatadog_SOURCE_DIR}/${DD_WIN_PROF_LIBDATADOG_CONFIG_DIR}/dynamic")
 
 # Tests.exe must find the libdatadog DLL at launch; copy it alongside the
 # executable (mirrors the CopyLibDatadogDlls MSBuild target in Tests.vcxproj).

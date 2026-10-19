@@ -15,10 +15,23 @@ else()
     set(DD_WIN_PROF_IS_TOPLEVEL OFF)
 endif()
 
-# Option to build obfuscation tools (ObfSymbols). These tools require the DIA SDK
-# and are only needed for development/symbol processing, not for runtime profiling.
-# Disabled by default when used as a dependency.
-option(DD_WIN_PROF_BUILD_OBFUSCATION "Build obfuscation tools (requires DIA SDK)" ${DD_WIN_PROF_IS_TOPLEVEL})
+# Development mode: sets the defaults for the options below that only dd-win-prof
+# developers need. ON when top-level, OFF when consumed via FetchContent or
+# add_subdirectory(). Each option can still be set explicitly.
+option(DD_WIN_PROF_DEVELOPMENT "Enable development mode (tests, Runner, injector, obfuscation tools, src/reference staging)" ${DD_WIN_PROF_IS_TOPLEVEL})
+
+option(DD_WIN_PROF_BUILD_TESTS "Build unit tests (fetches GoogleTest)" ${DD_WIN_PROF_DEVELOPMENT})
+option(DD_WIN_PROF_BUILD_RUNNER "Build the Runner test application" ${DD_WIN_PROF_DEVELOPMENT})
+option(DD_WIN_PROF_BUILD_INJECTOR "Build the ProfilerInjector utility" ${DD_WIN_PROF_DEVELOPMENT})
+
+# Obfuscation tools (ObfSymbols) require the DIA SDK and are only needed for symbol
+# processing, not for runtime profiling.
+option(DD_WIN_PROF_BUILD_OBFUSCATION "Build obfuscation tools (requires DIA SDK)" ${DD_WIN_PROF_DEVELOPMENT})
+
+# Install rules (the release package layout; see src/dd-win-prof/CMakeLists.txt). A
+# consuming project that installs itself shouldn't pick these up, so they only default
+# to ON for the top-level project.
+option(DD_WIN_PROF_BUILD_INSTALL "Enable install targets" ${DD_WIN_PROF_IS_TOPLEVEL})
 
 # Enable MSVC AddressSanitizer for the whole project (compiler + linker).
 # Mostly intended for unit tests in CI; see src/Tests/CMakeLists.txt for the
@@ -71,7 +84,7 @@ include(cmake/clang-format.cmake)
 # the root LICENSE + NOTICE; third-party components (spdlog, bundled fmt)
 # are enumerated in LICENSE-3rdparty.csv with their license types, and the
 # corresponding license texts live under licenses/.
-if(DD_WIN_PROF_IS_TOPLEVEL)
+if(DD_WIN_PROF_BUILD_INSTALL)
     install(FILES LICENSE NOTICE LICENSE-3rdparty.csv DESTINATION .)
     install(DIRECTORY licenses/ DESTINATION licenses)
 endif()
@@ -103,7 +116,7 @@ function(dd_win_prof_copy_runtime_deps TARGET_NAME)
     cmake_parse_arguments(ARG "${options}" "" "" ${ARGN})
 
     # Determine libdatadog DLL directory based on build configuration
-    set(_ld_dyn "${DD_WIN_PROF_LIBDATADOG_DIR}/$<LOWER_CASE:$<CONFIG>>/dynamic")
+    set(_ld_dyn "${DD_WIN_PROF_LIBDATADOG_DIR}/${DD_WIN_PROF_LIBDATADOG_CONFIG_DIR}/dynamic")
 
     # Copy DLLs (always)
     add_custom_command(TARGET ${TARGET_NAME} POST_BUILD

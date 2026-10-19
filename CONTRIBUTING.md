@@ -51,6 +51,21 @@ cmake --build build --config Release
 
 To omit obfuscation tools from the build, pass `-DDD_WIN_PROF_BUILD_OBFUSCATION=OFF` when configuring.
 
+#### Development mode and using dd-win-prof as a dependency
+
+`DD_WIN_PROF_DEVELOPMENT` is the umbrella option for working on dd-win-prof itself. It defaults to `ON` when dd-win-prof is the top-level project and `OFF` when it is included in another project via `FetchContent` or `add_subdirectory`, and it sets the default for:
+
+| Option | Builds / enables |
+|---|---|
+| `DD_WIN_PROF_BUILD_TESTS` | Unit tests (also fetches GoogleTest) |
+| `DD_WIN_PROF_BUILD_RUNNER` | The Runner test application |
+| `DD_WIN_PROF_BUILD_INJECTOR` | The ProfilerInjector utility |
+| `DD_WIN_PROF_BUILD_OBFUSCATION` | The obfuscation tools (requires the DIA SDK) |
+
+Outputs are also staged into `src/reference` in development mode, or whenever the Runner is built (it consumes that directory). `DD_WIN_PROF_BUILD_INSTALL` (default: top-level only) controls all install rules: the release-package layout and the ObfSymbols install. Set any of these explicitly to override the umbrella.
+
+A project that only needs the profiler library can therefore just do `FetchContent_MakeAvailable(dd-win-prof)`: it won't download GoogleTest, define test/tool targets, write into dd-win-prof's source tree, or add install rules. Consumers that need the runtime DLLs next to their own binaries should use `dd_win_prof_copy_runtime_deps()` rather than reading `src/reference`, which is no longer populated for them. Opting a consumer into `DD_WIN_PROF_BUILD_TESTS=ON` also brings in GoogleTest and CTest's cache entries.
+
 To open the project in Visual Studio, use the helper script:
 
 ```powershell
