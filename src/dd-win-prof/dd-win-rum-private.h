@@ -12,24 +12,30 @@ typedef struct _RumSessionContext {
 } RumSessionContext;
 
 typedef struct _RumViewValues {
-  const char* view_id;    // UUID string; nullptr or "" to clear current view
+  const char* view_id;    // UUID string; NULL or "" to clear current view
   const char* view_name;  // human-readable name, e.g. "HomePage"
 } RumViewValues;
 
+#ifdef __cplusplus
 extern "C" {
-// Set stable RUM session context. Safe to call from any thread.
-// application_id: write-once per process. First non-empty value is stored
-// as a profile-level tag; subsequent calls with a different value return false.
-// session_id: updated on every call. Session transitions are tracked with
-// timestamps.
-// Pass nullptr to end the current session: completes any pending session
-// and view records, then returns true.
-// Returns false if application_id or session_id is missing/empty,
-// or a different application_id is rejected.
-DD_WIN_PROF_API bool SetRumSession(const RumSessionContext* pContext);
+#endif
 
-// Set volatile RUM view context with explicit view_id. Safe to call from any thread.
-// Pass nullptr/empty view_id to clear the current view (signals "between views").
-// Returns false if no session is active.
-DD_WIN_PROF_API bool SetRumView(const RumViewValues* pContext);
+// Context strings are copied during each call. These setters are thread-safe;
+// the caller must ensure they do not race with DestroyProfiler.
+// application_id is write-once per process and retained as profile metadata.
+// session_id changes record timestamped session transitions.
+// NULL context ends the session and completes pending session/view records.
+// Missing IDs or a different application_id return INVALID_ARGUMENT.
+DD_WIN_PROF_API ProfilingStatus SetRumSession(
+    Profiler* profiler, const RumSessionContext* context
+);
+
+// The RUM SDK supplies view IDs; NULL context or an empty ID clears the view.
+// Returns INVALID_STATE if no session is active.
+DD_WIN_PROF_API ProfilingStatus SetRumView(
+    Profiler* profiler, const RumViewValues* context
+);
+
+#ifdef __cplusplus
 }
+#endif
