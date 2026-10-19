@@ -1,10 +1,6 @@
-# Capture pprof profiles by running Runner.exe with the chosen scenario.
-# Used both locally (to bootstrap expected_profile.json files) and in CI
-# (to feed the prof-correctness analyzer).
-#
-# Defaults: symbolize on, upload off — set as env vars so Runner picks
-# them up without extra flags. Per-scenario config (e.g. RUM IDs) lives
-# in runner-scenarios/scenario_<N>/.env and is auto-loaded.
+# Capture Runner profiles for local inspection or prof-analyze validation.
+# Symbolization is on and upload is off unless overridden by loaded env files.
+# Scenario settings come from runner-scenarios/scenario_<N>/scenario.env.
 #
 # Usage:
 #   .\capture-pprof.ps1                                      # scenario 1, 3 iterations

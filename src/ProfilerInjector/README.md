@@ -1,89 +1,38 @@
 # ProfilerInjector
 
-A Windows utility for zero-code profiling by injecting the Datadog profiler DLL into target applications. This is intended for test purposes.
+Test utility that launches an application with the profiler injected, without
+changing the application's code. The target must be a 64-bit Windows executable.
 
-## Usage
+## Build and run
 
-```cmd
-ProfilerInjector.exe <target_executable> [arguments...]
+After [configuring CMake](../../README.md#build), run from the repository root:
+
+```powershell
+cmake --build build --config Release --target ProfilerInjector
+.\build\src\ProfilerInjector\Release\ProfilerInjector.exe path\to\myapp.exe --config config.json
 ```
 
-**Examples:**
-```cmd
-# Basic usage
-ProfilerInjector.exe myapp.exe
-
-# With arguments
-ProfilerInjector.exe myapp.exe --config config.json --verbose
-```
+Place `dd-win-prof.dll` beside the target executable. The injector sets
+`DD_PROFILING_AUTO_START=1` before launching the target. See the
+[Vulkan guide](../../e2e-tests/README_vulkan.md) for a prepared example directory.
 
 ## Configuration
 
-### Option 1: .env File (Recommended)
+Profiler environment variables can be set in the shell or loaded from a `.env`
+file. The first existing file is loaded, in this order:
 
-ProfilerInjector automatically searches for `.env` files in this order:
+1. Target executable's directory.
+2. Current working directory.
+3. Parent of the target executable's directory.
+4. Grandparent of the target executable's directory.
 
-1. **Same directory as executable** (highest priority)
-2. **Current working directory**  
-3. **Parent directory** (useful for build directories)
-4. **Two levels up** (for nested builds like `build/bin/Release/`)
-
-Create a `.env` file in any of these locations:
+For a local capture, place this beside the target executable:
 
 ```env
-# .env file example
-DD_SITE=datadoghq.eu
 DD_SERVICE=my-service
-DD_ENV=production
-DD_VERSION=1.2.3
-DD_TRACE_DEBUG=1
-# Comments are supported
-DD_API_KEY=your_api_key_here
+DD_INTERNAL_PROFILING_EXPORT_ENABLED=0
+DD_INTERNAL_PROFILING_OUTPUT_DIR=C:\temp\myapp-pprof
 ```
 
-**Example locations for Vulkan builds:**
-```
-vulkan_examples/
-├── .env                    # ← Works! (2 levels up from executable)
-└── build/
-    └── bin/
-        └── Release/
-            ├── .env        # ← Works! (same directory)
-            ├── triangle.exe
-            └── ProfilerInjector.exe
-```
-
-Then run:
-```cmd
-ProfilerInjector.exe myapp.exe
-```
-
-### Option 2: Environment Variables
-
-Set variables manually before running:
-
-```cmd
-set DD_SITE=datadoghq.eu
-set DD_SERVICE=my-service
-set DD_TRACE_DEBUG=1
-ProfilerInjector.exe myapp.exe
-```
-
-## Environment Variables
-
-- `DD_PROFILING_AUTO_START=1` - Automatically start profiling when DLL loads
-- `DD_TRACE_DEBUG=1` - Enable debug logging  
-- `DD_SERVICE=<name>` - Set service name for profiling data
-- `DD_PROFILING_ENABLED=false` - Disable profiling completely
-- `DD_TRACE_LOG_DIRECTORY` - Log output directory (set at DLL load; default: `%PROGRAMDATA%\Datadog Tracer\logs`)
-- `DD_INTERNAL_PROFILING_OUTPUT_DIR` - Local pprof debug output directory
-
-## Building
-
-Built as part of the main solution:
-
-```cmd
-msbuild src\WindowsProfiler.sln /p:Configuration=Release /p:Platform=x64
-```
-
-Output: `src\x64\Release\ProfilerInjector.exe`
+See [profiler configuration](../../README.md#configuration) for upload and
+logging settings. Do not commit `.env` files containing credentials.

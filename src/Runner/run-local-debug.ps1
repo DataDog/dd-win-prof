@@ -1,6 +1,5 @@
-# Run the profiler Runner in --noenvvars mode for local debugging.
-# Profiles are written to a local directory instead of being uploaded.
-# No Datadog backend is contacted.
+# Run Runner in --noenvvars mode with local pprof output and a dummy endpoint.
+# Local output does not disable export; upload attempts can still fail.
 #
 # NOTE: Log files are always written to the location set by DD_TRACE_LOG_DIRECTORY
 #       (default: %PROGRAMDATA%\Datadog Tracer\logs). This is determined at DLL load
@@ -47,8 +46,7 @@ New-Item -ItemType Directory -Force -Path $pprofDir | Out-Null
 Write-Host "Pprof dir   : $pprofDir"    -ForegroundColor Cyan
 Write-Host ""
 
-# Use a placeholder URL/apikey -- SetupProfiler requires them with --noenvvars
-# but no upload will happen because pprofOutputDirectory redirects output locally.
+# --noenvvars requires an endpoint and key, even for local output.
 $args = @(
     "--scenario",   $Scenario,
     "--iterations", $Iterations,

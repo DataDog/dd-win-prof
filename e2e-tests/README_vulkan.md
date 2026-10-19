@@ -1,60 +1,40 @@
-# Vulkan Examples with Datadog Profiler
+# Vulkan example builds
 
-Builds Vulkan examples with automatic Datadog profiler integration.
+The quick-start script builds Vulkan examples with profiler integration and
+prepares launchers. It does not run the examples, including in CI.
 
-## Quick Start
+## Build
 
-### 1. Build your profiler
-```cmd
-msbuild src\WindowsProfiler.sln /p:Configuration=Release /p:Platform=x64
+After [configuring CMake](../README.md#build), run from the repository root:
+
+```powershell
+cmake --build build --config Release --target dd-win-prof ProfilerInjector
+.\e2e-tests\vulcan_quickstart.ps1 -EnableProfiler
 ```
 
-### 2. Create .env file for profiler configuration
-Create `.env` in the `e2e-tests` directory (will be copied to executables):
+The script copies `e2e-tests/.env` beside the examples if it exists. For local
+profiles without upload, use:
 
 ```env
-DD_SITE=datadoghq.com
-DD_API_KEY=your_api_key_here
-# No Service is needed!
-DD_ENV=development
-DD_TRACE_DEBUG=1
-DD_PROFILING_LOG_LEVEL=debug
-DD_PROFILING_LOG_TO_CONSOLE=1
-# Optional: save pprof files locally
-# DD_INTERNAL_PROFILING_OUTPUT_DIR=e2e-tests/pprof
+DD_SERVICE=vulkan-example
+DD_INTERNAL_PROFILING_EXPORT_ENABLED=0
+DD_INTERNAL_PROFILING_OUTPUT_DIR=C:\temp\vulkan-pprof
 ```
 
-### 3. Build and run
-```powershell
-.\vulcan_quickstart.ps1 -EnableProfiler
-```
+Use `-BuildTargets @("triangle", "gears")` to select examples. `-Clean` removes
+the Vulkan build directory and dependency markers, then exits. Run the command
+again with `-EnableProfiler` to rebuild.
 
-The script runs `computeheadless` automatically and shows command lines for other examples.
+## Run
 
-## Build Options
+From `e2e-tests\vulkan_examples\build\bin\Release\`:
 
 ```powershell
-# Build with profiling
-.\vulcan_quickstart.ps1 -EnableProfiler
-
-# Build specific examples only
-.\vulcan_quickstart.ps1 -EnableProfiler -BuildTargets @("triangle", "gears")
-
-# Clean rebuild
-.\vulcan_quickstart.ps1 -Clean
-.\vulcan_quickstart.ps1 -EnableProfiler
+.\triangle_with_profiler.bat
+.\ProfilerInjector.exe gears.exe
+.\computeheadless.exe
 ```
 
-## Manual Execution
-
-After building, run examples manually from `vulkan_examples\Vulkan\build\bin\Release\`:
-
-```cmd
-# With profiler
-.\run-triangle-with-profiler.bat
-ProfilerInjector.exe gears.exe
-
-# Without profiler  
-triangle.exe
-gears.exe
-```
+The last command runs without injection. Windowed examples require a GPU and
+display. See [ProfilerInjector](../src/ProfilerInjector/README.md) for environment
+file discovery and configuration.

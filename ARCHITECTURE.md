@@ -1,206 +1,65 @@
-# dd-win-prof
+# Architecture
 
-> **⚠️ EARLY VERSION WARNING**
-> 
-> This is an early version of the Windows profiler and is **not recommended for production use**. 
-> The software is provided as-is for evaluation and development purposes only.
-> 
-> **Use in production environments at your own risk.** Please thoroughly test in your specific 
-> environment before considering any production deployment.
+The profiler is an in-process DLL for Windows x64. It samples CPU, wall time,
+and wait time, aggregates the samples with libdatadog, and writes or uploads
+pprof profiles.
 
-## Architecture Overview
+## Lifecycle and thread tracking
 
-This is a Windows native profiler that performs CPU sampling and exports profiles to Datadog. The profiler is implemented as a DLL that hooks into the target process and periodically samples cpu-bound threads stack.
+[`dllmain.cpp`](src/dd-win-prof/dllmain.cpp) creates the `Profiler` singleton
+on process attach. Thread attach/detach notifications update `ThreadList`;
+`ThreadInfo` holds OS handles, CPU consumption, and sampling timestamps.
+Thread registration remains active when sampling is disabled.
 
-### Entry Point and Initialization
+The application controls sampling through `SetupProfiler()`, `StartProfiler()`,
+and `StopProfiler()` in the [public API](src/dd-win-prof/dd-win-prof.h).
+Configuration must be applied before starting.
 
-**`dllmain.cpp`** - Main DLL entry point
-- Hooks into process/thread lifecycle events (`DLL_PROCESS_ATTACH`, `DLL_THREAD_ATTACH`, etc.)
-- Creates the singleton `Profiler` instance on process attach
-- Automatically tracks new threads as they are created
-- Manages thread cleanup on thread detach
+Thread discovery relies on DLL lifecycle notifications. Loading the DLL after
+application threads have already started does not register those existing
+threads.
 
-**`dd-win-prof.cpp/.h`** - Public external API for applications to control profiling
-- Exports `SetupProfiler()`, `StartProfiler()` and `StopProfiler()` functions for controlling the profiler
-- Exports `EnterView()` and `LeaveCurrentView()` for RUM view navigation
+## Sampling and export
 
-**`dd-win-rum-private.h`** - SDK-level RUM context API (exported but not public)
-- Exports `SetRumSession()` and `SetRumView()` for fine-grained RUM context management
-- Pass `nullptr` to `SetRumSession()` to end the current session
+1. [`StackSamplerLoop`](src/dd-win-prof/StackSamplerLoop.cpp) visits threads
+   for CPU and wall-time sampling, with separate configured thread thresholds.
+   CPU samples use consumption deltas, capped to elapsed time to avoid overlap.
+2. [`StackFrameCollector`](src/dd-win-prof/StackFrameCollector.cpp) suspends
+   the target, captures its context, and walks the stack with Windows unwind
+   APIs. The sampling loop resumes the thread before constructing the sample.
+3. `CpuTimeProvider` records `cpu-time` and `cpu-samples`; `WallTimeProvider`
+   records `wall-time` and `wait-time`. `SampleValueTypeProvider` assigns value
+   offsets, and the providers buffer samples through `CollectorBase`.
+4. [`SamplesCollector`](src/dd-win-prof/SamplesCollector.cpp) drains providers
+   into `ProfileExporter`. `PprofAggregator` wraps libdatadog profile creation
+   and serialization.
+5. [`ProfileExporter`](src/dd-win-prof/ProfileExporter.cpp) writes local files
+   and uploads profiles according to independent output/export settings.
+   Function-name symbolization is optional and disabled by default.
 
-### Core Profiler Management
+RUM context is attached to samples as view labels. Session/view transitions
+also produce timeline records included in exports and local `.rum-views.json`
+files. `EnterView()` and `LeaveCurrentView()` are public; session and explicit
+view context are supplied through the SDK-facing
+[`dd-win-rum-private.h`](src/dd-win-prof/dd-win-rum-private.h) API.
 
-**`Profiler.cpp/.h`** - Central coordinator and singleton
-- Manages the overall profiler lifecycle and orchestrates all components
-- Creates and configures:
-  - `ThreadList` for tracking active threads
-  - `StackSamplerLoop` for periodic sampling
-  - `CpuTimeProvider` for CPU time samples collection
-  - `SamplesCollector` for collecting samples from all providers
-  - `ProfileExporter` for exporting profiles
-- Handles profiler startup/shutdown sequences
+## Background threads
 
-### Thread Management
+| Thread | Responsibility |
+|--------|----------------|
+| `DD_StackSampler` | CPU and wall-time sampling at the configured period |
+| `DD_worker` | Drain sample providers |
+| `DD_exporter` | Export at the configured upload interval |
 
-**`ThreadList.cpp/.h`** - Thread registry and iteration
-- Maintains a list of active threads (`std::vector<std::shared_ptr<ThreadInfo>>`)
-- Provides thread iteration with multiple concurrent iterators
-- Thread-safe operations with recursive mutex
+Configuration defaults and environment-variable handling live in
+[`Configuration`](src/dd-win-prof/Configuration.cpp). Public overrides and
+sampling options are described in [`ProfilerConfig`](src/dd-win-prof/dd-win-prof.h).
+Logging is initialized at DLL load time, before `SetupProfiler()`.
 
-**`ThreadInfo.cpp/.h`** - Per-thread state tracking
-- Stores thread ID, OS handle, name, CPU consumption, and timestamps
-- Tracks CPU usage over time for delta calculations
-- Manages walltime sampling timestamps (WIP)
-- Uses `ScopedHandle` for automatic handle cleanup
+## Suspension constraints
 
-### Stack Sampling Engine
-
-**`StackSamplerLoop.cpp/.h`** - Main sampling thread ("DD_StackSampler")
-- Runs at configurable frequency (default: every 10ms)
-- Implements CPU-based sampling strategy:
-  - Only samples threads currently consuming CPU or about to run
-  - Limits concurrent sampling to number of logical cores
-  - Detects and prevents CPU time overlap
-- Coordinates with `StackFrameCollector` for call stack capture
-- Integrates with `CpuTimeProvider` for sample storage
-
-**`StackFrameCollector.cpp/.h`** - 64-bit stack walking
-- Suspends/resumes target threads safely for stack capture
-- Performs Windows-specific stack unwinding using `RtlVirtualUnwind` API
-- Validates stack pointers and handles exceptions
-- Captures up to 512 frames per sample
-- Uses dedicated Windows APIs (`GetThreadContext`, `RtlLookupFunctionEntry`)
-- avoid memory allocation to limit deadlock (i.e. suspended thread might own the malloc lock)
-
-### Sample Collection and Providers
-
-**`ISamplesProvider.h`** - Provider interface
-- Abstract interface for sample providers
-- Defines `MoveSamples()` for batch sample retrieval
-- Implemented by collectors like `CpuTimeProvider`
-
-**`CollectorBase.h`** - Base collector implementation
-- Thread-safe sample storage with mutex protection
-- Implements `ISamplesProvider` interface
-- Provides `Add()` method for collectors to store samples
-- Handles sample type values offset management
-
-**`CpuTimeProvider.cpp/.h`** - CPU sampling collector
-- Inherits from `CollectorBase`
-- Defines sample types: "cpu" (nanoseconds) and "cpu-samples" (count)
-- Stores samples collected by `StackSamplerLoop`
-
-**`WallTimeProvider.cpp/.h`** - Walltime sampling collector
-- Inherits from `CollectorBase`
-- Defines sample types: "wall-time" (nanoseconds)
-- Stores samples collected by `StackSamplerLoop`
-
-**`SampleValueTypeProvider.cpp/.h`** - Sample type registry
-- Manages registration and deduplication of sample types values
-- Provides offset mapping for different sample types values
-- Ensures consistent value type definitions across providers
-
-### Sample Data Structure
-
-**`Sample.cpp/.h`** - Individual sample representation
-- Contains:
-  - `_timestamp` - High-precision sample timestamp
-  - `_callstack` - Vector of instruction pointer addresses (max 512)
-  - `_values` - Metrics values (CPU time, sample count, etc.)
-  - `_threadInfo` - Associated thread information
-- Configurable values array size (default: 16 slots)
-
-### Sample Aggregation and Export
-
-**`SamplesCollector.cpp/.h`** - Sample aggregation coordinator
-- Runs two background threads:
-  - **"DD_worker"** - Periodically collects samples from providers (60ms interval)
-  - **"DD_exporter"** - Periodically exports profiles (60s interval)
-- Registers multiple `ISamplesProvider` instances
-- Thread-safe sample collection with export mutex
-- Forwards samples to `ProfileExporter`
-
-**`ProfileExporter.cpp/.h`** - Profile export manager
-- Receives samples from `SamplesCollector`
-- Manages libdatadog profile creation with labels/values and export
-- Generates unique runtime IDs for profile identification
-
-**`PprofAggregator.cpp/.h`** - libdatadog integration
-- C++ wrapper around libdatadog profiling APIs
-- Handles profile initialization with sample types
-- Supports multiple sample types: CPU_SAMPLES, CPU_TIME_NS, WALL_TIME_NS, etc.
-- Provides profile serialization to pprof format
-- Manages libdatadog resource lifecycle
-
-### Utility and Platform Components
-
-**`OsSpecificApi.cpp/.h`** - Windows-specific system APIs
-- Thread User + Kernel CPU time measurement using `GetThreadTimes`
-- Thread state detection via `NtQueryInformationThread`
-- Processor count detection
-- Thread scheduling state determination
-
-**`OpSysTools.cpp/.h`** - OS utility functions
-- Thread naming using `SetThreadDescription`/`GetThreadDescription` 
-- High-precision timestamp generation
-- Dynamic API loading for Windows version compatibility
-
-**`Symbolication.cpp/.h`** - Function name resolution
-- Integrates with Windows Debug Help Library (DbgHelp)
-- Resolves instruction pointers to function names and line numbers if requested (obfuscated by default - i.e. empty function name)
-- Manages symbol handler initialization and cleanup
-- Supports module refresh for dynamically loaded libraries
-
-
-### Data Flow Summary
-
-1. **Initialization**: `dllmain.cpp` creates `Profiler` singleton
-2. **Thread Tracking**: New threads automatically registered in `ThreadList`
-3. **Sampling**: `StackSamplerLoop` periodically samples CPU-active threads
-4. **Stack Capture**: `StackFrameCollector` captures call stacks from these threads
-5. **Sample Storage**: `CpuTimeProvider` stores samples via `CollectorBase`
-6. **Collection**: `SamplesCollector` worker thread collects samples every 60ms
-7. **Aggregation**: `PprofAggregator` aggregate samples into a lobdatadog profile
-8. **Export**: `SamplesCollector` exporter thread triggers profile export every 60s
-9. **Upload**: `ProfileExporter` serialize profile into pprof format and upload it to Datadog via libdatadog
-
-### Threading Model
-
-- **Main Application Threads**: Monitored and sampled
-- **DD_StackSampler**: Performs periodic stack sampling (every 10ms)
-- **DD_worker**: Collects samples from providers (every 60ms) 
-- **DD_exporter**: Exports profiles to backend (every 60s)
-
-### Configuration
-
-Configuration is managed in `Configuration.cpp`. Values come from two sources, with code-based overrides taking precedence:
-
-1. **Environment variables** (`EnvironmentVariables.h`): sampling period (default 20ms), threads to sample (default 5 for walltime, 64 for CPU), upload period (default 60s), service metadata, API key, agent URL, etc.
-
-2. **`SetupProfiler(const ProfilerConfig*)`** (`dd-win-prof.cpp`): Callers pass a `ProfilerConfig` struct; `InitializeConfiguration()` applies its fields to the shared `Configuration` instance.
-
-**No-env-vars mode** (`ProfilerConfig.noEnvVars == true`): `ResetToDefaults()` is called first, then only explicit struct fields are applied. All environment variables are ignored. In this mode, `url` and `apiKey` are mandatory; `SetupProfiler` returns `false` if either is missing.
-
-**ProfilerConfig fields**: `serviceName`, `serviceEnvironment`, `serviceVersion`, `url`, `apiKey`, `tags`, `pprofOutputDirectory`, `symbolizeCallstacks`, plus tuning parameters (`cpuWallTimeSamplingPeriodNs`, `walltimeThreadsThreshold`, etc.). The **log directory** is not configurable via ProfilerConfig; it is set at DLL load time from `DD_TRACE_LOG_DIRECTORY` in `Log.h`.
-
-Function names are not symbolized by default. To enable symbolization, set `ProfilerConfig.symbolizeCallstacks` to `true` before calling `SetupProfiler`.
-
-**Hardcoded settings**:
-- Collection period: 60ms  
-- Max stack frames: 512
-
-## Next steps 
-- lock provider: detect wait pauses (use Wait Chain Transversal Windows API)
-- thread lifetime events (start and stop) to identify short lived threads
-
-## Limitations
-
-- Possible issues with thread safety
-We will need to ensure no allocations take place in the samples. Could need a `StackSamplerLoopManager` to detect deadlocks
-
-- Thread lists are always ON (even if Profiling is off)
-If we do not instrument thread creation, we can not be ready to sample.
-
-- If sample collector is too slow, it can not keep up with samples being added. We should consider adjusting sampling periods if this happens.
-
-- If you Control-C right at the time of thread creation from libdatadog, you will get a PANIC
+A suspended application thread may hold allocator or other process locks.
+Stack capture must avoid allocations and blocking operations while it is
+suspended. Windows unwinding can itself acquire locks; there is no sampler
+watchdog to recover a blocked unwind. See `StackFrameCollector` for the
+remaining unwind/deadlock caveats.

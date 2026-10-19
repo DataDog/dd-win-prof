@@ -50,6 +50,9 @@
 .env
 .env.*
 
+# Temporary scripts and diagnostics
+/.scratch/
+
 # https://github.com/VerifyTests/Verify
 *.received.*
 

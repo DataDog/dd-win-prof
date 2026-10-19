@@ -1,80 +1,26 @@
-# Contributing to dd-win-prof
+# Contributing
 
-We welcome contributions to dd-win-prof! This guide will help you get started.
+For bugs, include reproduction steps, expected/actual behavior, Windows version,
+and build configuration. Discuss substantial feature or architecture changes
+with the maintainers before implementing them.
 
-## Before You Start
+## Development
 
-⚠️ **Please note**: This is an early version project. Major architectural changes may occur.
+Start with the [build instructions](README.md#build). Test commands live beside
+the tests:
 
-## How to Contribute
+- [Unit tests and ASan](src/Tests/README.md)
+- [RUM integration tests](src/integration-tests/README.md)
+- [Profile correctness and symbol validation](e2e-tests/README.md)
+- [Obfuscation tests](obfuscation/readme.md#build-and-test)
+- [Vulkan example builds](e2e-tests/README_vulkan.md)
 
-### Reporting Bugs
+Keep temporary scripts and diagnostics under the git-ignored `.scratch/`
+directory, not alongside committed tests.
 
-If you find a bug:
-1. Check if it's already reported in [Issues](../../issues)
-2. If not, create a new issue with:
-   - Clear description of the problem
-   - Steps to reproduce
-   - Expected vs actual behavior
-   - Windows version and build environment
+## Pull requests
 
-### Suggesting Features
-
-For new features:
-1. Open an issue with `[Feature Request]` in the title
-2. Describe the feature and why it would be useful
-3. Wait for maintainer feedback before starting work
-
-### Code Contributions
-
-1. **Fork the repository**
-2. **Create a feature branch** from `main`
-3. **Make your changes**
-4. **Test your changes** (build and run tests)
-5. **Submit a pull request**
-
-## Development Setup
-
-### Prerequisites
-
-- Visual Studio 2022 (or compatible) with C++ development tools
-- Windows 10/11 SDK
-- CMake 3.21 or later
-
-### Building
-
-```powershell
-# Configure and build
-cmake -G "Visual Studio 17 2022" -A x64 -B build
-cmake --build build --config Release
-```
-
-To omit obfuscation tools from the build, pass `-DDD_WIN_PROF_BUILD_OBFUSCATION=OFF` when configuring.
-
-To open the project in Visual Studio, use the helper script:
-
-```powershell
-.\scripts\generate-vs.ps1
-```
-
-### Testing
-
-```powershell
-cmake --build build --config Debug
-build\src\Tests\Debug\Tests.exe
-```
-
-## Code Guidelines
-
-- Follow existing code style and patterns
-- Add tests for new functionality
-- Update documentation as needed
-- Ensure builds pass on Windows
-
-## Review Process
-
-All pull requests require review from code owners (@chrisnas @r1viollet) before merging.
-
-## Questions?
-
-Feel free to open an issue for questions or reach out to the maintainers.
+- Branch from `main` and follow the existing code style.
+- Add focused tests for behavior changes and update affected documentation.
+- Describe the motivation and validation in the pull request template.
+- Code-owner review is required before merging; see [CODEOWNERS](CODEOWNERS).

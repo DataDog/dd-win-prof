@@ -1,71 +1,59 @@
 # ObfSymbols
 
-Extracts symbols from PDB files and generates obfuscated symbol files for Datadog profiling.
+Extracts function symbols from PDBs and generates a private name mapping and an
+obfuscated symbol file for Datadog profiling.
 
-## Usage
+## Build and test
 
-```cmd
-ObfSymbols.exe --pdb <path_to_pdb> --out <output_file> [--obf <obfuscated_output>]
+Requires the [main build prerequisites](../README.md#build) and Visual Studio's
+DIA SDK headers/libraries. ATL is not required.
+
+From the repository root:
+
+```powershell
+cmake -G "Visual Studio 17 2022" -A x64 -B build -DDD_WIN_PROF_BUILD_OBFUSCATION=ON
+cmake --build build --config Release --target ObfSymbols
+.\obfuscation\test.ps1 Release
 ```
 
-**Example:**
-```cmd
-ObfSymbols.exe --pdb MyApp.pdb --out MyApp.sym
+The executable is `build\obfuscation\ObfSymbols\Release\ObfSymbols.exe`.
+Use `Debug` in both commands for a Debug build/test. `test.ps1` accepts
+`-BuildDir` for an alternate configured build directory.
+
+The test builds `TestSymbolsDll`, extracts its PDB, and checks symbol formats,
+function signatures, obfuscated names, address ordering, and uniqueness.
+[CI](../.github/workflows/obfuscation.yml) runs Debug and Release. For validation
+against the Runner PDB, see [Runner symbol validation](../e2e-tests/README.md#runner-symbol-validation).
+
+## Extract symbols
+
+```powershell
+.\build\obfuscation\ObfSymbols\Release\ObfSymbols.exe --pdb MyApp.pdb --out MyApp.sym
 ```
 
-This produces two files:
-- `MyApp.sym` — full symbols (obfuscated name + real signature)
-- `MyApp_obf.sym` — obfuscated only (no real signatures)
+This produces:
 
-## Output Files
+- `MyApp.sym`: obfuscated names plus real signatures. Keep this mapping private.
+- `MyApp_obf.sym`: obfuscated names only. Use this for obfuscated backend symbols.
 
-### Symbol file (`.sym`)
+An optional `--obf` argument selects the obfuscated output path. Both files
+start with a `MODULE` line; its fourth field is the build ID. Function entries
+use `FUNC <address> <size> <param_size> <obf_name>`, with the real signature
+appended only in the private `.sym` mapping.
 
-Contains the mapping between obfuscated names and real function signatures:
+## Upload symbols
 
-```
-MODULE windows x86_64 FDA5BF9510B746CA8882DC3DCFA453C41 Runner.exe
-FUNC 1000 c 0 obf_7120BD79 Circle::~Circle()
-FUNC 1010 e 0 obf_2BDA4789 Shape::Shape()
-FUNC 1050 1c4 0 obf_8C39C417 Shape::operator=(Shape&)
-```
+Upload the specific obfuscated file with
+[`datadog-ci`](https://github.com/DataDog/datadog-ci#installation):
 
-- First line: MODULE with build ID (4th field)
-- `FUNC <address> <size> <param_size> <obf_name> <signature>`
-
-### Obfuscated symbol file (`_obf.sym`)
-
-Same format but without real signatures — safe to upload:
-
-```
-MODULE windows x86_64 FDA5BF9510B746CA8882DC3DCFA453C41 Runner.exe
-FUNC 1000 c 0 obf_7120BD79
-FUNC 1010 e 0 obf_2BDA4789
-FUNC 1050 1c4 0 obf_8C39C417
+```powershell
+datadog-ci pe-symbols upload MyApp_obf.sym
 ```
 
-## Uploading Symbols to Datadog
+Do not scan a directory containing PDBs, PE binaries, or the private `.sym`
+mapping when the intent is obfuscated symbols only: the CLI can prefer richer
+debug information for the same build ID.
 
-Upload the `_obf.sym` file using [`datadog-ci`](https://github.com/DataDog/datadog-ci#installation):
-
-```bash
-datadog-ci pe-symbols upload /path/to/MyApp_obf.sym
-```
-
-The backend matches profiles to symbols via the build ID (MODULE line, 4th field).
-
-After upload, profiles display obfuscated function names (`obf_XXXXXXXX`). To see real function names, load the `.sym` file (not `_obf.sym`) in the Datadog frontend.
-
-## Troubleshooting
-
-**Uploaded the wrong symbol file**
-
-Re-upload with `--replace-existing` (this can take a few minutes):
-
-```bash
-datadog-ci pe-symbols upload --replace-existing /path/to/MyApp_obf.sym
-```
-
-## Development
-
-See [DEVELOPMENT.md](DEVELOPMENT.md) for building, testing, and contributing.
+The backend matches profiles by build ID. Load the private `.sym` mapping in
+the Datadog frontend to recover real names locally. To replace an incorrect
+upload, add `--replace-existing`; processing can take a few minutes.

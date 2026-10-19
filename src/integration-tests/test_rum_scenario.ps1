@@ -1,5 +1,6 @@
 # Integration test for Runner scenario 5 (RUM context view transitions).
-# Does NOT require an API key or network access -- validates local pprof/JSON output only.
+# Validates local pprof/JSON output without Datadog credentials.
+# Uses a dummy endpoint; local file output does not disable upload attempts.
 #
 # Validates:
 #   1. Runner exits cleanly

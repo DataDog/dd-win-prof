@@ -1,43 +1,38 @@
-# Tests
+# Unit tests
 
-Unit tests for dd-win-prof, built with [Google Test](https://github.com/google/googletest).
+C++ tests built with Google Test. CMake fetches the test dependencies; NuGet is
+not required. The target compiles profiler implementation files directly into
+`Tests.exe` and links the dynamic libdatadog FFI library.
 
-## Prerequisites
+After [configuring CMake](../../README.md#build), run from the repository root:
 
-- **NuGet CLI** to restore test dependencies (Google Test package)
-
-## Building and Running
-
-```cmd
-# Restore test dependencies
-nuget restore src\Tests\packages.config -PackagesDirectory src\packages
-
-# Build tests
-msbuild src\Tests\Tests.vcxproj /p:Configuration=Release /p:Platform=x64
-
-# Run tests
-src\Tests\x64\Release\Tests.exe
+```powershell
+cmake --build build --config Release --target Tests
+'' | & .\build\src\Tests\Release\Tests.exe
 ```
 
-Or with CMake:
+The binary waits for Enter after completion; piping a blank line avoids an
+interactive pause.
 
-```cmd
-cmake --build build --target Tests --config Debug
-build\src\Tests\Debug\Tests.exe
+Replace `Release` with `Debug` for a Debug run. To list or select tests:
+
+```powershell
+'' | & .\build\src\Tests\Release\Tests.exe --gtest_list_tests
+'' | & .\build\src\Tests\Release\Tests.exe --gtest_filter="ThreadList*"
 ```
 
-## Test Files
+## AddressSanitizer
 
-| File | Description |
-|------|-------------|
-| `ConfigurationTests.cpp` | `Configuration` class defaults, env var handling, `ResetToDefaults`, `InitializeConfiguration`, `noEnvVars` mode, `ProfilerConfig` zero-init defaults |
-| `ProfileExporterTests.cpp` | `ProfileExporter` initialization, tag preparation, defaults-only and API-overridden configs |
-| `PprofAggregatorTests.cpp` | libdatadog pprof aggregation, sample types, profile serialization |
-| `SymbolicationTests.cpp` | Call stack symbolization and function name resolution |
-| `DynamicModuleTests.cpp` | Dynamically loaded module handling |
-| `UuidTests.cpp` | UUID generation and formatting |
-| `RumContextTests.cpp` | RUM context structs, `Profiler` RUM state management, `Sample` view context, `ProfileExporter` RUM tags/labels |
+Install Visual Studio's **C++ AddressSanitizer** component, then use a separate
+build directory:
 
-## Integration Tests
+```powershell
+.\scripts\generate-vs.ps1 -BuildDir build-asan -Asan
+cmake --build build-asan --config Debug --target Tests Runner
+'' | & .\build-asan\src\Tests\Debug\Tests.exe
+```
 
-For end-to-end tests that run the Runner executable and validate pprof file content, see [`src/integration-tests/README.md`](../integration-tests/README.md).
+CMake copies the ASan runtime beside `Tests.exe` and `Runner.exe`.
+[CI](../../.github/workflows/test.yml) runs Debug/Release unit tests plus an
+ASan Debug build. It also runs the [RUM integration test](../integration-tests/README.md)
+under ASan.
