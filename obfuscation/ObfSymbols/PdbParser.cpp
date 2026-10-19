@@ -12,6 +12,8 @@
 
 #include "resource.h"
 
+using Microsoft::WRL::ComPtr;
+
 #pragma comment(lib, "diaguids.lib")
 #pragma comment(lib, "dbghelp.lib")
 
@@ -83,9 +85,9 @@ PdbParser::PdbParser(const std::wstring& pdbFilePath)
 }
 
 PdbParser::~PdbParser() {
-  _pGlobal.Release();
-  _pSession.Release();
-  _pSource.Release();
+  _pGlobal.Reset();
+  _pSession.Reset();
+  _pSource.Reset();
 
   if (_comInitialized) {
     CoUninitialize();
@@ -176,7 +178,7 @@ bool PdbParser::InitializeDiaAndLoadPdb() {
       NULL,
       CLSCTX_INPROC_SERVER,
       __uuidof(IDiaDataSource),
-      (void**)&_pSource
+      reinterpret_cast<void**>(_pSource.ReleaseAndGetAddressOf())
   );
 
   // otherwise, try to load DIA from embedded/local msdia140.dll
@@ -200,13 +202,17 @@ bool PdbParser::InitializeDiaAndLoadPdb() {
         (DllGetClassObjectFunc)GetProcAddress(hDia, "DllGetClassObject");
 
     if (pDllGetClassObject) {
-      CComPtr<IClassFactory> pClassFactory;
+      ComPtr<IClassFactory> pClassFactory;
       hr = pDllGetClassObject(
-          __uuidof(DiaSource), IID_IClassFactory, (void**)&pClassFactory
+          __uuidof(DiaSource),
+          IID_IClassFactory,
+          reinterpret_cast<void**>(pClassFactory.ReleaseAndGetAddressOf())
       );
       if (SUCCEEDED(hr) && pClassFactory) {
         hr = pClassFactory->CreateInstance(
-            NULL, __uuidof(IDiaDataSource), (void**)&_pSource
+            NULL,
+            __uuidof(IDiaDataSource),
+            reinterpret_cast<void**>(_pSource.ReleaseAndGetAddressOf())
         );
       }
     }
@@ -225,13 +231,13 @@ bool PdbParser::InitializeDiaAndLoadPdb() {
     return false;
   }
 
-  hr = _pSource->openSession(&_pSession);
+  hr = _pSource->openSession(_pSession.ReleaseAndGetAddressOf());
   if (FAILED(hr) || !_pSession) {
     std::wcerr << L"Failed to open DIA session" << std::endl;
     return false;
   }
 
-  hr = _pSession->get_globalScope(&_pGlobal);
+  hr = _pSession->get_globalScope(_pGlobal.ReleaseAndGetAddressOf());
   if (FAILED(hr) || !_pGlobal) {
     std::wcerr << L"Failed to get global scope" << std::endl;
     return false;
@@ -316,13 +322,13 @@ std::wstring PdbParser::GetDiaTypeString(IDiaSymbol* pType) {
 
   switch (symTag) {
     case SymTagPointerType: {
-      CComPtr<IDiaSymbol> pBaseType;
-      if (SUCCEEDED(pType->get_type(&pBaseType)) && pBaseType) {
+      ComPtr<IDiaSymbol> pBaseType;
+      if (SUCCEEDED(pType->get_type(pBaseType.ReleaseAndGetAddressOf())) && pBaseType) {
         // Check if it's a reference
         BOOL isReference = FALSE;
         pType->get_reference(&isReference);
 
-        std::wstring baseTypeName = GetDiaTypeString(pBaseType);
+        std::wstring baseTypeName = GetDiaTypeString(pBaseType.Get());
         if (isReference)
           return baseTypeName + L"&";
         else
@@ -332,9 +338,9 @@ std::wstring PdbParser::GetDiaTypeString(IDiaSymbol* pType) {
     }
 
     case SymTagArrayType: {
-      CComPtr<IDiaSymbol> pBaseType;
-      if (SUCCEEDED(pType->get_type(&pBaseType)) && pBaseType) {
-        return GetDiaTypeString(pBaseType) + L"[]";
+      ComPtr<IDiaSymbol> pBaseType;
+      if (SUCCEEDED(pType->get_type(pBaseType.ReleaseAndGetAddressOf())) && pBaseType) {
+        return GetDiaTypeString(pBaseType.Get()) + L"[]";
       }
       return L"<array>";
     }
@@ -360,31 +366,33 @@ std::wstring PdbParser::GetDiaFunctionSignature(
 
   std::wstring signature;
 
-  CComPtr<IDiaSymbol> pFunctionType;
-  if (FAILED(pSymbol->get_type(&pFunctionType)) || !pFunctionType) {
+  ComPtr<IDiaSymbol> pFunctionType;
+  if (FAILED(pSymbol->get_type(pFunctionType.ReleaseAndGetAddressOf())) ||
+      !pFunctionType) {
     return L"";
   }
 
   // Start with function name (no return type)
   signature = functionName + L"(";
 
-  CComPtr<IDiaEnumSymbols> pEnumChildren;
+  ComPtr<IDiaEnumSymbols> pEnumChildren;
   if (SUCCEEDED(pFunctionType->findChildren(
-          SymTagFunctionArgType, NULL, nsNone, &pEnumChildren
+          SymTagFunctionArgType, NULL, nsNone, pEnumChildren.ReleaseAndGetAddressOf()
       )) &&
       pEnumChildren) {
     LONG count = 0;
     pEnumChildren->get_Count(&count);
 
     for (LONG i = 0; i < count; i++) {
-      CComPtr<IDiaSymbol> pArg;
+      ComPtr<IDiaSymbol> pArg;
       ULONG celt = 0;
-      if (SUCCEEDED(pEnumChildren->Next(1, &pArg, &celt)) && celt == 1 && pArg) {
+      if (SUCCEEDED(pEnumChildren->Next(1, pArg.ReleaseAndGetAddressOf(), &celt)) &&
+          celt == 1 && pArg) {
         if (i > 0) signature += L", ";
 
-        CComPtr<IDiaSymbol> pArgType;
-        if (SUCCEEDED(pArg->get_type(&pArgType)) && pArgType) {
-          signature += GetDiaTypeString(pArgType);
+        ComPtr<IDiaSymbol> pArgType;
+        if (SUCCEEDED(pArg->get_type(pArgType.ReleaseAndGetAddressOf())) && pArgType) {
+          signature += GetDiaTypeString(pArgType.Get());
         }
       }
     }
@@ -486,18 +494,22 @@ bool PdbParser::ExtractModuleInfo(ModuleInfo& moduleInfo) {
 
   // Detect OS from PDB by examining source file paths
   // Try to enumerate source files to detect path style
-  CComPtr<IDiaEnumSourceFiles> pEnumSourceFiles;
-  if (SUCCEEDED(_pSession->findFile(NULL, NULL, nsNone, &pEnumSourceFiles)) &&
+  ComPtr<IDiaEnumSourceFiles> pEnumSourceFiles;
+  if (SUCCEEDED(_pSession->findFile(
+          NULL, NULL, nsNone, pEnumSourceFiles.ReleaseAndGetAddressOf()
+      )) &&
       pEnumSourceFiles) {
-    CComPtr<IDiaSourceFile> pSourceFile;
+    ComPtr<IDiaSourceFile> pSourceFile;
     ULONG celt = 0;
     int windowsPaths = 0;
     int unixPaths = 0;
     int filesChecked = 0;
 
     while (filesChecked < 10 &&
-           SUCCEEDED(pEnumSourceFiles->Next(1, &pSourceFile, &celt)) && celt == 1 &&
-           pSourceFile) {
+           SUCCEEDED(
+               pEnumSourceFiles->Next(1, pSourceFile.ReleaseAndGetAddressOf(), &celt)
+           ) &&
+           celt == 1 && pSourceFile) {
       BSTR bstrFileName = NULL;
       if (SUCCEEDED(pSourceFile->get_fileName(&bstrFileName)) && bstrFileName) {
         std::wstring fileName = bstrFileName;
@@ -512,7 +524,7 @@ bool PdbParser::ExtractModuleInfo(ModuleInfo& moduleInfo) {
 
         filesChecked++;
       }
-      pSourceFile.Release();
+      pSourceFile.Reset();
     }
 
     // Determine OS based on path style
@@ -522,8 +534,10 @@ bool PdbParser::ExtractModuleInfo(ModuleInfo& moduleInfo) {
       pEnumSourceFiles->Reset();
       filesChecked = 0;
       while (filesChecked < 10 &&
-             SUCCEEDED(pEnumSourceFiles->Next(1, &pSourceFile, &celt)) && celt == 1 &&
-             pSourceFile) {
+             SUCCEEDED(
+                 pEnumSourceFiles->Next(1, pSourceFile.ReleaseAndGetAddressOf(), &celt)
+             ) &&
+             celt == 1 && pSourceFile) {
         BSTR bstrFileName = NULL;
         if (SUCCEEDED(pSourceFile->get_fileName(&bstrFileName)) && bstrFileName) {
           std::wstring fileName = bstrFileName;
@@ -536,7 +550,7 @@ bool PdbParser::ExtractModuleInfo(ModuleInfo& moduleInfo) {
           }
           filesChecked++;
         }
-        pSourceFile.Release();
+        pSourceFile.Reset();
       }
 
       detectedOS = hasMacPath ? L"mac" : L"linux";
@@ -558,12 +572,13 @@ bool PdbParser::LoadOMAPTables() {
   _omapFrom.clear();
   _omapTo.clear();
 
-  CComPtr<IDiaEnumDebugStreams> pEnumStreams;
-  HRESULT hr = _pSession->getEnumDebugStreams(&pEnumStreams);
+  ComPtr<IDiaEnumDebugStreams> pEnumStreams;
+  HRESULT hr = _pSession->getEnumDebugStreams(pEnumStreams.ReleaseAndGetAddressOf());
   if (SUCCEEDED(hr) && pEnumStreams) {
-    CComPtr<IDiaEnumDebugStreamData> pStream;
+    ComPtr<IDiaEnumDebugStreamData> pStream;
     ULONG celt = 0;
-    while (SUCCEEDED(pEnumStreams->Next(1, &pStream, &celt)) && celt == 1 && pStream) {
+    while (SUCCEEDED(pEnumStreams->Next(1, pStream.ReleaseAndGetAddressOf(), &celt)) &&
+           celt == 1 && pStream) {
       BSTR bstrName = NULL;
       if (SUCCEEDED(pStream->get_name(&bstrName)) && bstrName) {
         std::wstring streamName = bstrName;
@@ -596,7 +611,7 @@ bool PdbParser::LoadOMAPTables() {
           }
         }
       }
-      pStream.Release();
+      pStream.Reset();
     }
   }
 
@@ -702,8 +717,10 @@ bool PdbParser::ExtractSymbols(std::vector<SymbolInfo>& symbols) {
   }
 
   // Enumerate all function symbols by passing SymTagFunction
-  CComPtr<IDiaEnumSymbols> pEnumSymbols;
-  HRESULT hr = _pGlobal->findChildren(SymTagFunction, NULL, nsNone, &pEnumSymbols);
+  ComPtr<IDiaEnumSymbols> pEnumSymbols;
+  HRESULT hr = _pGlobal->findChildren(
+      SymTagFunction, NULL, nsNone, pEnumSymbols.ReleaseAndGetAddressOf()
+  );
   if (FAILED(hr) || !pEnumSymbols) {
     return false;
   }
@@ -712,16 +729,17 @@ bool PdbParser::ExtractSymbols(std::vector<SymbolInfo>& symbols) {
   // This also handles OMAP translations from optimized code
   std::map<DWORD, SymbolInfo> symbolMap;
 
-  CComPtr<IDiaSymbol> pSymbol;
+  ComPtr<IDiaSymbol> pSymbol;
   ULONG celt = 0;
   int skippedSymbols = 0;
 
-  while (SUCCEEDED(pEnumSymbols->Next(1, &pSymbol, &celt)) && celt == 1 && pSymbol) {
+  while (SUCCEEDED(pEnumSymbols->Next(1, pSymbol.ReleaseAndGetAddressOf(), &celt)) &&
+         celt == 1 && pSymbol) {
     SymbolInfo info;
 
     DWORD rvaOriginal = 0;
     if (FAILED(pSymbol->get_relativeVirtualAddress(&rvaOriginal))) {
-      pSymbol.Release();
+      pSymbol.Reset();
       continue;
     }
 
@@ -738,7 +756,7 @@ bool PdbParser::ExtractSymbols(std::vector<SymbolInfo>& symbols) {
       // Check if code was eliminated during optimization
       if (rvaOptimized == 0) {
         skippedSymbols++;
-        pSymbol.Release();
+        pSymbol.Reset();
         continue;
       }
 
@@ -747,14 +765,14 @@ bool PdbParser::ExtractSymbols(std::vector<SymbolInfo>& symbols) {
       // Skip symbols with zero size after optimization
       if (sizeOptimized == 0) {
         skippedSymbols++;
-        pSymbol.Release();
+        pSymbol.Reset();
         continue;
       }
     } else {
       rvaOptimized = rvaOriginal;
       if (rvaOptimized == 0) {
         skippedSymbols++;
-        pSymbol.Release();
+        pSymbol.Reset();
         continue;
       }
       sizeOptimized = static_cast<ULONG>(sizeOriginal);
@@ -765,13 +783,13 @@ bool PdbParser::ExtractSymbols(std::vector<SymbolInfo>& symbols) {
 
     BSTR bstrName = NULL;
     if (FAILED(pSymbol->get_name(&bstrName)) || !bstrName) {
-      pSymbol.Release();
+      pSymbol.Reset();
       continue;
     }
     info.name = bstrName;
     SysFreeString(bstrName);
 
-    info.signature = GetDiaFunctionSignature(pSymbol, info.name);
+    info.signature = GetDiaFunctionSignature(pSymbol.Get(), info.name);
 
     // Check if symbol is exported (public)
     DWORD locationType = 0;
@@ -803,23 +821,27 @@ bool PdbParser::ExtractSymbols(std::vector<SymbolInfo>& symbols) {
       symbolMap[rvaOptimized] = info;
     }
 
-    pSymbol.Release();
+    pSymbol.Reset();
   }
 
   // Now enumerate all public symbols
   int publicSymbolsAdded = 0;
   int publicSymbolsSkipped = 0;
-  CComPtr<IDiaEnumSymbols> pEnumPublicSymbols;
-  hr = _pGlobal->findChildren(SymTagPublicSymbol, NULL, nsNone, &pEnumPublicSymbols);
+  ComPtr<IDiaEnumSymbols> pEnumPublicSymbols;
+  hr = _pGlobal->findChildren(
+      SymTagPublicSymbol, NULL, nsNone, pEnumPublicSymbols.ReleaseAndGetAddressOf()
+  );
   if (SUCCEEDED(hr) && pEnumPublicSymbols) {
-    CComPtr<IDiaSymbol> pPublicSymbol;
+    ComPtr<IDiaSymbol> pPublicSymbol;
     ULONG celtPublic = 0;
 
-    while (SUCCEEDED(pEnumPublicSymbols->Next(1, &pPublicSymbol, &celtPublic)) &&
+    while (SUCCEEDED(pEnumPublicSymbols->Next(
+               1, pPublicSymbol.ReleaseAndGetAddressOf(), &celtPublic
+           )) &&
            celtPublic == 1 && pPublicSymbol) {
       DWORD rvaOriginal = 0;
       if (FAILED(pPublicSymbol->get_relativeVirtualAddress(&rvaOriginal))) {
-        pPublicSymbol.Release();
+        pPublicSymbol.Reset();
         continue;
       }
 
@@ -836,7 +858,7 @@ bool PdbParser::ExtractSymbols(std::vector<SymbolInfo>& symbols) {
         // Check if code was eliminated during optimization
         if (rvaOptimized == 0) {
           publicSymbolsSkipped++;
-          pPublicSymbol.Release();
+          pPublicSymbol.Reset();
           continue;
         }
 
@@ -845,7 +867,7 @@ bool PdbParser::ExtractSymbols(std::vector<SymbolInfo>& symbols) {
         rvaOptimized = rvaOriginal;
         if (rvaOptimized == 0) {
           publicSymbolsSkipped++;
-          pPublicSymbol.Release();
+          pPublicSymbol.Reset();
           continue;
         }
         sizeOptimized = static_cast<ULONG>(sizeOriginal);
@@ -856,14 +878,14 @@ bool PdbParser::ExtractSymbols(std::vector<SymbolInfo>& symbols) {
       if (it != symbolMap.end()) {
         // Already have a function at this RVA, skip
         publicSymbolsSkipped++;
-        pPublicSymbol.Release();
+        pPublicSymbol.Reset();
         continue;
       }
 
       // Get the name
       BSTR bstrName = NULL;
       if (FAILED(pPublicSymbol->get_name(&bstrName)) || !bstrName) {
-        pPublicSymbol.Release();
+        pPublicSymbol.Reset();
         continue;
       }
 
@@ -874,7 +896,7 @@ bool PdbParser::ExtractSymbols(std::vector<SymbolInfo>& symbols) {
       SysFreeString(bstrName);
 
       // Try to get function signature first
-      info.signature = GetDiaFunctionSignature(pPublicSymbol, info.name);
+      info.signature = GetDiaFunctionSignature(pPublicSymbol.Get(), info.name);
 
       // If signature is empty, try demangling the name (for C++ decorated names)
       if (info.signature.empty()) {
@@ -900,7 +922,7 @@ bool PdbParser::ExtractSymbols(std::vector<SymbolInfo>& symbols) {
       symbolMap[rvaOptimized] = info;
       publicSymbolsAdded++;
 
-      pPublicSymbol.Release();
+      pPublicSymbol.Reset();
     }
   }
 
@@ -982,8 +1004,10 @@ bool PdbParser::DumpAllSymbols() {
   }
 
   // Enumerate all symbols (no filter on SymTag)
-  CComPtr<IDiaEnumSymbols> pEnumSymbols;
-  HRESULT hr = _pGlobal->findChildren(SymTagNull, NULL, nsNone, &pEnumSymbols);
+  ComPtr<IDiaEnumSymbols> pEnumSymbols;
+  HRESULT hr = _pGlobal->findChildren(
+      SymTagNull, NULL, nsNone, pEnumSymbols.ReleaseAndGetAddressOf()
+  );
   if (FAILED(hr) || !pEnumSymbols) {
     return false;
   }
@@ -998,11 +1022,12 @@ bool PdbParser::DumpAllSymbols() {
   std::vector<SymbolDisplayInfo> symbols;
   symbols.reserve(totalCount / 2);  // Estimate, not all symbols have RVAs
 
-  CComPtr<IDiaSymbol> pSymbol;
+  ComPtr<IDiaSymbol> pSymbol;
   ULONG celt = 0;
   int skippedCount = 0;
 
-  while (SUCCEEDED(pEnumSymbols->Next(1, &pSymbol, &celt)) && celt == 1 && pSymbol) {
+  while (SUCCEEDED(pEnumSymbols->Next(1, pSymbol.ReleaseAndGetAddressOf(), &celt)) &&
+         celt == 1 && pSymbol) {
     DWORD symTag = SymTagNull;
     pSymbol->get_symTag(&symTag);
 
@@ -1166,7 +1191,7 @@ bool PdbParser::DumpAllSymbols() {
         translatedRVA = TranslateRVAFromOriginal(rva);
         if (translatedRVA == 0) {
           skippedCount++;
-          pSymbol.Release();
+          pSymbol.Reset();
           continue;
         }
         translatedSize = CalculateSizeWithOMAP(rva, size);
@@ -1198,7 +1223,7 @@ bool PdbParser::DumpAllSymbols() {
       skippedCount++;
     }
 
-    pSymbol.Release();
+    pSymbol.Reset();
   }
 
   // Sort symbols by address (RVA)
