@@ -41,17 +41,19 @@ target_precompile_headers(Tests PRIVATE pch.h)
 
 # The dd-win-prof shared sources include headers by short name relative to their
 # own directory; adding that directory ensures they resolve correctly when
-# compiled as part of this target. libdatadog and spdlog headers are propagated
-# via libdatadog_dynamic and spdlog_includes INTERFACE_INCLUDE_DIRECTORIES.
+# compiled as part of this target (include/ holds the public dd-win-prof.h).
+# libdatadog and spdlog headers are propagated via dd_win_prof_libdatadog_dynamic
+# and dd_win_prof_spdlog INTERFACE_INCLUDE_DIRECTORIES.
 target_include_directories(Tests PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/../dd-win-prof"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../dd-win-prof/include"
 )
 
 # Tests links the dynamic FFI library so that profiling API calls go through
 # the DLL ABI boundary, mirroring how the profiler is consumed at runtime.
 target_link_libraries(Tests PRIVATE
-    libdatadog_dynamic
-    spdlog_includes
+    dd_win_prof_libdatadog_dynamic
+    dd_win_prof_spdlog
     GTest::gtest
     dbghelp.lib
     ws2_32.lib

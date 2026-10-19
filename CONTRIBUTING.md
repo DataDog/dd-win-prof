@@ -66,6 +66,8 @@ Outputs are also staged into `src/reference` in development mode, or whenever th
 
 A project that only needs the profiler library can therefore just do `FetchContent_MakeAvailable(dd-win-prof)`: it won't download GoogleTest, define test/tool targets, write into dd-win-prof's source tree, or add install rules. Consumers that need the runtime DLLs next to their own binaries should use `dd_win_prof_copy_runtime_deps()` rather than reading `src/reference`, which is no longer populated for them. Opting a consumer into `DD_WIN_PROF_BUILD_TESTS=ON` also brings in GoogleTest and CTest's cache entries.
 
+Only `src/dd-win-prof/include/` (which holds the public `dd-win-prof.h`) is on the include path of projects that link the `dd-win-prof` target; keep anything else out of that directory. The helper targets are namespaced (`dd_win_prof_spdlog`, `dd_win_prof_libdatadog_static`, `dd_win_prof_libdatadog_dynamic`) so they can't collide with a consumer's own. The CI job "Consume as dependency" (`scripts/test-consumer.ps1`) builds a small project against dd-win-prof, exports and installs the target as the README describes, builds a second project against that installed export, and fails if any of this regresses; run it locally with `.\scripts\test-consumer.ps1`.
+
 To open the project in Visual Studio, use the helper script:
 
 ```powershell

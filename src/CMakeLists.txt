@@ -25,8 +25,8 @@ set(_LD_ROOT "${libdatadog_SOURCE_DIR}")
 # libdatadog static import library — used by dd-win-prof.dll at link time. Paths
 # use lowercase debug/release to match the directory layout produced by the
 # download script. MinSizeRel and RelWithDebInfo map to release.
-add_library(libdatadog_static STATIC IMPORTED GLOBAL)
-set_target_properties(libdatadog_static PROPERTIES
+add_library(dd_win_prof_libdatadog_static STATIC IMPORTED GLOBAL)
+set_target_properties(dd_win_prof_libdatadog_static PROPERTIES
     IMPORTED_LOCATION_DEBUG          "${_LD_ROOT}/debug/static/datadog_profiling_ffi.lib"
     IMPORTED_LOCATION_RELEASE        "${_LD_ROOT}/release/static/datadog_profiling_ffi.lib"
     IMPORTED_LOCATION_MINSIZEREL     "${_LD_ROOT}/release/static/datadog_profiling_ffi.lib"
@@ -37,8 +37,8 @@ set_target_properties(libdatadog_static PROPERTIES
 # libdatadog dynamic import library — used by Tests.exe, which loads the DLL at
 # runtime so it can export the profiler DLL's symbols without statically linking
 # the whole FFI. MinSizeRel and RelWithDebInfo map to release.
-add_library(libdatadog_dynamic SHARED IMPORTED GLOBAL)
-set_target_properties(libdatadog_dynamic PROPERTIES
+add_library(dd_win_prof_libdatadog_dynamic SHARED IMPORTED GLOBAL)
+set_target_properties(dd_win_prof_libdatadog_dynamic PROPERTIES
     IMPORTED_LOCATION_DEBUG          "${_LD_ROOT}/debug/dynamic/datadog_profiling_ffi.dll"
     IMPORTED_IMPLIB_DEBUG            "${_LD_ROOT}/debug/dynamic/datadog_profiling_ffi.lib"
     IMPORTED_LOCATION_RELEASE        "${_LD_ROOT}/release/dynamic/datadog_profiling_ffi.dll"
@@ -58,18 +58,19 @@ FetchContent_Declare(
     GIT_TAG v1.14.1
     GIT_SHALLOW TRUE
 )
+# These are plain (non-cache) variables so they apply to spdlog's option()s (CMP0077)
+# without leaking into the cache of a project that consumes dd-win-prof.
 # Disable building examples, tests, and benchmarks
-set(SPDLOG_BUILD_EXAMPLE OFF CACHE BOOL "" FORCE)
-set(SPDLOG_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(SPDLOG_BUILD_BENCH OFF CACHE BOOL "" FORCE)
+set(SPDLOG_BUILD_EXAMPLE OFF)
+set(SPDLOG_BUILD_TESTS OFF)
+set(SPDLOG_BUILD_BENCH OFF)
 # Suppress spdlog's install() rules so `cmake --install` for the release
 # package doesn't drop spdlog headers/CMake config into our prefix.
-set(SPDLOG_INSTALL OFF CACHE BOOL "" FORCE)
+set(SPDLOG_INSTALL OFF)
 FetchContent_MakeAvailable(spdlog)
 
-# Create an alias target for backwards compatibility with the previous setup
-add_library(spdlog_includes INTERFACE)
-target_link_libraries(spdlog_includes INTERFACE spdlog::spdlog_header_only)
+add_library(dd_win_prof_spdlog INTERFACE)
+target_link_libraries(dd_win_prof_spdlog INTERFACE spdlog::spdlog_header_only)
 
 if(DD_WIN_PROF_BUILD_TESTS)
     # Google Test v1.14.0 fetched at configure time. gtest_force_shared_crt ensures
@@ -78,12 +79,12 @@ if(DD_WIN_PROF_BUILD_TESTS)
         googletest
         URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz
     )
-    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    set(gtest_force_shared_crt ON)
     # Suppress googletest's install() rules. Without this, `cmake --install`
     # for the release package tries to install gtest headers + .lib into our
     # prefix (and fails on the .lib path), and would pollute the zip with
     # test-only artifacts.
-    set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+    set(INSTALL_GTEST OFF)
     FetchContent_MakeAvailable(googletest)
 endif()
 

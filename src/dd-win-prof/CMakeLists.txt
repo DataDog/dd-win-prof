@@ -25,7 +25,7 @@ add_library(dd-win-prof SHARED
     CollectorBase.h
     Configuration.h
     CpuTimeProvider.h
-    dd-win-prof.h
+    include/dd-win-prof.h
     dd-win-prof-internal.h
     EnvironmentVariables.h
     framework.h
@@ -61,12 +61,14 @@ add_library(dd-win-prof SHARED
 # generates its own PCH mechanism, so we drive it only through pch.h here.
 target_precompile_headers(dd-win-prof PRIVATE pch.h)
 
-# Expose the public header interface for consuming projects. BUILD_INTERFACE
-# points to the source location during build; INSTALL_INTERFACE would be used
-# if we supported installation (not currently implemented).
-target_include_directories(dd-win-prof PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
-    $<INSTALL_INTERFACE:include>
+# Only include/ (dd-win-prof.h) is public. Everything else in this directory is
+# private, so consumers don't get Log.h, Uuid.h, version.h etc. on their include path.
+# INSTALL_INTERFACE is for projects that export this target in their own install set
+# (see README): they install dd-win-prof.h to <prefix>/include.
+target_include_directories(dd-win-prof
+    PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    PUBLIC $<INSTALL_INTERFACE:include>
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
 target_compile_definitions(dd-win-prof PRIVATE
@@ -77,11 +79,12 @@ target_compile_definitions(dd-win-prof PRIVATE
 )
 
 # The libdatadog include directory is propagated automatically via
-# libdatadog_static's INTERFACE_INCLUDE_DIRECTORIES, and spdlog via spdlog_includes.
+# dd_win_prof_libdatadog_static's INTERFACE_INCLUDE_DIRECTORIES, and spdlog via
+# dd_win_prof_spdlog.
 
 target_link_libraries(dd-win-prof PRIVATE
-    libdatadog_static
-    spdlog_includes
+    dd_win_prof_libdatadog_static
+    dd_win_prof_spdlog
     dbghelp.lib
     ws2_32.lib
     userenv.lib
@@ -114,7 +117,7 @@ if(DD_WIN_PROF_DEVELOPMENT OR DD_WIN_PROF_BUILD_RUNNER)
     # consumer) always has a current copy of the API surface.
     add_custom_command(TARGET dd-win-prof PRE_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy
-            "${CMAKE_CURRENT_SOURCE_DIR}/dd-win-prof.h"
+            "${CMAKE_CURRENT_SOURCE_DIR}/include/dd-win-prof.h"
             "${_ref_dir}/dd-win-prof.h"
         VERBATIM
         COMMENT "Copying dd-win-prof.h to src/reference"
@@ -149,7 +152,7 @@ if(DD_WIN_PROF_BUILD_INSTALL)
         ARCHIVE DESTINATION Profiler
     )
     install(FILES $<TARGET_PDB_FILE:dd-win-prof> DESTINATION Profiler OPTIONAL)
-    install(FILES dd-win-prof.h DESTINATION Profiler)
+    install(FILES include/dd-win-prof.h DESTINATION Profiler)
     install(FILES
         "${libdatadog_SOURCE_DIR}/${DD_WIN_PROF_LIBDATADOG_CONFIG_DIR}/dynamic/datadog_profiling_ffi.dll"
         "${libdatadog_SOURCE_DIR}/${DD_WIN_PROF_LIBDATADOG_CONFIG_DIR}/dynamic/datadog_profiling_ffi.pdb"

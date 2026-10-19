@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <stdint.h>
+
 #ifdef DD_WIN_PROF_STATIC_LINK
 #define DD_WIN_PROF_API
 #elif defined(DD_WIN_PROF_EXPORTS)
