@@ -4,7 +4,7 @@
     nothing meant only for dd-win-prof developers leaks into it.
 
 .DESCRIPTION
-    Configures, builds and installs scripts/consumer-test (a C++17 executable that links
+    Configures, builds and installs e2e-tests/consumer (a C++17 executable that links
     the dd-win-prof target) with the Visual Studio generator, then verifies that:
       - GoogleTest was not downloaded
       - no test / tool projects (Tests, Runner, ProfilerInjector, ObfSymbols, gtest...)
@@ -16,11 +16,11 @@
         dd-win-prof's own install rules (Profiler/, Obfuscation/, licenses)
       - none of the cache variables dd-win-prof sets for spdlog / GoogleTest leaked
         into the consumer's CMake cache
-      - a separate project (consumer-test/downstream) can configure, compile and link
+      - a separate project (consumer/downstream) can configure, compile and link
         against the installed, exported dd-win-prof target (include path, header
         install and import library)
     The compile steps additionally fail if dd-win-prof exposes internal headers (see
-    consumer-test/main.cpp) or if dd-win-prof.h isn't self-contained.
+    consumer/main.cpp) or if dd-win-prof.h isn't self-contained.
 
     Run by the "Consume as dependency" job in .github/workflows/test.yml.
 
@@ -75,7 +75,7 @@ $stateBefore = @(Get-SourceTreeState)
 # FetchContent mishandles backslashes in paths it writes to generated files.
 $configureArgs = @(
     '-G', 'Visual Studio 17 2022', '-A', 'x64',
-    '-S', (Join-Path $PSScriptRoot 'consumer-test'),
+    '-S', (Join-Path $repoRoot 'e2e-tests/consumer'),
     '-B', $buildDir,
     ('-DDD_WIN_PROF_SOURCE_DIR=' + ($repoRoot -replace '\\', '/'))
 )
@@ -94,7 +94,7 @@ $failures = @()
 # the import library has to be present.
 $downstreamDir = Join-Path $WorkDir 'downstream'
 $ok = Invoke-Soft cmake -G 'Visual Studio 17 2022' -A x64 `
-    -S (Join-Path $PSScriptRoot 'consumer-test/downstream') -B $downstreamDir `
+    -S (Join-Path $repoRoot 'e2e-tests/consumer/downstream') -B $downstreamDir `
     ('-DDD_WIN_PROF_CONSUMER_PREFIX=' + ($installDir -replace '\\', '/'))
 if ($ok) { $ok = Invoke-Soft cmake --build $downstreamDir --config $Config }
 if (-not $ok) {

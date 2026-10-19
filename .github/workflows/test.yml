@@ -219,7 +219,7 @@ jobs:
       uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: .deps
-        key: deps-consumer-${{ hashFiles('src/CMakeLists.txt', 'scripts/consumer-test/CMakeLists.txt') }}
+        key: deps-consumer-${{ hashFiles('src/CMakeLists.txt', 'e2e-tests/consumer/CMakeLists.txt') }}
 
     - name: Build and check a consuming project
       run: pwsh scripts/test-consumer.ps1 -FetchContentBaseDir "${{ github.workspace }}/.deps"
