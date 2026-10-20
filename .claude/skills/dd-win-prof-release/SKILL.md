@@ -53,15 +53,14 @@ notes in the UI and publish manually.
 
 ## If something went wrong
 
-For a failed build whose release is still unpublished, rerun the workflow
-against the existing tag without deleting the release or tag:
+Don't try to re-run the workflow against the same tag. Delete the release
+and the tag, then start over from Step 1:
 
 ```bash
-gh workflow run release.yml -R DataDog/dd-win-prof -f release_tag=vX.Y.Z
+gh release delete vX.Y.Z -R DataDog/dd-win-prof -y
+git push --delete origin vX.Y.Z
+git tag -d vX.Y.Z
 ```
-
-The workflow replaces the zip on an existing release. Do not overwrite published
-artifacts without explicit approval.
 
 ## References
 
