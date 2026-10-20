@@ -1,12 +1,12 @@
 # Integration test for Runner scenario 5 with backend upload validation.
-# Requires a real API key and Datadog agent URL.
+# Requires a real API key and Datadog site name (agentless).
 #
 # Validates everything in test_rum_scenario.ps1 PLUS:
-#   - Profile was successfully sent to the backend (HTTP 200 in logs)
+#   - Profile was successfully sent to the backend (HTTP 2xx in logs)
 #
 # Usage:
-#   .\test_rum_scenario_send.ps1 -Url http://localhost:8126 -ApiKey <key>
-#   .\test_rum_scenario_send.ps1 -Url http://localhost:8126 -ApiKey <key> -Config Release
+#   .\test_rum_scenario_send.ps1 -Url datadoghq.com -ApiKey "<key>"
+#   .\test_rum_scenario_send.ps1 -Url datadoghq.com -ApiKey "<key>" -Config Release
 
 [CmdletBinding()]
 param(

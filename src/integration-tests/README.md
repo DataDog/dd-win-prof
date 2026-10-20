@@ -19,7 +19,7 @@ Unlike the unit tests in `src/Tests/` (C++ / Google Test), these tests exercise 
 | `protobuf` | Parse the Google pprof protobuf format |
 | `grpcio-tools` | Compile `profile.proto` into Python bindings on first run |
 
-Install all at once:
+Run these commands from `src\integration-tests`. Install all dependencies at once:
 
 ```powershell
 .\install-dependencies.ps1
@@ -36,7 +36,9 @@ pip install -r requirements.txt
 ### Local test (no API key required)
 
 Validates local output only: pprof files, RUM labels, view/session JSON records.
-Uses a dummy URL so no network access or API key is needed. **This is what CI runs.**
+Passes a placeholder endpoint and dummy API key; no working backend is required.
+It does not disable exports, so failed upload attempts may appear in the logs.
+**This is what CI runs.**
 
 ```powershell
 .\test_rum_scenario.ps1
@@ -83,16 +85,18 @@ build/src/UIApp/Debug/UIApp.exe --auto-hang all --hang-duration-ms 1500 `
 
 ### Send test (API key required)
 
-Validates everything in the local test **plus** that the profile was successfully sent to the backend (HTTP 200). Requires a real Datadog agent URL and API key.
+Validates everything in the local test **plus** a successful backend send (HTTP 2xx).
+This test uses agentless export: supply a Datadog site name, not an Agent or intake
+URL, and a real API key.
 
 ```powershell
-.\test_rum_scenario_send.ps1 -Url http://localhost:8126 -ApiKey <your-key>
-.\test_rum_scenario_send.ps1 -Url http://localhost:8126 -ApiKey <your-key> -Config Release
+.\test_rum_scenario_send.ps1 -Url datadoghq.com -ApiKey "<your-key>"
+.\test_rum_scenario_send.ps1 -Url datadoghq.com -ApiKey "<your-key>" -Config Release
 ```
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `-Url` | *(required)* | Datadog agent or intake URL |
+| `-Url` | *(required)* | Datadog site, such as `datadoghq.com` |
 | `-ApiKey` | *(required)* | Datadog API key |
 | `-Config` | `Auto` | Build config: `Debug`, `Release`, or `Auto` |
 | `-Iterations` | `3` | Number of Runner iterations |
@@ -102,7 +106,7 @@ Validates everything in the local test **plus** that the profile was successfull
 | Script | Scenario | What it validates |
 |--------|----------|-------------------|
 | `test_rum_scenario.ps1` | Runner scenario 5 (local) | Log messages; pprof samples carry expected `rum.view_id` / `trace endpoint` labels; samples without RUM labels exist during "no active view" gaps; `.rum-views.json` files contain view and session records with valid timestamps and durations |
-| `test_rum_scenario_send.ps1` | Runner scenario 5 (with send) | Everything above **plus** successful profile upload to the backend (HTTP 200, no send errors) |
+| `test_rum_scenario_send.ps1` | Runner scenario 5 (with send) | Everything above **plus** successful profile upload to the backend (HTTP 2xx, no send errors) |
 | `test_ui_hangs.ps1` | UIApp Sleep / Wait / CPU hangs and profiler restart (local) | Per kind: UIApp exits cleanly, final export logged, and `UIHang=true/false` pairs on `UIApp_Main` have the expected reason stack, `wall-time == 0`, `wait-time > 0`, ordered timestamps, no ordinary wait overlapping a detected hang, and (CPU) positive `cpu-time` during the hang. The lifecycle case verifies invalid API calls and one hang pair in each of two session-specific RUM views. |
 
 ## Utilities
