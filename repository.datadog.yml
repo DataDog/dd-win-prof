@@ -1,0 +1,6 @@
+---
+schema-version: v1
+kind: mergequeue
+merge_method: squash
+workflow_type: speculative
+gitlab_check_enable: false
