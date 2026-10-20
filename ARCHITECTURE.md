@@ -10,7 +10,7 @@
 
 ## Architecture Overview
 
-This is a Windows native profiler that performs CPU sampling and exports profiles to Datadog. The profiler is implemented as a DLL that hooks into the target process and periodically samples cpu-bound threads stack.
+This is a Windows native profiler that samples CPU and wall time and exports profiles to Datadog. The profiler is implemented as a DLL that hooks into the target process and periodically captures thread stacks.
 
 ### Entry Point and Initialization
 
@@ -36,6 +36,7 @@ This is a Windows native profiler that performs CPU sampling and exports profile
   - `ThreadList` for tracking active threads
   - `StackSamplerLoop` for periodic sampling
   - `CpuTimeProvider` for CPU time samples collection
+  - `WallTimeProvider` for wall-time and wait-time samples
   - `SamplesCollector` for collecting samples from all providers
   - `ProfileExporter` for exporting profiles
 - Handles profiler startup/shutdown sequences
@@ -50,19 +51,19 @@ This is a Windows native profiler that performs CPU sampling and exports profile
 **`ThreadInfo.cpp/.h`** - Per-thread state tracking
 - Stores thread ID, OS handle, name, CPU consumption, and timestamps
 - Tracks CPU usage over time for delta calculations
-- Manages walltime sampling timestamps (WIP)
+- Manages walltime sampling timestamps
 - Uses `ScopedHandle` for automatic handle cleanup
 
 ### Stack Sampling Engine
 
 **`StackSamplerLoop.cpp/.h`** - Main sampling thread ("DD_StackSampler")
-- Runs at configurable frequency (default: every 10ms)
+- Runs at configurable frequency (default: every 20ms)
 - Implements CPU-based sampling strategy:
   - Only samples threads currently consuming CPU or about to run
   - Limits concurrent sampling to number of logical cores
   - Detects and prevents CPU time overlap
 - Coordinates with `StackFrameCollector` for call stack capture
-- Integrates with `CpuTimeProvider` for sample storage
+- Integrates with `CpuTimeProvider` and `WallTimeProvider` for sample storage
 
 **`StackFrameCollector.cpp/.h`** - 64-bit stack walking
 - Suspends/resumes target threads safely for stack capture
@@ -92,7 +93,7 @@ This is a Windows native profiler that performs CPU sampling and exports profile
 
 **`WallTimeProvider.cpp/.h`** - Walltime sampling collector
 - Inherits from `CollectorBase`
-- Defines sample types: "wall-time" (nanoseconds)
+- Defines sample types: "wall-time" and "wait-time" (nanoseconds)
 - Stores samples collected by `StackSamplerLoop`
 
 **`SampleValueTypeProvider.cpp/.h`** - Sample type registry
@@ -156,9 +157,9 @@ This is a Windows native profiler that performs CPU sampling and exports profile
 
 1. **Initialization**: `dllmain.cpp` creates `Profiler` singleton
 2. **Thread Tracking**: New threads automatically registered in `ThreadList`
-3. **Sampling**: `StackSamplerLoop` periodically samples CPU-active threads
+3. **Sampling**: `StackSamplerLoop` samples CPU-active threads and performs wall-time sampling
 4. **Stack Capture**: `StackFrameCollector` captures call stacks from these threads
-5. **Sample Storage**: `CpuTimeProvider` stores samples via `CollectorBase`
+5. **Sample Storage**: `CpuTimeProvider` and `WallTimeProvider` store samples via `CollectorBase`
 6. **Collection**: `SamplesCollector` worker thread collects samples every 60ms
 7. **Aggregation**: `PprofAggregator` aggregate samples into a lobdatadog profile
 8. **Export**: `SamplesCollector` exporter thread triggers profile export every 60s
@@ -167,7 +168,7 @@ This is a Windows native profiler that performs CPU sampling and exports profile
 ### Threading Model
 
 - **Main Application Threads**: Monitored and sampled
-- **DD_StackSampler**: Performs periodic stack sampling (every 10ms)
+- **DD_StackSampler**: Performs periodic stack sampling (default: every 20ms)
 - **DD_worker**: Collects samples from providers (every 60ms) 
 - **DD_exporter**: Exports profiles to backend (every 60s)
 
@@ -179,7 +180,7 @@ Configuration is managed in `Configuration.cpp`. Values come from two sources, w
 
 2. **`SetupProfiler(const ProfilerConfig*)`** (`dd-win-prof.cpp`): Callers pass a `ProfilerConfig` struct; `InitializeConfiguration()` applies its fields to the shared `Configuration` instance.
 
-**No-env-vars mode** (`ProfilerConfig.noEnvVars == true`): `ResetToDefaults()` is called first, then only explicit struct fields are applied. All environment variables are ignored. In this mode, `url` and `apiKey` are mandatory; `SetupProfiler` returns `false` if either is missing.
+**No-env-vars mode** (`ProfilerConfig.noEnvVars == true`): `ResetToDefaults()` is called first, then only explicit struct fields are applied. Environment-based profiler settings are ignored; logging is still configured at DLL load time. In this mode, `url` and `apiKey` are mandatory; `SetupProfiler` returns `false` if either is missing.
 
 **ProfilerConfig fields**: `serviceName`, `serviceEnvironment`, `serviceVersion`, `url`, `apiKey`, `tags`, `pprofOutputDirectory`, `symbolizeCallstacks`, plus tuning parameters (`cpuWallTimeSamplingPeriodNs`, `walltimeThreadsThreshold`, etc.). The **log directory** is not configurable via ProfilerConfig; it is set at DLL load time from `DD_TRACE_LOG_DIRECTORY` in `Log.h`.
 

@@ -12,7 +12,7 @@ For integration and runtime configuration, see [README.md](README.md).
 ### Reporting Bugs
 
 If you find a bug:
-1. Check if it's already reported in [Issues](../../issues)
+1. Check if it's already reported in [Issues](https://github.com/DataDog/dd-win-prof/issues)
 2. If not, create a new issue with:
    - Clear description of the problem
    - Steps to reproduce
@@ -41,6 +41,7 @@ For new features:
 - **Windows 10/11** or **Windows Server 2019/2022**
 - **Visual Studio 2022** or later with C++ development tools (or **Build Tools for Visual Studio**)
 - **Windows 10/11 SDK**
+- **Visual Studio DIA SDK**: required by ObfSymbols, which is enabled in the default top-level build. Install it with Visual Studio, or disable obfuscation tools as shown below.
 - **CMake 3.21** or later
 
 ### Dependencies
@@ -59,7 +60,12 @@ cmake -G "Visual Studio 17 2022" -A x64 -B build
 cmake --build build --config Release
 ```
 
-To omit obfuscation tools from the build, pass `-DDD_WIN_PROF_BUILD_OBFUSCATION=OFF` when configuring.
+If the DIA SDK is unavailable, omit obfuscation tools when configuring:
+
+```powershell
+cmake -G "Visual Studio 17 2022" -A x64 -B build `
+  -DDD_WIN_PROF_BUILD_OBFUSCATION=OFF
+```
 
 ### Build with Visual Studio
 
@@ -70,6 +76,10 @@ Run the helper script to generate and open the solution:
 ```
 
 This generates a Visual Studio solution in `build\` and opens it automatically. You can then build and debug directly from the IDE. See `.\scripts\generate-vs.ps1 -?` for options (custom build directory, VS version, etc.).
+
+The helper uses the generator's default architecture; it does not pass `-A x64`.
+For an explicitly x64 solution, use the direct CMake command above in a fresh build
+directory.
 
 #### Building with AddressSanitizer
 
@@ -114,6 +124,8 @@ Only `src/dd-win-prof/include/` (which holds the public `dd-win-prof.h`) is on t
 
 ### Project structure and build outputs
 
+Abbreviated source layout:
+
 ```
 dd-win-prof/
 ├── CMakeLists.txt                  # Root CMake configuration
@@ -122,15 +134,21 @@ dd-win-prof/
 │   ├── dd-win-prof/                # Main profiler DLL
 │   ├── Runner/                     # Example app for testing the profiler
 │   ├── Tests/                      # Unit tests (Google Test)
+│   ├── integration-tests/          # Runner integration tests
 │   ├── ProfilerInjector/           # Utility to inject profiler into a target process
-│   └── reference/                  # Staging directory (POST_BUILD copies DLLs here)
+│   └── reference/                  # Staged public header and runtime artifacts
 ├── obfuscation/                    # Symbol obfuscation tools (optional, requires DIA SDK)
 │   ├── ObfSymbols/                 # PDB symbol extractor/obfuscator
 │   ├── TestSymbols/                # Test executable for ObfSymbols
 │   └── TestSymbolsDll/             # Test DLL for ObfSymbols
-├── e2e-tests/                      # End-to-end Vulkan profiling tests
+├── e2e-tests/                      # Runner, symbol, consumer, and optional Vulkan tests
+│   ├── consumer/                  # CMake consumer/export checks
+│   ├── runner-scenarios/          # Profile correctness expectations
+│   ├── capture-pprof.ps1          # Capture profiles from Runner
+│   └── validate-runner-sym.ps1    # Validate Runner's generated symbols
 └── scripts/
-    └── generate-vs.ps1             # Generate and open VS solution from CMake
+    ├── generate-vs.ps1             # Generate and open VS solution from CMake
+    └── test-consumer.ps1           # Run CMake consumer/export checks
 ```
 
 After building, the key artifacts are:
@@ -138,53 +156,30 @@ After building, the key artifacts are:
 | Artifact | Location |
 |----------|----------|
 | `dd-win-prof.dll` / `.lib` / `.pdb` | `build\src\dd-win-prof\<Config>\` |
-| `datadog_profiling_ffi.dll` | `build\_deps\libdatadog-src\<config>\dynamic\` |
+| `datadog_profiling_ffi.dll` (unit-test dependency) | `build\_deps\libdatadog-src\<config>\dynamic\` |
 | `Runner.exe` | `build\src\Runner\<Config>\` |
 | `Tests.exe` | `build\src\Tests\<Config>\` |
 | `ProfilerInjector.exe` | `build\src\ProfilerInjector\<Config>\` |
+| `dd-win-prof.h` (staged public header) | `src\reference\` (copied before compilation) |
 | **All runtime DLLs together** | `src\reference\` (copied by POST_BUILD) |
 
-The `src\reference\` directory is the easiest way to get all the files needed at runtime. After a successful build it contains `dd-win-prof.dll`, `dd-win-prof.lib`, `dd-win-prof.pdb`, `datadog_profiling_ffi.dll`, and `datadog_profiling_ffi.pdb`. It is only populated when dd-win-prof is built as the top-level project (or with `DD_WIN_PROF_DEVELOPMENT=ON` / `DD_WIN_PROF_BUILD_RUNNER=ON`). Projects that consume dd-win-prof via `FetchContent` or `add_subdirectory` should call `dd_win_prof_copy_runtime_deps(<target>)` instead.
+The libdatadog path in the table uses the default `FETCHCONTENT_BASE_DIR`.
+CI sets it to `.deps`, so the DLL is instead at
+`.deps\libdatadog-src\<config>\dynamic\datadog_profiling_ffi.dll`.
+
+The `src\reference\` directory stages the public header and runtime artifacts. After a successful build it contains `dd-win-prof.h`, `dd-win-prof.dll`, `dd-win-prof.lib`, `dd-win-prof.pdb`, `datadog_profiling_ffi.dll`, and `datadog_profiling_ffi.pdb`. It is only populated when dd-win-prof is built as the top-level project (or with `DD_WIN_PROF_DEVELOPMENT=ON` / `DD_WIN_PROF_BUILD_RUNNER=ON`). Projects that consume dd-win-prof via `FetchContent` or `add_subdirectory` should call `dd_win_prof_copy_runtime_deps(<target>)` instead.
 
 ## Testing
 
-### Run Tests
+Instructions live beside the tests:
 
-```powershell
-cmake --build build --config Debug
-build\src\Tests\Debug\Tests.exe
-```
+- [Unit tests](src/Tests/README.md)
+- [Runner build and CLI examples](src/Runner/README.md)
+- [RUM integration tests](src/integration-tests/README.md)
+- [Runner profile/symbol checks, consumer checks, and Vulkan tests](e2e-tests/README.md)
 
-See [`src/Tests/README.md`](src/Tests/README.md) for details on test coverage.
-
-### Build and Run the Test Runner
-
-The **Runner** project is an example application for testing the profiler. It supports both environment-variable and `--noenvvars` modes.
-
-```powershell
-cmake --build build --config Debug --target Runner
-build\src\Runner\Debug\Runner.exe
-```
-
-See [`src/Runner/README.md`](src/Runner/README.md) for full CLI reference and examples.
-
-### Optional: Run Integration Tests
-
-Integration tests exercise the full profiling pipeline (Runner execution, pprof output, log validation). They require **Python 3.9+** with a few packages.
-
-```powershell
-# Install Python dependencies (one-time)
-src\integration-tests\install-dependencies.ps1
-
-# Run the RUM context integration test
-src\integration-tests\test_rum_scenario.ps1
-```
-
-See [`src/integration-tests/README.md`](src/integration-tests/README.md) for details.
-
-### Automated Build
-
-For reference, see the complete automated build process in [`.github/workflows/test.yml`](.github/workflows/test.yml).
+[`.github/workflows/test.yml`](.github/workflows/test.yml) is the primary CI
+workflow and calls [`.github/workflows/e2e.yml`](.github/workflows/e2e.yml) for Vulkan tests.
 
 ## Releases
 
