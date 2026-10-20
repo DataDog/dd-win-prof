@@ -12,7 +12,7 @@ For integration and runtime configuration, see [README.md](README.md).
 ### Reporting Bugs
 
 If you find a bug:
-1. Check if it's already reported in [Issues](../../issues)
+1. Check if it's already reported in [Issues](https://github.com/DataDog/dd-win-prof/issues)
 2. If not, create a new issue with:
    - Clear description of the problem
    - Steps to reproduce
@@ -41,6 +41,7 @@ For new features:
 - **Windows 10/11** or **Windows Server 2019/2022**
 - **Visual Studio 2022** or later with C++ development tools (or **Build Tools for Visual Studio**)
 - **Windows 10/11 SDK**
+- **Visual Studio DIA SDK**: required by ObfSymbols, which is enabled in the default top-level build. Install it with Visual Studio, or disable obfuscation tools as shown below.
 - **CMake 3.21** or later
 
 ### Dependencies
@@ -59,7 +60,12 @@ cmake -G "Visual Studio 17 2022" -A x64 -B build
 cmake --build build --config Release
 ```
 
-To omit obfuscation tools from the build, pass `-DDD_WIN_PROF_BUILD_OBFUSCATION=OFF` when configuring.
+If the DIA SDK is unavailable, omit obfuscation tools when configuring:
+
+```powershell
+cmake -G "Visual Studio 17 2022" -A x64 -B build `
+  -DDD_WIN_PROF_BUILD_OBFUSCATION=OFF
+```
 
 ### Build with Visual Studio
 
@@ -70,6 +76,10 @@ Run the helper script to generate and open the solution:
 ```
 
 This generates a Visual Studio solution in `build\` and opens it automatically. You can then build and debug directly from the IDE. See `.\scripts\generate-vs.ps1 -?` for options (custom build directory, VS version, etc.).
+
+The helper uses the generator's default architecture; it does not pass `-A x64`.
+For an explicitly x64 solution, use the direct CMake command above in a fresh build
+directory.
 
 #### Building with AddressSanitizer
 
@@ -114,6 +124,8 @@ Only `src/dd-win-prof/include/` (which holds the public `dd-win-prof.h`) is on t
 
 ### Project structure and build outputs
 
+Abbreviated source layout:
+
 ```
 dd-win-prof/
 ├── CMakeLists.txt                  # Root CMake configuration
@@ -122,15 +134,21 @@ dd-win-prof/
 │   ├── dd-win-prof/                # Main profiler DLL
 │   ├── Runner/                     # Example app for testing the profiler
 │   ├── Tests/                      # Unit tests (Google Test)
+│   ├── integration-tests/          # Runner integration tests
 │   ├── ProfilerInjector/           # Utility to inject profiler into a target process
-│   └── reference/                  # Staging directory (POST_BUILD copies DLLs here)
+│   └── reference/                  # Staged public header and runtime artifacts
 ├── obfuscation/                    # Symbol obfuscation tools (optional, requires DIA SDK)
 │   ├── ObfSymbols/                 # PDB symbol extractor/obfuscator
 │   ├── TestSymbols/                # Test executable for ObfSymbols
 │   └── TestSymbolsDll/             # Test DLL for ObfSymbols
-├── e2e-tests/                      # End-to-end Vulkan profiling tests
+├── e2e-tests/                      # Runner, symbol, consumer, and optional Vulkan tests
+│   ├── consumer/                  # CMake consumer/export checks
+│   ├── runner-scenarios/          # Profile correctness expectations
+│   ├── capture-pprof.ps1          # Capture profiles from Runner
+│   └── validate-runner-sym.ps1    # Validate Runner's generated symbols
 └── scripts/
-    └── generate-vs.ps1             # Generate and open VS solution from CMake
+    ├── generate-vs.ps1             # Generate and open VS solution from CMake
+    └── test-consumer.ps1           # Run CMake consumer/export checks
 ```
 
 After building, the key artifacts are:
@@ -142,9 +160,16 @@ After building, the key artifacts are:
 | `Runner.exe` | `build\src\Runner\<Config>\` |
 | `Tests.exe` | `build\src\Tests\<Config>\` |
 | `ProfilerInjector.exe` | `build\src\ProfilerInjector\<Config>\` |
+| `dd-win-prof.h` (staged public header) | `src\reference\` (copied before compilation) |
 | **All runtime DLLs together** | `src\reference\` (copied by POST_BUILD) |
 
-The `src\reference\` directory is the easiest way to get all the files needed at runtime. After a successful build it contains `dd-win-prof.dll`, `dd-win-prof.lib`, `dd-win-prof.pdb`, `datadog_profiling_ffi.dll`, and `datadog_profiling_ffi.pdb`. It is only populated when dd-win-prof is built as the top-level project (or with `DD_WIN_PROF_DEVELOPMENT=ON` / `DD_WIN_PROF_BUILD_RUNNER=ON`). Projects that consume dd-win-prof via `FetchContent` or `add_subdirectory` should call `dd_win_prof_copy_runtime_deps(<target>)` instead.
+The libdatadog path in the table uses the default `FETCHCONTENT_BASE_DIR`.
+CI sets it to `.deps`, so the DLL is instead at
+`.deps\libdatadog-src\<config>\dynamic\datadog_profiling_ffi.dll`.
+In both paths, `<config>` is lowercase: `Debug` maps to `debug`, and all other
+configurations, including `Release` and `RelWithDebInfo`, map to `release`.
+
+The `src\reference\` directory stages the public header and runtime artifacts. After a successful build it contains `dd-win-prof.h`, `dd-win-prof.dll`, `dd-win-prof.lib`, `dd-win-prof.pdb`, `datadog_profiling_ffi.dll`, and `datadog_profiling_ffi.pdb`. It is only populated when dd-win-prof is built as the top-level project (or with `DD_WIN_PROF_DEVELOPMENT=ON` / `DD_WIN_PROF_BUILD_RUNNER=ON`). Projects that consume dd-win-prof via `FetchContent` or `add_subdirectory` should call `dd_win_prof_copy_runtime_deps(<target>)` instead.
 
 ## Testing
 
@@ -182,9 +207,28 @@ src\integration-tests\test_rum_scenario.ps1
 
 See [`src/integration-tests/README.md`](src/integration-tests/README.md) for details.
 
-### Automated Build
+### Runner correctness and symbol checks
 
-For reference, see the complete automated build process in [`.github/workflows/test.yml`](.github/workflows/test.yml).
+CI also validates Runner's symbols and profile contents:
+
+- Generate `Runner.sym` with ObfSymbols and validate it with
+  [`e2e-tests/validate-runner-sym.ps1`](e2e-tests/validate-runner-sym.ps1).
+  This check requires the obfuscation tools to be enabled.
+- For each `scenario_*` directory under
+  [`e2e-tests/runner-scenarios/`](e2e-tests/runner-scenarios/), run
+  [`capture-pprof.ps1`](e2e-tests/capture-pprof.ps1) with five iterations in Release.
+- Compare the captured profiles against each scenario's `expected_profile.json`
+  using `prof-analyze` v1.0.0. CI installs the tool with `go install`, which requires Go.
+
+See the primary CI workflow below for the exact commands and failure handling.
+
+### Automated checks
+
+[`.github/workflows/test.yml`](.github/workflows/test.yml) is the primary CI
+workflow. It covers Debug/Release builds, unit and RUM integration tests, Runner
+symbol and correctness checks, ASan, formatting, and CMake consumer checks.
+It also calls [`.github/workflows/e2e.yml`](.github/workflows/e2e.yml) for the
+Vulkan tests described in [`e2e-tests/README_vulkan.md`](e2e-tests/README_vulkan.md).
 
 ## Releases
 
