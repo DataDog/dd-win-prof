@@ -14,11 +14,10 @@ From the repository root:
 
 ```powershell
 cmake --build build --target Tests --config Debug
-'' | & .\build\src\Tests\Debug\Tests.exe
+.\build\src\Tests\Debug\Tests.exe
 ```
 
-Replace `Debug` with `Release` for a Release run. The blank input avoids the test
-executable's pause after completion. CMake copies its required
+Replace `Debug` with `Release` for a Release run. CMake copies its required
 `datadog_profiling_ffi.dll` beside `Tests.exe`.
 
 ## Test Files
