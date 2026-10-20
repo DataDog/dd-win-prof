@@ -44,11 +44,11 @@ DD_API_KEY=your_api_key_here
 **Example locations for Vulkan builds:**
 ```
 vulkan_examples/
-├── .env                    # ← Works! (2 levels up from executable)
 └── build/
+    ├── .env                # Two levels above the target executable's directory
     └── bin/
         └── Release/
-            ├── .env        # ← Works! (same directory)
+            ├── .env        # Same directory as the target executable
             ├── triangle.exe
             └── ProfilerInjector.exe
 ```
@@ -80,10 +80,10 @@ ProfilerInjector.exe myapp.exe
 
 ## Building
 
-Built as part of the main solution:
+After [configuring CMake](../../CONTRIBUTING.md#development-setup), run from the repository root:
 
-```cmd
-msbuild src\WindowsProfiler.sln /p:Configuration=Release /p:Platform=x64
+```powershell
+cmake --build build --config Release --target ProfilerInjector
 ```
 
-Output: `src\x64\Release\ProfilerInjector.exe`
+Output: `build\src\ProfilerInjector\Release\ProfilerInjector.exe`
