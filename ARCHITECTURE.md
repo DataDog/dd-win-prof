@@ -161,9 +161,9 @@ This is a Windows native profiler that samples CPU and wall time and exports pro
 4. **Stack Capture**: `StackFrameCollector` captures call stacks from these threads
 5. **Sample Storage**: `CpuTimeProvider` and `WallTimeProvider` store samples via `CollectorBase`
 6. **Collection**: `SamplesCollector` worker thread collects samples every 60ms
-7. **Aggregation**: `PprofAggregator` aggregate samples into a lobdatadog profile
+7. **Aggregation**: `PprofAggregator` aggregates samples into a libdatadog profile
 8. **Export**: `SamplesCollector` exporter thread triggers profile export every 60s
-9. **Upload**: `ProfileExporter` serialize profile into pprof format and upload it to Datadog via libdatadog
+9. **Upload**: `ProfileExporter` serializes the profile into pprof format and uploads it to Datadog via libdatadog
 
 ### Threading Model
 

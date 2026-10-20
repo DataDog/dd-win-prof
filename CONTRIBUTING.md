@@ -75,7 +75,7 @@ Run the helper script to generate and open the solution:
 .\scripts\generate-vs.ps1
 ```
 
-This generates a Visual Studio solution in `build\` and opens it automatically. You can then build and debug directly from the IDE. See `.\scripts\generate-vs.ps1 -?` for options (custom build directory, VS version, etc.).
+This generates a Visual Studio solution in `build\` and opens it automatically. You can then build and debug directly from the IDE. Use `Get-Help .\scripts\generate-vs.ps1` for options (custom build directory, VS version, etc.).
 
 The helper uses the generator's default architecture; it does not pass `-A x64`.
 For an explicitly x64 solution, use the direct CMake command above in a fresh build
@@ -156,16 +156,16 @@ After building, the key artifacts are:
 | Artifact | Location |
 |----------|----------|
 | `dd-win-prof.dll` / `.lib` / `.pdb` | `build\src\dd-win-prof\<Config>\` |
-| `datadog_profiling_ffi.dll` (unit-test dependency) | `build\_deps\libdatadog-src\<config>\dynamic\` |
+| `datadog_profiling_ffi.dll` (unit-test dependency) | `build\_deps\libdatadog-src\release\dynamic\` |
 | `Runner.exe` | `build\src\Runner\<Config>\` |
 | `Tests.exe` | `build\src\Tests\<Config>\` |
 | `ProfilerInjector.exe` | `build\src\ProfilerInjector\<Config>\` |
 | `dd-win-prof.h` (staged public header) | `src\reference\` (copied before compilation) |
 | **All runtime DLLs together** | `src\reference\` (copied by POST_BUILD) |
 
-The libdatadog path in the table uses the default `FETCHCONTENT_BASE_DIR`.
+The libdatadog examples show a Release build with the default `FETCHCONTENT_BASE_DIR`.
 CI sets it to `.deps`, so the DLL is instead at
-`.deps\libdatadog-src\<config>\dynamic\datadog_profiling_ffi.dll`.
+`.deps\libdatadog-src\release\dynamic\datadog_profiling_ffi.dll`.
 
 The `src\reference\` directory stages the public header and runtime artifacts. After a successful build it contains `dd-win-prof.h`, `dd-win-prof.dll`, `dd-win-prof.lib`, `dd-win-prof.pdb`, `datadog_profiling_ffi.dll`, and `datadog_profiling_ffi.pdb`. It is only populated when dd-win-prof is built as the top-level project (or with `DD_WIN_PROF_DEVELOPMENT=ON` / `DD_WIN_PROF_BUILD_RUNNER=ON`). Projects that consume dd-win-prof via `FetchContent` or `add_subdirectory` should call `dd_win_prof_copy_runtime_deps(<target>)` instead.
 
