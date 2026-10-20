@@ -2,7 +2,7 @@ name: Build and Test
 
 on:
   push:
-    branches: [ main, master, develop ]
+    branches: [ main, master, develop, 'mq-working-branch-*' ]
   pull_request:
     branches: [ main, master, develop ]
 
