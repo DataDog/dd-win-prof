@@ -8,7 +8,7 @@
 > **Use in production environments at your own risk.** Please thoroughly test in your specific 
 > environment before considering any production deployment.
 
-Implementation of a Windows CPU profiler
+Implementation of a Windows CPU and wall-time profiler
 
 ## Usage : how to profile your 64-bit Windows application
 
@@ -17,10 +17,12 @@ In your project, you need the following files:
 - **dd-win-prof.h**: header containing the declaration of the `StartProfiler` and `StopProfiler` functions to be called when the application starts and when it stops.
 - **dd-win-prof.lib**: library containing the stub for the two functions pointing to **dd-win-prof.dll**
 
-The following files are required in the folder from where the application runs:
-- **dd-win-prof.dll**: profiling code
-- **datadog_profiling_ffi.dll**: responsible for serializing and sending the profiles to Datadog via HTTP
-*Note: the corresponding .pdb files are available for debugging purposes*
+Deploy **dd-win-prof.dll** next to your application's executable. It links
+libdatadog statically for profile serialization and upload.
+
+The separate **datadog_profiling_ffi.dll** is needed by the unit-test executable,
+not by applications that only link `dd-win-prof.lib`. The corresponding `.pdb`
+files are available for debugging.
 
 ## CMake Setup
 
@@ -42,7 +44,8 @@ Then you can use `target_link_libraries` to configure your project's include pat
 target_link_libraries(your_application PRIVATE dd-win-prof)
 ```
 
-To ensure that your development builds will have the requisite DLLs present alongside the application binary, you can call `dd_win_prof_copy_runtime_deps`, which adds a `POST_BUILD` command to copy `dd-win-prof.dll` and `datadog_profiling_ffi.dll` alongside your application's binaries:
+To copy the profiler beside your application's binary after each build, call
+`dd_win_prof_copy_runtime_deps`. The helper also copies the FFI DLL used by tests:
 
 ```
 dd_win_prof_copy_runtime_deps(your_application)
@@ -50,7 +53,7 @@ dd_win_prof_copy_runtime_deps(your_application)
 
 (You can optionally supply `INCLUDE_PDBS` to copy `.pdb` files for these libraries as well.)
 
-Finally, if you're generating installed builds of your CMake project, you'll also want to ensure that `dd-win-prof` is added to the export set (to make `dd-win-prof.dll` available alongside your binaries, and to make the `dd-win-prof` CMake target accessible), and that `datadog_profiling_ffi.dll` is also copied to the same directory:
+For installed builds, add `dd-win-prof` to your export set and install the public header:
 
 ```cmake
 install(TARGETS dd-win-prof
@@ -62,7 +65,6 @@ install(TARGETS dd-win-prof
 # there too. ${dd-win-prof_SOURCE_DIR} is set by FetchContent; with add_subdirectory
 # use the path you added.
 install(FILES "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/dd-win-prof.h" DESTINATION include)
-install(FILES "$<TARGET_FILE:dd_win_prof_libdatadog_dynamic>" DESTINATION bin)
 ```
 
 ## Configuration
@@ -86,11 +88,15 @@ Define your configuration in a `ProfilerConfig` instance and pass it to `SetupPr
     }
 ```
 
-**No-env-vars mode** (`config.noEnvVars = true`): Ignores all environment variables and uses only values from the struct. In this mode, `url` and `apiKey` are **mandatory**; `SetupProfiler` returns `false` if either is missing.
+**No-env-vars mode** (`config.noEnvVars = true`): Uses struct values and defaults
+instead of environment-based profiler settings. In this mode, `url` and `apiKey`
+are **mandatory**; `SetupProfiler` returns `false` if either is missing.
+Set these fields before calling `SetupProfiler`. `url` is a Datadog site name,
+not a full intake URL:
 
 ```C++
     config.noEnvVars = true;
-    config.url = "https://intake.datadoghq.com";
+    config.url = "datadoghq.com";
     config.apiKey = "your_datadog_api_key_here";
     config.serviceName = "my-windows-app";
 ```
@@ -99,7 +105,7 @@ Define your configuration in a `ProfilerConfig` instance and pass it to `SetupPr
 
 | Field | Description |
 |-------|-------------|
-| `noEnvVars` | If true, ignore env vars; use only struct values (default: false) |
+| `noEnvVars` | If true, use struct values and defaults instead of environment-based profiler settings (default: false) |
 | `serviceName`, `serviceEnvironment`, `serviceVersion` | Application metadata |
 | `url`, `apiKey` | Mandatory when `noEnvVars=true`; otherwise can come from env |
 | `pprofOutputDirectory` | Override for local pprof debug output (default: empty) |
@@ -132,23 +138,25 @@ When `DD_API_KEY` is set, profiling data is sent directly to the Datadog intake 
 
 ### Example configurations
 
-**Agentless via env vars:**
-```bash
-DD_SERVICE=my-windows-app
-DD_SITE=datadoghq.com
-DD_API_KEY=your_datadog_api_key_here
-DD_VERSION=1.2.3
-DD_ENV=production
+Set these variables before launching the application. For example, in PowerShell:
+
+**Agentless:**
+```powershell
+$env:DD_SERVICE = "my-windows-app"
+$env:DD_SITE = "datadoghq.com"
+$env:DD_API_KEY = "your_datadog_api_key_here"
+$env:DD_VERSION = "1.2.3"
+$env:DD_ENV = "production"
 ```
 
-**Agent-based:**
-```bash
-DD_SERVICE=my-windows-app
-DD_VERSION=1.2.3
-DD_ENV=production
+**Agent-based** (leave `DD_API_KEY` unset):
+```powershell
+$env:DD_SERVICE = "my-windows-app"
+$env:DD_VERSION = "1.2.3"
+$env:DD_ENV = "production"
 ```
 
-Call [StartProfiler](./src/dd-win-prof/include/dd-win-prof.h) when ready; [StopProfiler](./src/dd-win-prof/include/dd-win-prof.h) when done. Use `DD_PROFILING_ENABLED=0` to disable profiling even if `StartProfiler` is called.
+Call [StartProfiler](./src/dd-win-prof/include/dd-win-prof.h) when ready; [StopProfiler](./src/dd-win-prof/include/dd-win-prof.h) when done. With environment-based configuration, use `DD_PROFILING_ENABLED=0` to disable profiling even if `StartProfiler` is called.
 
 **NOTE:** Method names are obfuscated by default. Add `DD_PROFILING_INTERNAL_SYMBOLIZE_CALLSTACKS=1` to enable symbolization.
 

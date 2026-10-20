@@ -53,18 +53,19 @@ notes in the UI and publish manually.
 
 ## If something went wrong
 
-Don't try to re-run the workflow against the same tag. Delete the release
-and the tag, then start over from Step 1:
+For a failed build whose release is still unpublished, rerun the workflow
+against the existing tag without deleting the release or tag:
 
 ```bash
-gh release delete vX.Y.Z -R DataDog/dd-win-prof -y
-git push --delete origin vX.Y.Z
-git tag -d vX.Y.Z
+gh workflow run release.yml -R DataDog/dd-win-prof -f release_tag=vX.Y.Z
 ```
+
+The workflow replaces the zip on an existing release. Do not overwrite published
+artifacts without explicit approval.
 
 ## References
 
 - Workflow: `.github/workflows/release.yml`
 - Octo-STS policy: `.github/chainguard/self.github.release.publish.sts.yaml`
 - Local check: `pwsh scripts/check-version.ps1 -Tag vX.Y.Z`
-- README sections: *Packaging a release*, *Cutting a release*
+- Contributor guide: [Packaging a release](../../../CONTRIBUTING.md#packaging-a-release), [Cutting a release](../../../CONTRIBUTING.md#cutting-a-release)

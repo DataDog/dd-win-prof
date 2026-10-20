@@ -5,8 +5,12 @@ Builds Vulkan examples with automatic Datadog profiler integration.
 ## Quick Start
 
 ### 1. Build your profiler
-```cmd
-msbuild src\WindowsProfiler.sln /p:Configuration=Release /p:Platform=x64
+
+From the repository root:
+
+```powershell
+cmake -G "Visual Studio 17 2022" -A x64 -B build
+cmake --build build --config Release --target dd-win-prof ProfilerInjector
 ```
 
 ### 2. Create .env file for profiler configuration
@@ -25,6 +29,9 @@ DD_PROFILING_LOG_TO_CONSOLE=1
 ```
 
 ### 3. Build and run
+
+Run from `e2e-tests`:
+
 ```powershell
 .\vulcan_quickstart.ps1 -EnableProfiler
 ```
@@ -47,7 +54,8 @@ The script runs `computeheadless` automatically and shows command lines for othe
 
 ## Manual Execution
 
-After building, run examples manually from `vulkan_examples\Vulkan\build\bin\Release\`:
+After building, run examples manually from `e2e-tests\vulkan_examples\build\bin\Release\`
+(relative to the repository root):
 
 ```cmd
 # With profiler

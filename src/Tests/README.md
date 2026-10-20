@@ -4,27 +4,22 @@ Unit tests for dd-win-prof, built with [Google Test](https://github.com/google/g
 
 ## Prerequisites
 
-- **NuGet CLI** to restore test dependencies (Google Test package)
+[Configure CMake](../../CONTRIBUTING.md#development-setup) with
+`DD_WIN_PROF_BUILD_TESTS=ON` (the top-level default). GoogleTest is fetched by CMake;
+NuGet is not used.
 
 ## Building and Running
 
-```cmd
-# Restore test dependencies
-nuget restore src\Tests\packages.config -PackagesDirectory src\packages
+From the repository root:
 
-# Build tests
-msbuild src\Tests\Tests.vcxproj /p:Configuration=Release /p:Platform=x64
-
-# Run tests
-src\Tests\x64\Release\Tests.exe
-```
-
-Or with CMake:
-
-```cmd
+```powershell
 cmake --build build --target Tests --config Debug
-build\src\Tests\Debug\Tests.exe
+'' | & .\build\src\Tests\Debug\Tests.exe
 ```
+
+Replace `Debug` with `Release` for a Release run. The blank input avoids the test
+executable's pause after completion. CMake copies its required
+`datadog_profiling_ffi.dll` beside `Tests.exe`.
 
 ## Test Files
 
