@@ -402,8 +402,9 @@ bool ProfileExporter::DeliverProfileToCallback(
   return DeliverProfilingData(std::move(data));
 }
 
-void ProfileExporter::LogExport(bool lastCall, int64_t durationMs, size_t profileSize)
-    const {
+void ProfileExporter::LogExport(
+    bool lastCall, int64_t durationMs, size_t profileSize
+) const {
   Log::Info(
       lastCall ? "Export last profile #" : "Export profile #",
       _currentExportId,
