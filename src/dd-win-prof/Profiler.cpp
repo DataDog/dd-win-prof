@@ -73,6 +73,7 @@ bool Profiler::StartProfiling() {
     Log::Error(
         "Failed to initialize profile exporter: ", _pProfileExporter->GetLastError()
     );
+    _pProfileExporter.reset();
     return false;
   }
 
