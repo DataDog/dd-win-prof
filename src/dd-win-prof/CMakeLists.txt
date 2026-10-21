@@ -27,6 +27,7 @@ add_library(dd-win-prof SHARED
     CpuTimeProvider.h
     include/dd-win-prof.h
     dd-win-prof-internal.h
+    dd-win-rum-private.h
     EnvironmentVariables.h
     framework.h
     ISamplesProvider.h
