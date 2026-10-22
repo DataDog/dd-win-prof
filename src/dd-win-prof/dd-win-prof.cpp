@@ -5,7 +5,7 @@
 #include "Log.h"
 #include "Profiler.h"
 #include "dd-win-prof-internal.h"
-#include "dd-win-rum-private.h"
+#include "internal/dd-win-rum-private.h"
 #include "pch.h"
 
 extern "C" {

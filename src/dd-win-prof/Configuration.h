@@ -5,7 +5,7 @@
 #pragma once
 
 #include "TagsHelper.h"
-#include "dd-win-rum-private.h"
+#include "internal/dd-win-rum-private.h"
 #include "pch.h"
 
 class Configuration {
