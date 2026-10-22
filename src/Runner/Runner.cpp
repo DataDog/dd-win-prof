@@ -15,9 +15,9 @@
 // Uuid.cpp is compiled directly into Runner (see CMakeLists.txt) since
 // dd-win-prof.dll doesn't export the symbol.
 #include "..\dd-win-prof\Uuid.h"
-#include "..\dd-win-prof\dd-win-rum-private.h"
 #include "Helpers.h"
 #include "Spinner.h"
+#include "internal/dd-win-rum-private.h"
 
 // scenarios
 //  1 : simple C functions
