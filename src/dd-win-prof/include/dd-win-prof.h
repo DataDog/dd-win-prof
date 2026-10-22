@@ -66,7 +66,7 @@ DD_WIN_PROF_API bool StartProfiler();
 // Stops collection, waits for the current export and attempts a final export.
 // Does not wait for the upload interval. The final SDK callback runs on this thread.
 // Blocks until callbacks finish, not until SDK work they queued finishes. No overall
-// timeout is imposed. No-op if already stopped (no additional final export).
+// timeout is imposed. No-op if already stopped.
 // After return, no callbacks run until the next start; setup/registration may run
 // again. Do not overlap lifecycle calls or call them from an SDK callback.
 DD_WIN_PROF_API void StopProfiler();
