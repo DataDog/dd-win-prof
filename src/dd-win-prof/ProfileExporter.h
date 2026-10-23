@@ -5,6 +5,7 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <string>
@@ -230,6 +231,7 @@ class ProfileExporter {
   SampleLabels _sampleLabels;
 
   // RUM application ID (set once, emitted as profile tag per-export)
+  std::mutex _rumApplicationIdMutex;
   std::string _rumApplicationId;
 
   // RUM record provider and reusable swap buffers
