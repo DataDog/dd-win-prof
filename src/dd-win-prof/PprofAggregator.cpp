@@ -20,9 +20,10 @@ namespace dd_win_prof {
 PprofAggregator::PprofAggregator(
     std::span<const SampleValueType> sampleValueTypes,
     ddog_prof_ManagedStringStorage stringStorage,
-    int periodMs
+    int periodMs,
+    ProfileEncodingApi encodingApi
 )
-    : m_initialized(false), m_periodMs(periodMs) {
+    : m_encodingApi(encodingApi), m_initialized(false), m_periodMs(periodMs) {
   // Initialize with a default/empty profile state
   memset(&m_profile, 0, sizeof(m_profile));  // probably not needed
 
@@ -76,10 +77,14 @@ const std::string& PprofAggregator::GetLastError() const { return m_lastError; }
 
 ddog_prof_EncodedProfile* PprofAggregator::Serialize(
     int64_t startTimestampMs, int64_t endTimestampMs
-) const {
+) {
+  m_lastError.clear();
   if (!IsInitialized()) {
+    m_lastError = "Cannot serialize an uninitialized profile";
     return nullptr;
   }
+
+  auto encoded = std::make_unique<ddog_prof_EncodedProfile>();
 
   // Create timestamps - convert from milliseconds to seconds and nanoseconds
   ddog_Timespec start_ts;
@@ -91,19 +96,19 @@ ddog_prof_EncodedProfile* PprofAggregator::Serialize(
   end_ts.nanoseconds = (uint32_t)((endTimestampMs % 1000) * 1000000);
 
   // Serialize the profile
-  auto result = ddog_prof_Profile_serialize(
-      const_cast<ddog_prof_Profile*>(&m_profile), &start_ts, &end_ts
-  );
+  auto result = m_encodingApi.serialize(&m_profile, &start_ts, &end_ts);
 
   if (result.tag == DDOG_PROF_PROFILE_SERIALIZE_RESULT_OK) {
-    // Return a copy of the encoded profile since caller takes ownership
-    auto* encoded = new ddog_prof_EncodedProfile;
     *encoded = result.ok;
-    return encoded;
-  } else {
-    // Error - return nullptr
-    return nullptr;
+    return encoded.release();
   }
+
+  m_lastError = "libdatadog profile serialization/compression failed: ";
+  m_lastError.append(
+      reinterpret_cast<const char*>(result.err.message.ptr), result.err.message.len
+  );
+  ddog_Error_drop(&result.err);
+  return nullptr;
 }
 
 void PprofAggregator::Reset() {

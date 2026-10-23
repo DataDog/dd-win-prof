@@ -91,6 +91,7 @@ class PprofAggregatorTest : public ::testing::Test {
   void SafeCleanupEncodedProfile(ddog_prof_EncodedProfile* profile) {
     if (profile) {
       ddog_prof_EncodedProfile_drop(profile);
+      delete profile;
     }
   }
 
@@ -585,8 +586,7 @@ TEST_F(PprofAggregatorTest, SerializeUninitializedAggregator) {
   // Assert
   EXPECT_EQ(encodedProfile, nullptr)
       << "Serialize should return nullptr for uninitialized aggregator";
-  EXPECT_FALSE(aggregator.GetLastError().empty())
-      << "Error should be present when serializing uninitialized aggregator";
+  EXPECT_EQ(aggregator.GetLastError(), "Cannot serialize an uninitialized profile");
 
   // No cleanup needed since encodedProfile is nullptr
 }

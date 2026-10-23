@@ -12,7 +12,7 @@
 #include "StackSamplerLoop.h"
 #include "ThreadList.h"
 #include "dd-win-prof.h"
-#include "dd-win-rum-private.h"
+#include "internal/dd-win-rum-private.h"
 #include "pch.h"
 
 class Profiler : public IRumViewContextProvider,

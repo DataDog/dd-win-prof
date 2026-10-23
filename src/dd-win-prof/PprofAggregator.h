@@ -18,6 +18,11 @@
 
 namespace dd_win_prof {
 
+struct ProfileEncodingApi {
+  decltype(&ddog_prof_Profile_serialize) serialize = ddog_prof_Profile_serialize;
+  decltype(&ddog_prof_EncodedProfile_bytes) bytes = ddog_prof_EncodedProfile_bytes;
+};
+
 /// <summary>
 /// Manages pprof profile creation and aggregation using libdatadog.
 /// This class provides a C++ wrapper around the libdatadog profiling API.
@@ -35,7 +40,8 @@ class PprofAggregator {
   explicit PprofAggregator(
       std::span<const SampleValueType> sampleValueTypes,
       ddog_prof_ManagedStringStorage stringStorage,
-      int periodMs = 60000
+      int periodMs = 60000,
+      ProfileEncodingApi encodingApi = {}
   );
 
   /// <summary>
@@ -63,15 +69,13 @@ class PprofAggregator {
   /// Serializes the current profile to pprof format.
   /// This operation resets the profile for future use.
   /// Note: Caller takes ownership of the returned pointer and must call
-  /// ddog_prof_EncodedProfile_drop() when done.
+  /// ddog_prof_EncodedProfile_drop() and delete the pointer when done.
   /// </summary>
   /// <param name="startTimestampMs">Optional start timestamp in milliseconds (uses
   /// current time if not specified)</param> <param name="endTimestampMs">Optional end
   /// timestamp in milliseconds (uses current time if not specified)</param>
   /// <returns>Encoded profile data, or nullptr on failure</returns>
-  ddog_prof_EncodedProfile* Serialize(
-      int64_t startTimestampMs, int64_t endTimestampMs
-  ) const;
+  ddog_prof_EncodedProfile* Serialize(int64_t startTimestampMs, int64_t endTimestampMs);
 
   /// <summary>
   /// Resets the profile, clearing all accumulated data while preserving configuration
@@ -122,6 +126,7 @@ class PprofAggregator {
   void Cleanup();
 
  private:
+  ProfileEncodingApi m_encodingApi;
   ddog_prof_Profile m_profile;  // libdatadog profile object
   std::string m_lastError;      // Last error message
   bool m_initialized;           // Initialization status

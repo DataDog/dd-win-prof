@@ -28,10 +28,18 @@
 using namespace dd_win_prof;
 using namespace OsSpecificApi;
 
+namespace {
+int64_t ToUnixTimeMs(std::chrono::system_clock::time_point time) {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(time.time_since_epoch())
+      .count();
+}
+}  // namespace
+
 ProfileExporter::ProfileExporter(
     Configuration* pConfiguration,
     std::span<const SampleValueType> sampleTypeDefinitions,
-    IRumRecordProvider* pRumRecordProvider
+    IRumRecordProvider* pRumRecordProvider,
+    ProfileEncodingApi encodingApi
 )
     : _pConfiguration(pConfiguration),
       _sampleTypeDefinitions{
@@ -46,6 +54,7 @@ ProfileExporter::ProfileExporter(
       _exporter(nullptr),
       _agentMode(true),
       _consecutiveErrors(0),
+      _encodingApi(encodingApi),
       _pRumRecordProvider(pRumRecordProvider) {
   _runtimeId = ComputeRuntimeId();
 
@@ -75,8 +84,11 @@ ProfileExporter::ProfileExporter(
     // Configure export settings from Configuration
     _exportEnabled =
         _pConfiguration->IsExportEnabled();  // Use dedicated export setting
-    _apiKey = _pConfiguration->GetApiKey();
-    _agentMode = !_pConfiguration->IsAgentless();
+    _profilingDataCallback = _pConfiguration->GetProfilingDataCallback();
+    if (_exportEnabled) {
+      _apiKey = _pConfiguration->GetApiKey();
+      _agentMode = !_pConfiguration->IsAgentless();
+    }
   }
 }
 
@@ -109,6 +121,7 @@ void ProfileExporter::Cleanup(bool skipExporterCleanup) {
   // Clean up libdatadog's managed string storage
   ddog_prof_ManagedStringStorage_drop(_stringStorage);
 
+  _profilingDataCallback = {};
   _initialized = false;
   Log::Debug("Exporter cleanup completed");
 }
@@ -137,7 +150,7 @@ bool ProfileExporter::Initialize() {
     // Initialize PprofAggregator directly with SampleValueType (no enum conversion
     // needed)
     _aggregator = std::make_unique<dd_win_prof::PprofAggregator>(
-        _sampleTypeDefinitions, _stringStorage, 10
+        _sampleTypeDefinitions, _stringStorage, 10, _encodingApi
     );
 
     if (!_aggregator->IsInitialized()) {
@@ -242,118 +255,188 @@ bool ProfileExporter::Export(bool lastCall) {
     return false;
   }
 
-  // Clear per-export caches since location IDs become invalid after profile reset
+  _lastError.clear();
   OnExportStart();
-
-  // Serialize the profile using the aggregator
-  auto currentTime = std::chrono::system_clock::now();
-  auto startMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                     _profileStartTime.time_since_epoch()
-  )
-                     .count();
-  auto endMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                   currentTime.time_since_epoch()
-  )
-                   .count();
-
-  auto encodedProfile = _aggregator->Serialize(startMs, endMs);
-  if (!encodedProfile) {
-    Log::Error("Failed to serialize profile: ", _aggregator->GetLastError());
+  const auto end = std::chrono::system_clock::now();
+  const auto startUnixTimeMs = ToUnixTimeMs(_profileStartTime);
+  const auto endUnixTimeMs = ToUnixTimeMs(end);
+  if (_profilingDataCallback) {
+    DiscardRumRecords();
+  }
+  auto profile = SerializeProfile(startUnixTimeMs, endUnixTimeMs);
+  if (!profile) {
+    FinishExport(end);
     return false;
   }
 
-  // Consume RUM view and session records and serialize them to JSON.
-  // The same JSON is used for the local debug `.rum-views.json` file (if
-  // enabled) and is passed to libdatadog via `optional_internal_metadata_json`.
-  std::string rumRecordsJson;
-  if (_pRumRecordProvider != nullptr) {
-    _pRumRecordProvider->ConsumeViewRecords(_viewRecordsBuffer);
-    _pRumRecordProvider->ConsumeSessionRecords(_sessionRecordsBuffer);
+  auto rumRecordsJson =
+      _profilingDataCallback ? std::string{} : CollectRumRecordsJson();
+  WriteDebugFiles(profile.get(), rumRecordsJson, endUnixTimeMs);
 
-    if (!_viewRecordsBuffer.empty() || !_sessionRecordsBuffer.empty()) {
-      rumRecordsJson =
-          SerializeRumRecordsToJson(_viewRecordsBuffer, _sessionRecordsBuffer);
-      _viewRecordsBuffer.clear();
-      _sessionRecordsBuffer.clear();
-    }
-  }
-
-  // Write debug pprof file if enabled
-  if (_debugPprofFileWritingEnabled && !_debugPprofPrefix.empty()) {
-    if (!WritePprofFile(encodedProfile)) {
-      Log::Warn("Failed to write debug pprof file (continuing with export)");
-    }
-
-    if (!rumRecordsJson.empty()) {
-      auto time_t_now = std::chrono::system_clock::to_time_t(currentTime);
-      ddog_Timespec ts = {static_cast<int64_t>(time_t_now), 0};
-      if (!WriteRumRecordsFile(rumRecordsJson, ts)) {
-        Log::Warn("Failed to write RUM records file (continuing with export)");
-      }
-    }
-  }
-
-  // Export profile to backend if enabled
-  bool exportSuccess = true;
-  if (_exportEnabled && _exporter.inner) {
-    exportSuccess = ExportProfile(encodedProfile, _currentExportId, rumRecordsJson);
-    if (!exportSuccess) {
+  // Request_build consumes the profile, so read its bytes before HTTP export.
+  auto bytes = ReadProfileBytes(profile.get());
+  bool success = bytes.has_value();
+  if (bytes && _profilingDataCallback) {
+    success =
+        DeliverProfileToCallback(*bytes, startUnixTimeMs, endUnixTimeMs, lastCall);
+  } else if (bytes && _exportEnabled && _exporter.inner) {
+    success = ExportProfile(profile.get(), _currentExportId, rumRecordsJson);
+    if (!success) {
       Log::Error("Failed to export profile to backend");
-      // Continue with cleanup even if export failed
     }
   }
 
-  // Get profile bytes for logging before export consumes it
-  // TODO: if this call is expensive, get it from ExportProfile call
-  auto bytesResult = ddog_prof_EncodedProfile_bytes(encodedProfile);
-  size_t profileSize = 0;
-  if (bytesResult.tag == DDOG_PROF_RESULT_BYTE_SLICE_OK_BYTE_SLICE) {
-    profileSize = bytesResult.ok.len;
+  LogExport(lastCall, endUnixTimeMs - startUnixTimeMs, bytes ? bytes->len : 0);
+  FinishExport(end);
+  return success;
+}
+
+void ProfileExporter::EncodedProfileDeleter::operator()(
+    ddog_prof_EncodedProfile* profile
+) const {
+  if (profile == nullptr) {
+    return;
+  }
+  if (profile->inner != nullptr) {
+    ddog_prof_EncodedProfile_drop(profile);
+  }
+  delete profile;
+}
+
+ProfileExporter::EncodedProfilePtr ProfileExporter::SerializeProfile(
+    int64_t startUnixTimeMs, int64_t endUnixTimeMs
+) {
+  EncodedProfilePtr profile(_aggregator->Serialize(startUnixTimeMs, endUnixTimeMs));
+  if (!profile) {
+    _lastError = _aggregator->GetLastError();
+    Log::Error("Failed to serialize profile: ", _lastError);
+    if (_profilingDataCallback) {
+      DeliverProfilingData(
+          ProfilingError{ProfilingErrorCode::SerializationFailed, _lastError}
+      );
+    }
+  }
+  return profile;
+}
+
+std::string ProfileExporter::CollectRumRecordsJson() {
+  if (_pRumRecordProvider == nullptr) {
+    return {};
+  }
+  _pRumRecordProvider->ConsumeViewRecords(_viewRecordsBuffer);
+  _pRumRecordProvider->ConsumeSessionRecords(_sessionRecordsBuffer);
+  if (_viewRecordsBuffer.empty() && _sessionRecordsBuffer.empty()) {
+    return {};
   }
 
-  // Calculate profile duration
-  auto profileDurationMs = endMs - startMs;
+  auto json = SerializeRumRecordsToJson(_viewRecordsBuffer, _sessionRecordsBuffer);
+  _viewRecordsBuffer.clear();
+  _sessionRecordsBuffer.clear();
+  return json;
+}
 
-  // For now, just log with current export ID and system info
-  if (lastCall) {
-    Log::Info(
-        "Export last profile #",
-        _currentExportId,
-        ", Process ID: ",
-        _processId,
-        ", Runtime ID: ",
-        _runtimeId,
-        ", Profile duration: ",
-        profileDurationMs,
-        "ms",
-        ", Profile buffer size: ",
-        profileSize,
-        " bytes",
-        ", Persistent symbol cache size: ",
-        _persistentSymbolCache.size()
-    );
-  } else {
-    Log::Info(
-        "Export profile #",
-        _currentExportId,
-        ", Process ID: ",
-        _processId,
-        ", Runtime ID: ",
-        _runtimeId,
-        ", Profile duration: ",
-        profileDurationMs,
-        "ms",
-        ", Profile buffer size: ",
-        profileSize,
-        " bytes",
-        ", Persistent symbol cache size: ",
-        _persistentSymbolCache.size()
-    );
+void ProfileExporter::DiscardRumRecords() {
+  if (_pRumRecordProvider == nullptr) {
+    return;
+  }
+  _pRumRecordProvider->ConsumeViewRecords(_viewRecordsBuffer);
+  _pRumRecordProvider->ConsumeSessionRecords(_sessionRecordsBuffer);
+  _viewRecordsBuffer.clear();
+  _sessionRecordsBuffer.clear();
+}
+
+void ProfileExporter::WriteDebugFiles(
+    const ddog_prof_EncodedProfile* profile,
+    const std::string& rumRecordsJson,
+    int64_t endUnixTimeMs
+) {
+  if (!_debugPprofFileWritingEnabled || _debugPprofPrefix.empty()) {
+    return;
+  }
+  if (!WritePprofFile(profile)) {
+    Log::Warn("Failed to write debug pprof file (continuing with export)");
+  }
+  if (!rumRecordsJson.empty()) {
+    ddog_Timespec time = {endUnixTimeMs / 1000, 0};
+    if (!WriteRumRecordsFile(rumRecordsJson, time)) {
+      Log::Warn("Failed to write RUM records file (continuing with export)");
+    }
+  }
+}
+
+std::optional<ddog_ByteSlice> ProfileExporter::ReadProfileBytes(
+    ddog_prof_EncodedProfile* profile
+) {
+  auto bytes = _encodingApi.bytes(profile);
+  if (bytes.tag == DDOG_PROF_RESULT_BYTE_SLICE_OK_BYTE_SLICE) {
+    return bytes.ok;
   }
 
-  // Clean up encoded profile
-  ddog_prof_EncodedProfile_drop(encodedProfile);
+  _lastError = "libdatadog failed to read encoded profile bytes: ";
+  _lastError.append(
+      reinterpret_cast<const char*>(bytes.err.message.ptr), bytes.err.message.len
+  );
+  ddog_Error_drop(&bytes.err);
+  Log::Error(_lastError);
+  if (_profilingDataCallback) {
+    DeliverProfilingData(
+        ProfilingError{ProfilingErrorCode::ProfileBytesUnavailable, _lastError}
+    );
+  }
+  return std::nullopt;
+}
 
+bool ProfileExporter::DeliverProfileToCallback(
+    const ddog_ByteSlice& bytes,
+    int64_t startUnixTimeMs,
+    int64_t endUnixTimeMs,
+    bool lastCall
+) {
+  ProfilingData data;
+  if (bytes.len != 0) {
+    data.pprof.assign(bytes.ptr, bytes.ptr + bytes.len);
+  }
+  data.startUnixTimeMs = startUnixTimeMs;
+  data.endUnixTimeMs = endUnixTimeMs;
+  data.isLast = lastCall;
+  return DeliverProfilingData(std::move(data));
+}
+
+void ProfileExporter::LogExport(
+    bool lastCall, int64_t durationMs, size_t profileSize
+) const {
+  Log::Info(
+      lastCall ? "Export last profile #" : "Export profile #",
+      _currentExportId,
+      ", Process ID: ",
+      _processId,
+      ", Runtime ID: ",
+      _runtimeId,
+      ", Profile duration: ",
+      durationMs,
+      "ms",
+      ", Profile buffer size: ",
+      profileSize,
+      " bytes",
+      ", Persistent symbol cache size: ",
+      _persistentSymbolCache.size()
+  );
+}
+
+bool ProfileExporter::DeliverProfilingData(ProfilingDataResult result) {
+  try {
+    _profilingDataCallback(std::move(result));
+    return true;
+  } catch (const std::exception& error) {
+    _lastError = "Profiling data callback threw: " + std::string(error.what());
+  } catch (...) {
+    _lastError = "Profiling data callback threw a non-standard exception";
+  }
+  Log::Error(_lastError);
+  return false;
+}
+
+void ProfileExporter::FinishExport(std::chrono::system_clock::time_point end) {
   // Reset the aggregator for next collection cycle
   _aggregator->Reset();
 
@@ -364,7 +447,7 @@ bool ProfileExporter::Export(bool lastCall) {
   }
 
   // Reset the profile start time for the next collection cycle
-  _profileStartTime = currentTime;
+  _profileStartTime = end;
 
   // Increment export ID for next export
   _currentExportId++;
@@ -373,8 +456,6 @@ bool ProfileExporter::Export(bool lastCall) {
   if (_currentExportId % CACHE_CLEANUP_THRESHOLD == 0) {
     CleanupUnusedCacheEntries(_currentExportId);
   }
-
-  return true;
 }
 
 std::string ProfileExporter::ComputeRuntimeId() {

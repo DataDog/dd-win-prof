@@ -5,10 +5,31 @@
 #include "Log.h"
 #include "Profiler.h"
 #include "dd-win-prof-internal.h"
-#include "dd-win-rum-private.h"
+#include "internal/dd-win-rum-private.h"
 #include "pch.h"
 
 extern "C" {
+
+DD_WIN_PROF_API bool SetupProfilingDataCallback(ProfilingDataCallback* callback) {
+  auto profiler = Profiler::GetInstance();
+  if (profiler == nullptr || profiler->IsStarted()) {
+    Log::Warn("SetupProfilingDataCallback() requires a stopped profiler.");
+    return false;
+  }
+  if (callback != nullptr && !*callback) {
+    Log::Warn("Profiling data callback must not be empty; use nullptr to unregister.");
+    return false;
+  }
+  try {
+    Profiler::GetConfiguration()->SetProfilingDataCallback(
+        callback == nullptr ? ProfilingDataCallback{} : *callback
+    );
+    return true;
+  } catch (...) {
+    Log::Error("Failed to copy profiling data callback.");
+    return false;
+  }
+}
 
 DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig* pSettings) {
   if (pSettings == nullptr) {
