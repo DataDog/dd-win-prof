@@ -27,7 +27,7 @@ add_library(dd-win-prof SHARED
     CollectorBase.h
     Configuration.h
     CpuTimeProvider.h
-    dd-win-prof.h
+    include/dd-win-prof.h
     dd-win-prof-internal.h
     EnvironmentVariables.h
     framework.h
@@ -65,12 +65,14 @@ add_library(dd-win-prof SHARED
 # generates its own PCH mechanism, so we drive it only through pch.h here.
 target_precompile_headers(dd-win-prof PRIVATE pch.h)
 
-# Expose the public header interface for consuming projects. BUILD_INTERFACE
-# points to the source location during build; INSTALL_INTERFACE would be used
-# if we supported installation (not currently implemented).
-target_include_directories(dd-win-prof PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
-    $<INSTALL_INTERFACE:include>
+# Only include/ (dd-win-prof.h) is public. Everything else in this directory is
+# private, so consumers don't get Log.h, Uuid.h, version.h etc. on their include path.
+# INSTALL_INTERFACE is for projects that export this target in their own install set
+# (see README): they install dd-win-prof.h to <prefix>/include.
+target_include_directories(dd-win-prof
+    PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    PUBLIC $<INSTALL_INTERFACE:include>
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
 target_compile_definitions(dd-win-prof PRIVATE
@@ -81,11 +83,12 @@ target_compile_definitions(dd-win-prof PRIVATE
 )
 
 # The libdatadog include directory is propagated automatically via
-# libdatadog_static's INTERFACE_INCLUDE_DIRECTORIES, and spdlog via spdlog_includes.
+# dd_win_prof_libdatadog_static's INTERFACE_INCLUDE_DIRECTORIES, and spdlog via
+# dd_win_prof_spdlog.
 
 target_link_libraries(dd-win-prof PRIVATE
-    libdatadog_static
-    spdlog_includes
+    dd_win_prof_libdatadog_static
+    dd_win_prof_spdlog
     dbghelp.lib
     ws2_32.lib
     userenv.lib
@@ -106,49 +109,57 @@ target_link_options(dd-win-prof PRIVATE /MANIFESTUAC:NO)
 # Link-time code generation (whole-program optimisation) in Release builds only.
 set_property(TARGET dd-win-prof PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
 
-set(_ref_dir "${WINDOWSPROFILER_ROOT_DIR}/src/reference")
-set(_ld_dyn  "${libdatadog_SOURCE_DIR}/$<LOWER_CASE:$<CONFIG>>/dynamic")
+# Stage build outputs into src/reference (in the source tree) for Runner, CI artifact
+# upload and the e2e scripts. This writes into the source directory, so it is limited
+# to development builds (Runner also needs it) and never happens when dd-win-prof is
+# consumed as a dependency.
+if(DD_WIN_PROF_DEVELOPMENT OR DD_WIN_PROF_BUILD_RUNNER)
+    set(_ref_dir "${WINDOWSPROFILER_ROOT_DIR}/src/reference")
+    set(_ld_dyn  "${libdatadog_SOURCE_DIR}/${DD_WIN_PROF_LIBDATADOG_CONFIG_DIR}/dynamic")
 
-# Copy the public header before compilation so that Runner (and any other
-# consumer) always has a current copy of the API surface.
-add_custom_command(TARGET dd-win-prof PRE_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy
-        "${CMAKE_CURRENT_SOURCE_DIR}/dd-win-prof.h"
-        "${_ref_dir}/dd-win-prof.h"
-    VERBATIM
-    COMMENT "Copying dd-win-prof.h to src/reference"
-)
+    # Copy the public header before compilation so that Runner (and any other
+    # consumer) always has a current copy of the API surface.
+    add_custom_command(TARGET dd-win-prof PRE_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy
+            "${CMAKE_CURRENT_SOURCE_DIR}/include/dd-win-prof.h"
+            "${_ref_dir}/dd-win-prof.h"
+        VERBATIM
+        COMMENT "Copying dd-win-prof.h to src/reference"
+    )
 
-# Publish the DLL, import library, PDB and the libdatadog dynamic DLL/PDB to
-# src/reference so that Runner and external consumers can copy them as a unit.
-add_custom_command(TARGET dd-win-prof POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy
-        "$<TARGET_FILE:dd-win-prof>"         "${_ref_dir}/dd-win-prof.dll"
-    COMMAND ${CMAKE_COMMAND} -E copy
-        "$<TARGET_LINKER_FILE:dd-win-prof>"  "${_ref_dir}/dd-win-prof.lib"
-    COMMAND ${CMAKE_COMMAND} -E copy
-        "$<TARGET_PDB_FILE:dd-win-prof>"     "${_ref_dir}/dd-win-prof.pdb"
-    COMMAND ${CMAKE_COMMAND} -E copy
-        "${_ld_dyn}/datadog_profiling_ffi.dll" "${_ref_dir}/datadog_profiling_ffi.dll"
-    COMMAND ${CMAKE_COMMAND} -E copy
-        "${_ld_dyn}/datadog_profiling_ffi.pdb" "${_ref_dir}/datadog_profiling_ffi.pdb"
-    VERBATIM
-    COMMENT "Copying dd-win-prof binaries to src/reference"
-)
+    # Publish the DLL, import library, PDB and the libdatadog dynamic DLL/PDB to
+    # src/reference so that Runner and developers can copy them as a unit.
+    add_custom_command(TARGET dd-win-prof POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy
+            "$<TARGET_FILE:dd-win-prof>"         "${_ref_dir}/dd-win-prof.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy
+            "$<TARGET_LINKER_FILE:dd-win-prof>"  "${_ref_dir}/dd-win-prof.lib"
+        COMMAND ${CMAKE_COMMAND} -E copy
+            "$<TARGET_PDB_FILE:dd-win-prof>"     "${_ref_dir}/dd-win-prof.pdb"
+        COMMAND ${CMAKE_COMMAND} -E copy
+            "${_ld_dyn}/datadog_profiling_ffi.dll" "${_ref_dir}/datadog_profiling_ffi.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy
+            "${_ld_dyn}/datadog_profiling_ffi.pdb" "${_ref_dir}/datadog_profiling_ffi.pdb"
+        VERBATIM
+        COMMENT "Copying dd-win-prof binaries to src/reference"
+    )
+endif()
 
 # Install rules used by the release workflow (cmake --install build --config
 # Release --prefix <stage>/dd-win-prof). Mirrors the layout published in the
 # release zip: dd-win-prof/Profiler/{dll,lib,pdb,h, datadog_profiling_ffi.{dll,pdb}}.
-# Config-aware via $<LOWER_CASE:$<CONFIG>> so `--config Debug` would install the
-# debug variant; the release workflow only uses Release.
-install(TARGETS dd-win-prof
-    RUNTIME DESTINATION Profiler
-    ARCHIVE DESTINATION Profiler
-)
-install(FILES $<TARGET_PDB_FILE:dd-win-prof> DESTINATION Profiler OPTIONAL)
-install(FILES dd-win-prof.h DESTINATION Profiler)
-install(FILES
-    "${libdatadog_SOURCE_DIR}/$<LOWER_CASE:$<CONFIG>>/dynamic/datadog_profiling_ffi.dll"
-    "${libdatadog_SOURCE_DIR}/$<LOWER_CASE:$<CONFIG>>/dynamic/datadog_profiling_ffi.pdb"
-    DESTINATION Profiler
-)
+# Config-aware (see DD_WIN_PROF_LIBDATADOG_CONFIG_DIR) so `--config Debug` would install
+# the debug variant; the release workflow only uses Release.
+if(DD_WIN_PROF_BUILD_INSTALL)
+    install(TARGETS dd-win-prof
+        RUNTIME DESTINATION Profiler
+        ARCHIVE DESTINATION Profiler
+    )
+    install(FILES $<TARGET_PDB_FILE:dd-win-prof> DESTINATION Profiler OPTIONAL)
+    install(FILES include/dd-win-prof.h DESTINATION Profiler)
+    install(FILES
+        "${libdatadog_SOURCE_DIR}/${DD_WIN_PROF_LIBDATADOG_CONFIG_DIR}/dynamic/datadog_profiling_ffi.dll"
+        "${libdatadog_SOURCE_DIR}/${DD_WIN_PROF_LIBDATADOG_CONFIG_DIR}/dynamic/datadog_profiling_ffi.pdb"
+        DESTINATION Profiler
+    )
+endif()

@@ -9,19 +9,26 @@ FetchContent_Declare(
     libdatadog
     URL https://github.com/DataDog/libdatadog/releases/download/v19.0.0/libdatadog-x64-windows.zip
     URL_HASH SHA512=548bfe9761625aaa1ce54f42979e75f3a435ca0c1a4280a91b325fff402c4264fb593d203e0f758b68313ff098fa609ed8cef800bbf6a18be7bfed9c489626bd
+    TIMEOUT 120
+    INACTIVITY_TIMEOUT 30
 )
 FetchContent_MakeAvailable(libdatadog)
 
 # Expose libdatadog source directory so other targets can access DLL paths etc.
 set(DD_WIN_PROF_LIBDATADOG_DIR "${libdatadog_SOURCE_DIR}" CACHE INTERNAL "")
 
+# The libdatadog package only has debug/ and release/ directories. Debug maps to
+# debug; every other configuration (Release, RelWithDebInfo, MinSizeRel, or none with a
+# single-config generator) maps to release, matching the imported targets below.
+set(DD_WIN_PROF_LIBDATADOG_CONFIG_DIR "$<IF:$<CONFIG:Debug>,debug,release>" CACHE INTERNAL "")
+
 set(_LD_ROOT "${libdatadog_SOURCE_DIR}")
 
 # libdatadog static import library — used by dd-win-prof.dll at link time. Paths
 # use lowercase debug/release to match the directory layout produced by the
 # download script. MinSizeRel and RelWithDebInfo map to release.
-add_library(libdatadog_static STATIC IMPORTED GLOBAL)
-set_target_properties(libdatadog_static PROPERTIES
+add_library(dd_win_prof_libdatadog_static STATIC IMPORTED GLOBAL)
+set_target_properties(dd_win_prof_libdatadog_static PROPERTIES
     IMPORTED_LOCATION_DEBUG          "${_LD_ROOT}/debug/static/datadog_profiling_ffi.lib"
     IMPORTED_LOCATION_RELEASE        "${_LD_ROOT}/release/static/datadog_profiling_ffi.lib"
     IMPORTED_LOCATION_MINSIZEREL     "${_LD_ROOT}/release/static/datadog_profiling_ffi.lib"
@@ -32,8 +39,8 @@ set_target_properties(libdatadog_static PROPERTIES
 # libdatadog dynamic import library — used by Tests.exe, which loads the DLL at
 # runtime so it can export the profiler DLL's symbols without statically linking
 # the whole FFI. MinSizeRel and RelWithDebInfo map to release.
-add_library(libdatadog_dynamic SHARED IMPORTED GLOBAL)
-set_target_properties(libdatadog_dynamic PROPERTIES
+add_library(dd_win_prof_libdatadog_dynamic SHARED IMPORTED GLOBAL)
+set_target_properties(dd_win_prof_libdatadog_dynamic PROPERTIES
     IMPORTED_LOCATION_DEBUG          "${_LD_ROOT}/debug/dynamic/datadog_profiling_ffi.dll"
     IMPORTED_IMPLIB_DEBUG            "${_LD_ROOT}/debug/dynamic/datadog_profiling_ffi.lib"
     IMPORTED_LOCATION_RELEASE        "${_LD_ROOT}/release/dynamic/datadog_profiling_ffi.dll"
@@ -53,35 +60,52 @@ FetchContent_Declare(
     GIT_TAG v1.14.1
     GIT_SHALLOW TRUE
 )
+# These are plain (non-cache) variables so they apply to spdlog's option()s (CMP0077)
+# without leaking into the cache of a project that consumes dd-win-prof.
 # Disable building examples, tests, and benchmarks
-set(SPDLOG_BUILD_EXAMPLE OFF CACHE BOOL "" FORCE)
-set(SPDLOG_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(SPDLOG_BUILD_BENCH OFF CACHE BOOL "" FORCE)
+set(SPDLOG_BUILD_EXAMPLE OFF)
+set(SPDLOG_BUILD_TESTS OFF)
+set(SPDLOG_BUILD_BENCH OFF)
 # Suppress spdlog's install() rules so `cmake --install` for the release
 # package doesn't drop spdlog headers/CMake config into our prefix.
-set(SPDLOG_INSTALL OFF CACHE BOOL "" FORCE)
+set(SPDLOG_INSTALL OFF)
 FetchContent_MakeAvailable(spdlog)
 
-# Create an alias target for backwards compatibility with the previous setup
-add_library(spdlog_includes INTERFACE)
-target_link_libraries(spdlog_includes INTERFACE spdlog::spdlog_header_only)
+add_library(dd_win_prof_spdlog INTERFACE)
+target_link_libraries(dd_win_prof_spdlog INTERFACE spdlog::spdlog_header_only)
 
-# Google Test v1.14.0 fetched at configure time. gtest_force_shared_crt ensures
-# GTest links the same CRT variant as the rest of the project (/MD vs /MDd).
-FetchContent_Declare(
-    googletest
-    URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz
-)
-set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-# Suppress googletest's install() rules. Without this, `cmake --install`
-# for the release package tries to install gtest headers + .lib into our
-# prefix (and fails on the .lib path), and would pollute the zip with
-# test-only artifacts.
-set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(googletest)
+if(DD_WIN_PROF_BUILD_TESTS)
+    # Google Test v1.14.0 fetched at configure time. gtest_force_shared_crt ensures
+    # GTest links the same CRT variant as the rest of the project (/MD vs /MDd).
+    FetchContent_Declare(
+        googletest
+        URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz
+        TIMEOUT 120
+        INACTIVITY_TIMEOUT 30
+    )
+    set(gtest_force_shared_crt ON)
+    # Suppress googletest's install() rules. Without this, `cmake --install`
+    # for the release package tries to install gtest headers + .lib into our
+    # prefix (and fails on the .lib path), and would pollute the zip with
+    # test-only artifacts.
+    set(INSTALL_GTEST OFF)
+    FetchContent_MakeAvailable(googletest)
+endif()
 
 add_subdirectory(dd-win-prof)
-add_subdirectory(Runner)
-add_subdirectory(UIApp)
-add_subdirectory(Tests)
-add_subdirectory(ProfilerInjector)
+
+if(DD_WIN_PROF_BUILD_RUNNER)
+    add_subdirectory(Runner)
+endif()
+
+if(DD_WIN_PROF_BUILD_UIAPP)
+    add_subdirectory(UIApp)
+endif()
+
+if(DD_WIN_PROF_BUILD_TESTS)
+    add_subdirectory(Tests)
+endif()
+
+if(DD_WIN_PROF_BUILD_INJECTOR)
+    add_subdirectory(ProfilerInjector)
+endif()

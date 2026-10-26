@@ -56,8 +56,13 @@ Finally, if you're generating installed builds of your CMake project, you'll als
 install(TARGETS dd-win-prof
    EXPORT YourApplicationTargets
    RUNTIME DESTINATION bin
+   ARCHIVE DESTINATION lib
 )
-install(FILES "$<TARGET_FILE:libdatadog_dynamic>" DESTINATION bin)
+# The exported target's include path is <prefix>/include, so install the public header
+# there too. ${dd-win-prof_SOURCE_DIR} is set by FetchContent; with add_subdirectory
+# use the path you added.
+install(FILES "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/dd-win-prof.h" DESTINATION include)
+install(FILES "$<TARGET_FILE:dd_win_prof_libdatadog_dynamic>" DESTINATION bin)
 ```
 
 ## Configuration
@@ -143,7 +148,7 @@ DD_VERSION=1.2.3
 DD_ENV=production
 ```
 
-Call [StartProfiler](./src/dd-win-prof/dd-win-prof.h) when ready; [StopProfiler](./src/dd-win-prof/dd-win-prof.h) when done. Use `DD_PROFILING_ENABLED=0` to disable profiling even if `StartProfiler` is called.
+Call [StartProfiler](./src/dd-win-prof/include/dd-win-prof.h) when ready; [StopProfiler](./src/dd-win-prof/include/dd-win-prof.h) when done. Use `DD_PROFILING_ENABLED=0` to disable profiling even if `StartProfiler` is called.
 
 ### Public API lifecycle
 
@@ -275,7 +280,7 @@ After building, the key artifacts are:
 | `ProfilerInjector.exe` | `build\src\ProfilerInjector\<Config>\` |
 | **All runtime DLLs together** | `src\reference\` (copied by POST_BUILD) |
 
-The `src\reference\` directory is the easiest way to get all the files needed at runtime — after a successful build it contains `dd-win-prof.dll`, `dd-win-prof.lib`, `dd-win-prof.pdb`, `datadog_profiling_ffi.dll`, and `datadog_profiling_ffi.pdb`.
+The `src\reference\` directory is the easiest way to get all the files needed at runtime — after a successful build it contains `dd-win-prof.dll`, `dd-win-prof.lib`, `dd-win-prof.pdb`, `datadog_profiling_ffi.dll`, and `datadog_profiling_ffi.pdb`. It is only populated when dd-win-prof is built as the top-level project (or with `DD_WIN_PROF_DEVELOPMENT=ON` / `DD_WIN_PROF_BUILD_RUNNER=ON`). Projects that consume dd-win-prof via `FetchContent` or `add_subdirectory` should call `dd_win_prof_copy_runtime_deps(<target>)` instead.
 
 ### Packaging a release
 

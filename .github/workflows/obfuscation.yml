@@ -2,7 +2,7 @@ name: Obfuscation Tools Build and Test
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 'mq-working-branch-*' ]
     paths:
       - 'obfuscation/**'
       - '.github/workflows/obfuscation.yml'

@@ -2,7 +2,7 @@ name: Build and Test
 
 on:
   push:
-    branches: [ main, master, develop ]
+    branches: [ main, master, develop, 'mq-working-branch-*' ]
   pull_request:
     branches: [ main, master, develop ]
 
@@ -220,6 +220,28 @@ jobs:
         ASAN_OPTIONS: abort_on_error=1:halt_on_error=1:print_stacktrace=1:detect_leaks=0:symbolize=1
       run: pwsh src/integration-tests/test_rum_scenario.ps1 -Config Debug
       shell: pwsh
+
+  # Builds a small project that consumes dd-win-prof via FetchContent and checks that
+  # nothing meant only for dd-win-prof developers leaks into it (GoogleTest, test
+  # targets, internal headers, source tree writes, install rules, cache variables).
+  consumer:
+    name: Consume as dependency
+    runs-on: windows-2022
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+    # Distinct cache key: this job's FetchContent state belongs to a different parent
+    # project than the other jobs', so it can't share their .deps directory.
+    - name: Cache dependencies
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: .deps
+        key: deps-consumer-${{ hashFiles('src/CMakeLists.txt', 'e2e-tests/consumer/CMakeLists.txt') }}
+
+    - name: Build and check a consuming project
+      run: pwsh scripts/test-consumer.ps1 -FetchContentBaseDir "${{ github.workspace }}/.deps"
 
   check-format:
     runs-on: windows-2022
