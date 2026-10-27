@@ -1317,7 +1317,7 @@ bool ProfileExporter::InitializeExporter() {
   auto exporterResult = ddog_prof_Exporter_new(
       to_CharSlice(_kProfilerUserAgent),  // user_agent
       to_CharSlice(_kProfilerVersion),    // profiler_version
-      to_CharSlice("native"),             // family
+      to_CharSlice("windows"),            // family
       &stableTags,
       endpoint
   );
