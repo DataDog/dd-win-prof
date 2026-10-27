@@ -51,19 +51,18 @@ typedef struct _RumViewValues {
   const char* view_name;  // human-readable name, e.g. "HomePage"
 } RumViewValues;
 
-extern "C" {
 // SDK-private. Register or replace while stopped, including after StopProfiler()
 // returns. Do not overlap this call with another registration or setup/start/stop.
 // Register before SetupProfiler() to omit HTTP credentials in noEnvVars mode.
 // Callback mode discards RUM view/session records; per-sample labels remain in pprof.
-// Copies *callback; nullptr unregisters and selects HTTP upload for the next run.
-// A non-null pointer to an empty callable is rejected. Registration persists across
-// StopProfiler() and SetupProfiler(). Stop, then unregister before unloading callback
-// code. Captured references must remain valid through the last callback.
-// Returns false if the profiler is unavailable/running, the callable is empty,
-// or copying the callable fails.
-DD_WIN_PROF_API bool SetupProfilingDataCallback(ProfilingDataCallback* callback);
+// Copies callback; an empty callable unregisters and selects HTTP upload for the next
+// run. Registration persists across StopProfiler() and SetupProfiler(). Stop, then
+// unregister before unloading callback code. Captured references must remain valid
+// through the last callback.
+// Returns false if the profiler is unavailable/running or copying the callable fails.
+DD_WIN_PROF_API bool SetupProfilingDataCallback(const ProfilingDataCallback& callback);
 
+extern "C" {
 // Set stable RUM session context. Safe to call from any thread.
 // application_id: write-once per process. First non-empty value is stored
 // as a profile-level tag; subsequent calls with a different value return false.

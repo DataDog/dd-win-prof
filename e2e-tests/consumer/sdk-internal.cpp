@@ -16,7 +16,7 @@ bool TestSdkCallback() {
       bytes.swap(profile->pprof);
     }
   };
-  if (!SetupProfilingDataCallback(&callback)) {
+  if (!SetupProfilingDataCallback(callback)) {
     return false;
   }
   callback = {};
@@ -26,10 +26,10 @@ bool TestSdkCallback() {
   config.noEnvVars = true;
   config.uploadIntervalSeconds = 3600;
   if (!SetupProfiler(&config) || !StartProfiler()) {
-    SetupProfilingDataCallback(nullptr);
+    SetupProfilingDataCallback({});
     return false;
   }
   StopProfiler();
-  const bool unregistered = SetupProfilingDataCallback(nullptr);
+  const bool unregistered = SetupProfilingDataCallback({});
   return unregistered && calls == 1 && finalProfile && !bytes.empty();
 }

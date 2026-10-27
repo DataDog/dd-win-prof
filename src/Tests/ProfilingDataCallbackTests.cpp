@@ -86,24 +86,24 @@ class ProfilingDataCallbackTests : public ::testing::Test {
 TEST_F(ProfilingDataCallbackTests, RegistrationCopiesCallable) {
   int calls = 0;
   ProfilingDataCallback callback = [&](ProfilingDataResult) { ++calls; };
-  ASSERT_TRUE(SetupProfilingDataCallback(&callback));
+  ASSERT_TRUE(SetupProfilingDataCallback(callback));
   callback = {};
   Profiler::GetConfiguration()->GetProfilingDataCallback()(ProfilingData{});
   EXPECT_EQ(calls, 1);
 }
 
-TEST_F(ProfilingDataCallbackTests, EmptyCallableDoesNotReplaceRegistration) {
+TEST_F(ProfilingDataCallbackTests, EmptyCallableUnregistersCallback) {
   ProfilingDataCallback callback = [](ProfilingDataResult) {};
-  ASSERT_TRUE(SetupProfilingDataCallback(&callback));
-  ProfilingDataCallback empty;
-  EXPECT_FALSE(SetupProfilingDataCallback(&empty));
-  EXPECT_TRUE(Profiler::GetConfiguration()->GetProfilingDataCallback());
+  ASSERT_TRUE(SetupProfilingDataCallback(callback));
+  const ProfilingDataCallback empty;
+  EXPECT_TRUE(SetupProfilingDataCallback(empty));
+  EXPECT_FALSE(Profiler::GetConfiguration()->GetProfilingDataCallback());
 }
 
 TEST_F(ProfilingDataCallbackTests, FailedCallbackCopyPreservesRegistration) {
   int calls = 0;
   ProfilingDataCallback original = [&](ProfilingDataResult) { ++calls; };
-  ASSERT_TRUE(SetupProfilingDataCallback(&original));
+  ASSERT_TRUE(SetupProfilingDataCallback(original));
   struct ThrowOnCopy {
     bool* fail;
     explicit ThrowOnCopy(bool* flag) : fail(flag) {}
@@ -117,14 +117,14 @@ TEST_F(ProfilingDataCallbackTests, FailedCallbackCopyPreservesRegistration) {
   bool fail = false;
   ProfilingDataCallback replacement = ThrowOnCopy(&fail);
   fail = true;
-  EXPECT_FALSE(SetupProfilingDataCallback(&replacement));
+  EXPECT_FALSE(SetupProfilingDataCallback(replacement));
   Profiler::GetConfiguration()->GetProfilingDataCallback()(ProfilingData{});
   EXPECT_EQ(calls, 1);
 }
 
 TEST_F(ProfilingDataCallbackTests, NoHttpSettingsNeededWithNoEnvVars) {
   ProfilingDataCallback callback = [](ProfilingDataResult) {};
-  ASSERT_TRUE(SetupProfilingDataCallback(&callback));
+  ASSERT_TRUE(SetupProfilingDataCallback(callback));
   ProfilerConfig config{};
   config.size = sizeof(config);
   config.noEnvVars = true;
@@ -139,8 +139,8 @@ TEST_F(ProfilingDataCallbackTests, NoHttpSettingsNeededWithNoEnvVars) {
 
 TEST_F(ProfilingDataCallbackTests, UnregisterRestoresHttpRequirements) {
   ProfilingDataCallback callback = [](ProfilingDataResult) {};
-  ASSERT_TRUE(SetupProfilingDataCallback(&callback));
-  ASSERT_TRUE(SetupProfilingDataCallback(nullptr));
+  ASSERT_TRUE(SetupProfilingDataCallback(callback));
+  ASSERT_TRUE(SetupProfilingDataCallback({}));
   ProfilerConfig config{};
   config.size = sizeof(config);
   config.noEnvVars = true;
@@ -158,7 +158,7 @@ TEST_F(
     callbackThread = std::this_thread::get_id();
     results.push_back(std::move(result));
   };
-  ASSERT_TRUE(SetupProfilingDataCallback(&callback));
+  ASSERT_TRUE(SetupProfilingDataCallback(callback));
   RumSessionContext session{"app-1", "session-1"};
   RumViewValues view{"view-1", "HomePage"};
   ASSERT_TRUE(SetRumSession(&session));
@@ -169,7 +169,7 @@ TEST_F(
   )
                                  .count();
   ASSERT_TRUE(StartProfiler());
-  EXPECT_FALSE(SetupProfilingDataCallback(nullptr));
+  EXPECT_FALSE(SetupProfilingDataCallback({}));
   StopProfiler();
   const auto afterStopMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                                std::chrono::system_clock::now().time_since_epoch()
@@ -190,7 +190,7 @@ TEST_F(
   profiler->ConsumeSessionRecords(remainingSessions);
   EXPECT_TRUE(remainingViews.empty());
   EXPECT_TRUE(remainingSessions.empty());
-  EXPECT_TRUE(SetupProfilingDataCallback(nullptr));
+  EXPECT_TRUE(SetupProfilingDataCallback({}));
 }
 
 TEST_F(ProfilingDataCallbackTests, CallbackDiscardsRumRecordsWithoutMetadataFiles) {
@@ -199,7 +199,7 @@ TEST_F(ProfilingDataCallbackTests, CallbackDiscardsRumRecordsWithoutMetadataFile
     EXPECT_TRUE(std::holds_alternative<ProfilingData>(result));
     ++calls;
   };
-  ASSERT_TRUE(SetupProfilingDataCallback(&callback));
+  ASSERT_TRUE(SetupProfilingDataCallback(callback));
   const auto outputDir =
       fs::temp_directory_path() /
       ("dd-win-prof-callback-" +
@@ -249,7 +249,7 @@ TEST_F(ProfilingDataCallbackTests, EncodingErrorsAreDeliveredAndNextExportRecove
     ProfilingDataCallback callback = [&](ProfilingDataResult result) {
       results.push_back(std::move(result));
     };
-    ASSERT_TRUE(SetupProfilingDataCallback(&callback));
+    ASSERT_TRUE(SetupProfilingDataCallback(callback));
     const dd_win_prof::ProfileEncodingApi api{
         SerializeWithFailure, ReadBytesWithFailure
     };
@@ -291,7 +291,7 @@ TEST_F(ProfilingDataCallbackTests, CanReconfigureAndReplaceCallbackAfterStop) {
   int secondCalls = 0;
   ProfilingDataCallback first = [&](ProfilingDataResult) { ++firstCalls; };
   ProfilingDataCallback second = [&](ProfilingDataResult) { ++secondCalls; };
-  ASSERT_TRUE(SetupProfilingDataCallback(&first));
+  ASSERT_TRUE(SetupProfilingDataCallback(first));
   ProfilerConfig config{};
   config.size = sizeof(config);
   config.noEnvVars = true;
@@ -309,7 +309,7 @@ TEST_F(ProfilingDataCallbackTests, CanReconfigureAndReplaceCallbackAfterStop) {
   StopProfiler();
   EXPECT_EQ(firstCalls, 2);
 
-  ASSERT_TRUE(SetupProfilingDataCallback(&second));
+  ASSERT_TRUE(SetupProfilingDataCallback(second));
   ASSERT_TRUE(SetupProfiler(&config));
   ASSERT_TRUE(StartProfiler());
   StopProfiler();
@@ -334,7 +334,7 @@ TEST_F(
       released.wait();
     }
   };
-  ASSERT_TRUE(SetupProfilingDataCallback(&callback));
+  ASSERT_TRUE(SetupProfilingDataCallback(callback));
   ProfilerConfig config{};
   config.size = sizeof(config);
   config.noEnvVars = true;
@@ -362,7 +362,7 @@ TEST_F(
 
 TEST_F(ProfilingDataCallbackTests, MissingProfilerRejectsRegistration) {
   profiler.reset();
-  EXPECT_FALSE(SetupProfilingDataCallback(nullptr));
+  EXPECT_FALSE(SetupProfilingDataCallback({}));
   profiler = std::make_unique<Profiler>();
 }
 
