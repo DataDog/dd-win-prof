@@ -11,6 +11,7 @@
 #include <regex>
 
 #include "Configuration.h"
+#include "DiagnosticLogging.h"
 #include "EnvironmentVariables.h"
 #include "OpSysTools.h"
 #include "pch.h"
@@ -180,8 +181,7 @@ class Log final {
         _consoleLogger = std::move(consoleLogger);
         _consoleLogger->set_level(logLevel);
         _consoleLogger->set_pattern(pattern);
-        _consoleLogger->flush_on(
-            spdlog::level::info
+        _consoleLogger->flush_on(spdlog::level::info
         );  // TODO: make this configurable if needed
 
       } catch (...) {
@@ -193,22 +193,30 @@ class Log final {
  public:
   template <typename... Args>
   static inline void Debug(const Args&... args) {
-    Instance->DebugImpl<Args...>(args...);
+    if (dd_win_prof::diagnosticLoggingEnabled) {
+      Instance->DebugImpl<Args...>(args...);
+    }
   }
 
   template <typename... Args>
   static void Info(const Args&... args) {
-    Instance->InfoImpl<Args...>(args...);
+    if (dd_win_prof::diagnosticLoggingEnabled) {
+      Instance->InfoImpl<Args...>(args...);
+    }
   }
 
   template <typename... Args>
   static void Warn(const Args&... args) {
-    Instance->WarnImpl<Args...>(args...);
+    if (dd_win_prof::diagnosticLoggingEnabled) {
+      Instance->WarnImpl<Args...>(args...);
+    }
   }
 
   template <typename... Args>
   static void Error(const Args&... args) {
-    Instance->ErrorImpl<Args...>(args...);
+    if (dd_win_prof::diagnosticLoggingEnabled) {
+      Instance->ErrorImpl<Args...>(args...);
+    }
   }
 
  private:

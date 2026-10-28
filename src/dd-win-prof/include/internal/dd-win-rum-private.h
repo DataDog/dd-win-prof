@@ -26,33 +26,40 @@ struct ProfilingData {
   bool isLast = false;
 };
 
-enum class ProfilingErrorCode {
-  // libdatadog serializes and compresses in a single operation.
-  SerializationFailed = 1,
-  ProfileBytesUnavailable = 2,
-  ProfileResetFailed = 3,
-  SampleLabelsUnavailable = 4,
-  ProfilerUnavailable = 5,
-  ProfilerAlreadyRunning = 6,
-  CallbackCopyFailed = 7,
+enum class ProfilingErrorCode : uint32_t {
+  SerializationFailed = DD_WIN_PROF_CODE_SERIALIZATION_FAILED,
+  ProfileBytesUnavailable = DD_WIN_PROF_CODE_PROFILE_BYTES_UNAVAILABLE,
+  ProfileResetFailed = DD_WIN_PROF_CODE_PROFILE_RESET_FAILED,
+  SampleLabelsUnavailable = DD_WIN_PROF_CODE_SAMPLE_LABELS_UNAVAILABLE,
+  ProfilerUnavailable = DD_WIN_PROF_CODE_PROFILER_UNAVAILABLE,
+  ProfilerAlreadyRunning = DD_WIN_PROF_CODE_ALREADY_RUNNING,
+  CallbackCopyFailed = DD_WIN_PROF_CODE_CALLBACK_COPY_FAILED,
+  InvalidArgument = DD_WIN_PROF_CODE_INVALID_ARGUMENT,
+  UnsupportedConfigSize = DD_WIN_PROF_CODE_UNSUPPORTED_CONFIG_SIZE,
+  ExplicitlyDisabled = DD_WIN_PROF_CODE_EXPLICITLY_DISABLED,
+  InvalidConfiguration = DD_WIN_PROF_CODE_INVALID_CONFIGURATION,
+  InitializationFailed = DD_WIN_PROF_CODE_INITIALIZATION_FAILED,
+  FinalExportFailed = DD_WIN_PROF_CODE_FINAL_EXPORT_FAILED,
+  StopFailed = DD_WIN_PROF_CODE_STOP_FAILED,
+  UnexpectedException = DD_WIN_PROF_CODE_UNEXPECTED_EXCEPTION,
+  CallbackFailed = DD_WIN_PROF_CODE_CALLBACK_FAILED,
 };
 
-enum class ProfilingSeverity {
-  // Exceptions and panics are assumed fatal. Automatic stop-on-fatal handling is
-  // not yet implemented.
-  Fatal,
-  // An operation failed; profiling can continue.
-  Error,
-  // Profiling continues with degraded data.
-  Warning,
-  // Informational diagnostic, not a failure.
-  Info,
+enum class ProfilingSeverity : int32_t {
+  Success = DD_WIN_PROF_SUCCESS,
+  Info = DD_WIN_PROF_INFO,
+  Warning = DD_WIN_PROF_WARNING,
+  Error = DD_WIN_PROF_ERROR,
+  // Automatic stop-on-fatal handling during an active run is not yet implemented.
+  Fatal = DD_WIN_PROF_FATAL,
 };
 
 struct ProfilingError {
   ProfilingSeverity severity;
   ProfilingErrorCode code;
   std::string message;
+  // Private adapters can avoid reporting a final-export error twice.
+  bool reportedToCallback = false;
 };
 
 using ProfilingDataResult = std::variant<ProfilingData, ProfilingError>;
@@ -90,6 +97,15 @@ typedef struct _RumViewValues {
 // the profiler is already stopped when copying is attempted.
 [[nodiscard]] DD_WIN_PROF_API std::optional<ProfilingError> SetupProfilingDataCallback(
     const ProfilingDataCallback& callback
+);
+
+// Synchronous lifecycle diagnostics. No library logging; the SDK owns reporting.
+// Success is nullopt. These calls do not change the public thread-local diagnostic.
+[[nodiscard]] DD_WIN_PROF_API std::optional<ProfilingError>
+SetupProfilerWithDiagnostics(const ProfilerConfig* settings);
+[[nodiscard]] DD_WIN_PROF_API std::optional<ProfilingError>
+StartProfilerWithDiagnostics();
+[[nodiscard]] DD_WIN_PROF_API std::optional<ProfilingError> StopProfilerWithDiagnostics(
 );
 
 extern "C" {

@@ -56,6 +56,14 @@ std::optional<ProfilingError> Profiler::SetProfilingDataCallback(
 }
 
 bool Profiler::StartProfiling() {
+  const auto error = StartProfilingWithDiagnostics();
+  if (error) {
+    Log::Error(error->message);
+  }
+  return !error;
+}
+
+std::optional<ProfilingError> Profiler::StartProfilingWithDiagnostics() {
   // no needed to look at env var to enable profiler
   // --> used only as kill switch to disable it
   if (_pConfiguration->IsProfilerExplicitlyDisabled()) {
@@ -63,87 +71,127 @@ bool Profiler::StartProfiling() {
         "Profiler is explicitly disabled: check following environment variable "
         "DD_PROFILING_ENABLED"
     );
-    return false;
+    return ProfilingError{
+        ProfilingSeverity::Info,
+        ProfilingErrorCode::ExplicitlyDisabled,
+        "Profiler is explicitly disabled by DD_PROFILING_ENABLED"
+    };
   }
 
-  if (!_pConfiguration->ValidateTransportConfig(GetDeliveryMode())) {
-    return false;
+  std::string configError;
+  if (!_pConfiguration->ValidateTransportConfig(GetDeliveryMode(), &configError)) {
+    return ProfilingError{
+        ProfilingSeverity::Error,
+        ProfilingErrorCode::InvalidConfiguration,
+        std::move(configError)
+    };
   }
 
-  Log::Info("Starting profiler...");
+  try {
+    Log::Info("Starting profiler...");
 
-  auto valueTypeProvider = SampleValueTypeProvider();
+    auto valueTypeProvider = SampleValueTypeProvider();
 
-  _pCpuTimeProvider = std::make_unique<CpuTimeProvider>(valueTypeProvider);
-  _pCpuWallTimeProvider = std::make_unique<WallTimeProvider>(valueTypeProvider);
+    _pCpuTimeProvider = std::make_unique<CpuTimeProvider>(valueTypeProvider);
+    _pCpuWallTimeProvider = std::make_unique<WallTimeProvider>(valueTypeProvider);
 
-  // create the thread responsible for looping through the thread list
-  _pStackSamplerLoop = std::make_unique<StackSamplerLoop>(
-      _pConfiguration.get(),
-      _pThreadList.get(),
-      _pCpuTimeProvider.get(),
-      _pCpuWallTimeProvider.get(),
-      this,
-      this
-  );
-
-  // get the values definition from the different providers...
-  auto const& sampleTypeDefinitions = valueTypeProvider.GetValueTypes();
-  Sample::SetValuesCount(sampleTypeDefinitions.size());
-
-  //... and pass them to the exporter
-  _pProfileExporter = std::make_unique<ProfileExporter>(
-      _pConfiguration.get(), sampleTypeDefinitions, this, _profilingDataCallback
-  );
-
-  // Initialize the ProfileExporter
-  if (!_pProfileExporter->Initialize()) {
-    Log::Error(
-        "Failed to initialize profile exporter: ", _pProfileExporter->GetLastError()
+    // create the thread responsible for looping through the thread list
+    _pStackSamplerLoop = std::make_unique<StackSamplerLoop>(
+        _pConfiguration.get(),
+        _pThreadList.get(),
+        _pCpuTimeProvider.get(),
+        _pCpuWallTimeProvider.get(),
+        this,
+        this
     );
-    _pProfileExporter.reset();
-    return false;
-  }
 
-  // Flush buffered RUM application ID to the exporter
-  {
-    std::shared_lock lock(_rumContextMutex);
-    if (!_rumApplicationId.empty()) {
-      _pProfileExporter->SetRumApplicationId(_rumApplicationId);
+    // get the values definition from the different providers...
+    auto const& sampleTypeDefinitions = valueTypeProvider.GetValueTypes();
+    Sample::SetValuesCount(sampleTypeDefinitions.size());
+
+    //... and pass them to the exporter
+    _pProfileExporter = std::make_unique<ProfileExporter>(
+        _pConfiguration.get(), sampleTypeDefinitions, this, _profilingDataCallback
+    );
+
+    // Initialize the ProfileExporter
+    if (!_pProfileExporter->Initialize()) {
+      Log::Error(
+          "Failed to initialize profile exporter: ", _pProfileExporter->GetLastError()
+      );
+      auto error = _pProfileExporter->GetLastDiagnostic();
+      if (!error) {
+        error = ProfilingError{
+            ProfilingSeverity::Error,
+            ProfilingErrorCode::InitializationFailed,
+            _pProfileExporter->GetLastError()
+        };
+      }
+      _pProfileExporter->Cleanup();
+      _pProfileExporter.reset();
+      return error;
     }
+
+    // Flush buffered RUM application ID to the exporter
+    {
+      std::shared_lock lock(_rumContextMutex);
+      if (!_rumApplicationId.empty()) {
+        _pProfileExporter->SetRumApplicationId(_rumApplicationId);
+      }
+    }
+
+    // create the samples collector and pass it the exporter
+    _pSamplesCollector = std::make_unique<SamplesCollector>(
+        _pConfiguration.get(), _pProfileExporter.get()
+    );
+
+    // register the providers to the collector
+    if (_pConfiguration->IsCpuProfilingEnabled()) {
+      _pSamplesCollector->Register(_pCpuTimeProvider.get());
+    }
+
+    if (_pConfiguration->IsWallTimeProfilingEnabled()) {
+      _pSamplesCollector->Register(_pCpuWallTimeProvider.get());
+    }
+
+    // start processing
+    _pSamplesCollector->Start();
+    _pStackSamplerLoop->Start();
+
+    _isStarted = true;
+    return std::nullopt;
+  } catch (...) {
+    // No final export on a partially initialized run.
+    if (_pStackSamplerLoop) {
+      _pStackSamplerLoop->Stop();
+    }
+    if (_pSamplesCollector) {
+      _pSamplesCollector->StopThreads();
+    }
+    if (_pProfileExporter) {
+      _pProfileExporter->Cleanup();
+    }
+    throw;
   }
-
-  // create the samples collector and pass it the exporter
-  _pSamplesCollector = std::make_unique<SamplesCollector>(
-      _pConfiguration.get(), _pProfileExporter.get()
-  );
-
-  // register the providers to the collector
-  if (_pConfiguration->IsCpuProfilingEnabled()) {
-    _pSamplesCollector->Register(_pCpuTimeProvider.get());
-  }
-
-  if (_pConfiguration->IsWallTimeProfilingEnabled()) {
-    _pSamplesCollector->Register(_pCpuWallTimeProvider.get());
-  }
-
-  // start processing
-  _pSamplesCollector->Start();
-  _pStackSamplerLoop->Start();
-
-  _isStarted = true;
-  return true;
 }
 
 void Profiler::StopProfiling(bool shutdownOngoing) {
+  const auto error = StopProfilingWithDiagnostics(shutdownOngoing);
+  if (error && !error->reportedToCallback) {
+    Log::Error(error->message);
+  }
+}
+
+std::optional<ProfilingError> Profiler::StopProfilingWithDiagnostics(
+    bool shutdownOngoing
+) {
   // avoid being stopped multiple times
   if (!_isStarted) {
-    return;
+    return std::nullopt;
   }
 
   Log::Info("Stopping profiler...");
-
-  _isStarted = false;
+  std::optional<ProfilingError> error;
 
   // Signal SamplesCollector if we're in shutdown mode to stop exports immediately
   if (shutdownOngoing) {
@@ -155,7 +203,7 @@ void Profiler::StopProfiling(bool shutdownOngoing) {
   }
 
   if (_pSamplesCollector != nullptr) {
-    _pSamplesCollector->Stop(shutdownOngoing);
+    error = _pSamplesCollector->Stop(shutdownOngoing);
   }
 
   // Explicitly clean up ProfileExporter with shutdown detection
@@ -163,7 +211,9 @@ void Profiler::StopProfiling(bool shutdownOngoing) {
     // Use the parameter to decide cleanup approach
     _pProfileExporter->Cleanup(shutdownOngoing);
   }
+  _isStarted = false;
   Log::Info("Profiler stopped...");
+  return error;
 }
 
 bool Profiler::AddCurrentThread() {

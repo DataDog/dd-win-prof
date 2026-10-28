@@ -60,11 +60,10 @@ void StackSamplerLoop::Stop() {
   _shutdownRequested = true;
 
   if (_pLoopThread != nullptr) {
-    try {
+    if (_pLoopThread->joinable()) {
       _pLoopThread->join();
-      _pLoopThread.reset();
-    } catch (const std::exception&) {
     }
+    _pLoopThread.reset();
   }
 }
 

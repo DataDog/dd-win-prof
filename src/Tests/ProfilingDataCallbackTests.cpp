@@ -190,9 +190,8 @@ TEST_F(ProfilingDataCallbackTests, NoHttpSettingsNeededWithNoEnvVars) {
       Profiler::GetConfiguration()->GetUploadInterval(), std::chrono::seconds(17)
   );
   EXPECT_EQ(profiler->GetDeliveryMode(), ProfileDeliveryMode::Callback);
-  EXPECT_FALSE(
-      Profiler::GetConfiguration()->IsExportEnabled(profiler->GetDeliveryMode())
-  );
+  EXPECT_FALSE(Profiler::GetConfiguration()->IsExportEnabled(profiler->GetDeliveryMode()
+  ));
   EXPECT_TRUE(Profiler::GetConfiguration()->GetApiKey().empty());
 }
 
@@ -419,6 +418,65 @@ TEST_F(ProfilingDataCallbackTests, EncodingErrorsAreNonFatalAndNextExportRecover
     EXPECT_NE(finalError.message.find(encodingFailure.message), std::string::npos);
     exporter.Cleanup();
   }
+}
+
+TEST_F(ProfilingDataCallbackTests, FinalEncodingErrorRetainsCallbackReportingState) {
+  for (const auto code :
+       {ProfilingErrorCode::SerializationFailed,
+        ProfilingErrorCode::ProfileBytesUnavailable,
+        ProfilingErrorCode::ProfileResetFailed}) {
+    SCOPED_TRACE(static_cast<uint32_t>(code));
+    encodingFailure = {};
+    encodingFailure.serialize = code == ProfilingErrorCode::SerializationFailed;
+    encodingFailure.bytes = code == ProfilingErrorCode::ProfileBytesUnavailable;
+    encodingFailure.reset = code == ProfilingErrorCode::ProfileResetFailed;
+    int errors = 0;
+    ProfilingDataCallback callback = [&](ProfilingDataResult result) {
+      if (const auto* error = std::get_if<ProfilingError>(&result)) {
+        EXPECT_EQ(error->code, code);
+        ++errors;
+      }
+    };
+    const dd_win_prof::ProfileEncodingApi api{
+        SerializeWithFailure, ReadBytesWithFailure, ResetWithFailure
+    };
+    std::vector<SampleValueType> types{{"cpu-time", "nanoseconds"}};
+    ProfileExporter exporter(
+        Profiler::GetConfiguration(), types, nullptr, callback, api
+    );
+    ASSERT_TRUE(exporter.Initialize());
+    SamplesCollector collector(Profiler::GetConfiguration(), &exporter);
+    collector.Start();
+    const auto error = collector.Stop();
+    exporter.Cleanup();
+    ASSERT_TRUE(error);
+    EXPECT_EQ(error->code, code);
+    EXPECT_EQ(error->severity, ProfilingSeverity::Error);
+    EXPECT_TRUE(error->reportedToCallback);
+    EXPECT_EQ(errors, 1);
+  }
+}
+
+TEST_F(ProfilingDataCallbackTests, CallbackExceptionTakesPrecedenceOverEncodingError) {
+  encodingFailure = {};
+  encodingFailure.serialize = true;
+  encodingFailure.reset = true;
+  ProfilingDataCallback callback = [](ProfilingDataResult) {
+    throw std::runtime_error("diagnostic callback failed");
+  };
+  const dd_win_prof::ProfileEncodingApi api{
+      SerializeWithFailure, ReadBytesWithFailure, ResetWithFailure
+  };
+  std::vector<SampleValueType> types{{"cpu-time", "nanoseconds"}};
+  ProfileExporter exporter(Profiler::GetConfiguration(), types, nullptr, callback, api);
+  ASSERT_TRUE(exporter.Initialize());
+  EXPECT_FALSE(exporter.Export(true));
+  const auto error = exporter.GetLastDiagnostic();
+  exporter.Cleanup();
+  ASSERT_TRUE(error);
+  EXPECT_EQ(error->severity, ProfilingSeverity::Fatal);
+  EXPECT_EQ(error->code, ProfilingErrorCode::CallbackFailed);
+  EXPECT_FALSE(error->reportedToCallback);
 }
 
 TEST_F(ProfilingDataCallbackTests, CanReconfigureAndReplaceCallbackAfterStop) {

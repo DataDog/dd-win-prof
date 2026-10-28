@@ -24,22 +24,34 @@ void SamplesCollector::Register(ISamplesProvider* samplesProvider) {
 }
 
 void SamplesCollector::Start() {
-  _workerThread = std::thread([this] {
-    OpSysTools::SetNativeThreadName(WorkerThreadName);
-    SamplesWork();
-  });
-  _exporterThread = std::thread([this] {
-    OpSysTools::SetNativeThreadName(ExporterThreadName);
-    ExportWork();
-  });
+  try {
+    _workerThread = std::thread([this] {
+      OpSysTools::SetNativeThreadName(WorkerThreadName);
+      SamplesWork();
+    });
+    _exporterThread = std::thread([this] {
+      OpSysTools::SetNativeThreadName(ExporterThreadName);
+      ExportWork();
+    });
+  } catch (...) {
+    StopThreads();
+    throw;
+  }
 }
 
-void SamplesCollector::Stop(bool shutdownOngoing) {
-  _workerThreadPromise.set_value();
-  _workerThread.join();
+void SamplesCollector::StopThreads() {
+  if (_workerThread.joinable()) {
+    _workerThreadPromise.set_value();
+    _workerThread.join();
+  }
+  if (_exporterThread.joinable()) {
+    _exporterThreadPromise.set_value();
+    _exporterThread.join();
+  }
+}
 
-  _exporterThreadPromise.set_value();
-  _exporterThread.join();
+std::optional<ProfilingError> SamplesCollector::Stop(bool shutdownOngoing) {
+  StopThreads();
 
   if (shutdownOngoing) {
     Log::Info("SamplesCollector::Stop() - Skipping final export due to shutdown");
@@ -50,8 +62,9 @@ void SamplesCollector::Stop(bool shutdownOngoing) {
   } else {
     // Normal shutdown - collect samples and export
     CollectSamples(_samplesProviders);
-    Export(true);
+    return Export(true);
   }
+  return std::nullopt;
 }
 
 void SamplesCollector::SamplesWork() {
@@ -73,9 +86,7 @@ void SamplesCollector::ExportWork() {
   }
 }
 
-void SamplesCollector::Export(bool lastCall) {
-  bool success = false;
-
+std::optional<ProfilingError> SamplesCollector::Export(bool lastCall) {
   try {
     std::lock_guard lock(_exportLock);
 
@@ -86,9 +97,30 @@ void SamplesCollector::Export(bool lastCall) {
       samplesProvider.second = 0;
     }
 
-    success = _exporter->Export(lastCall);
+    const bool success = _exporter->Export(lastCall);
+    if (_exporter->GetLastDiagnostic()) {
+      return _exporter->GetLastDiagnostic();
+    }
+    if (!success) {
+      return ProfilingError{
+          ProfilingSeverity::Error,
+          ProfilingErrorCode::FinalExportFailed,
+          _exporter->GetLastError()
+      };
+    }
+    return std::nullopt;
   } catch (std::exception const& ex) {
     Log::Error("An exception occurred during export: ", ex.what());
+    return ProfilingError{
+        ProfilingSeverity::Fatal, ProfilingErrorCode::UnexpectedException, ex.what()
+    };
+  } catch (...) {
+    Log::Error("A non-standard exception occurred during export");
+    return ProfilingError{
+        ProfilingSeverity::Fatal,
+        ProfilingErrorCode::UnexpectedException,
+        "A non-standard exception occurred during export"
+    };
   }
 }
 

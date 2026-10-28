@@ -64,6 +64,9 @@ endif()
 # AddressSanitizer plumbing: option handling, compile/link flag adjustments,
 # runtime DLL discovery, and the dd_win_prof_copy_asan_runtime() helper used
 # by Tests/Runner to ship the ASan DLL next to instrumented binaries.
+if(DD_WIN_PROF_BUILD_TESTS)
+    enable_language(C)
+endif()
 include(cmake/asan.cmake)
 dd_win_prof_setup_asan()
 

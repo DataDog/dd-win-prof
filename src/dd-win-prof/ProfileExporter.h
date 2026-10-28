@@ -40,6 +40,9 @@ class ProfileExporter {
   // Check if properly initialized
   bool IsInitialized() const { return _initialized; }
   const std::string& GetLastError() const { return _lastError; }
+  const std::optional<ProfilingError>& GetLastDiagnostic() const {
+    return _lastDiagnostic;
+  }
 
   // RUM application ID tag (set once by Profiler, emitted per-export)
   void SetRumApplicationId(const std::string& applicationId);
@@ -89,10 +92,11 @@ class ProfileExporter {
   bool ExportProfile(
       const ddog_prof_EncodedProfile* encodedProfile,
       uint32_t profileSeq,
-      const std::string& rumRecordsJson = {}
+      const std::string& rumRecordsJson = {},
+      bool requireDelivery = false
   );
   bool PrepareAdditionalTags(ddog_Vec_Tag& tags, uint32_t profileSeq);
-  bool CheckExportResponse(uint16_t responseCode);
+  bool CheckExportResponse(uint16_t responseCode, bool requireDelivery = false);
   void CleanupExporter();
 
  private:
@@ -119,6 +123,12 @@ class ProfileExporter {
   );
   bool DeliverProfilingData(ProfilingDataResult result);
   void ReportError(ProfilingErrorCode code, std::string message);
+  void RecordDiagnostic(
+      ProfilingSeverity severity,
+      ProfilingErrorCode code,
+      std::string message,
+      bool reportedToCallback = false
+  );
   void LogExport(bool lastCall, int64_t durationMs, size_t profileSize) const;
   bool FinishExport(std::chrono::system_clock::time_point end);
 
@@ -211,6 +221,7 @@ class ProfileExporter {
   uint32_t _processId;
   bool _initialized;
   std::string _lastError;
+  std::optional<ProfilingError> _lastDiagnostic;
 
   // Debug pprof file writing configuration
   bool _debugPprofFileWritingEnabled;
@@ -229,7 +240,7 @@ class ProfileExporter {
 
   // libdatadog components
   dd_win_prof::ProfileEncodingApi _encodingApi;
-  ddog_prof_ManagedStringStorage _stringStorage;
+  ddog_prof_ManagedStringStorage _stringStorage{};
   std::unique_ptr<Symbolication> _symbolication;
   std::unique_ptr<dd_win_prof::PprofAggregator> _aggregator;
 

@@ -33,7 +33,11 @@ install(TARGETS dd-win-prof
     RUNTIME DESTINATION bin
     ARCHIVE DESTINATION lib
 )
-install(FILES "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/dd-win-prof.h" DESTINATION include)
+install(FILES
+    "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/dd-win-prof.h"
+    "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/dd-win-prof-diagnostics.h"
+    DESTINATION include
+)
 install(FILES "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/internal/dd-win-rum-private.h"
     DESTINATION include/internal)
 install(EXPORT ConsumerTargets DESTINATION lib/cmake/consumer)

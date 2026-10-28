@@ -24,6 +24,10 @@ class Profiler : public IRumViewContextProvider,
 
   bool StartProfiling();
   void StopProfiling(bool shutdownOngoing = false);
+  std::optional<ProfilingError> StartProfilingWithDiagnostics();
+  std::optional<ProfilingError> StopProfilingWithDiagnostics(
+      bool shutdownOngoing = false
+  );
 
   [[nodiscard]] std::optional<ProfilingError> SetProfilingDataCallback(
       const ProfilingDataCallback& callback

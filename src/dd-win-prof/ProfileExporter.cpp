@@ -96,14 +96,14 @@ ProfileExporter::ProfileExporter(
 ProfileExporter::~ProfileExporter() {
   // Just call cleanup - by this point, explicit cleanup should have been called
   // If not, we'll do basic cleanup but may skip exporter cleanup to avoid deadlocks
-  if (_initialized) {
+  if (_initialized || _stringStorage.inner != nullptr || _exporter.inner != nullptr) {
     Cleanup(true);  // Skip exporter cleanup in destructor to avoid deadlocks
   }
 }
 
 void ProfileExporter::Cleanup(bool skipExporterCleanup) {
-  if (!_initialized) {
-    return;  // Already cleaned up
+  if (!_initialized && _stringStorage.inner == nullptr && _exporter.inner == nullptr) {
+    return;
   }
 
   Log::Debug("Starting exporter cleanup, skipExporterCleanup=", skipExporterCleanup);
@@ -120,7 +120,10 @@ void ProfileExporter::Cleanup(bool skipExporterCleanup) {
   }
 
   // Clean up libdatadog's managed string storage
-  ddog_prof_ManagedStringStorage_drop(_stringStorage);
+  if (_stringStorage.inner != nullptr) {
+    ddog_prof_ManagedStringStorage_drop(_stringStorage);
+    _stringStorage = {};
+  }
 
   _profilingDataCallback = {};
   _initialized = false;
@@ -194,6 +197,9 @@ bool ProfileExporter::Initialize() {
     return true;
   } catch (const std::exception& ex) {
     _lastError = "Exception during initialization: " + std::string(ex.what());
+    RecordDiagnostic(
+        ProfilingSeverity::Fatal, ProfilingErrorCode::UnexpectedException, _lastError
+    );
     return false;
   }
 }
@@ -251,6 +257,7 @@ bool ProfileExporter::Add(std::shared_ptr<Sample> const& sample) {
 }
 
 bool ProfileExporter::Export(bool lastCall) {
+  _lastDiagnostic.reset();
   if (!_initialized) {
     Log::Error("ProfileExporter::Export() called but not initialized");
     return false;
@@ -281,12 +288,17 @@ bool ProfileExporter::Export(bool lastCall) {
     success =
         DeliverProfileToCallback(*bytes, startUnixTimeMs, endUnixTimeMs, lastCall);
   } else if (bytes && _exportEnabled && _exporter.inner) {
-    success = ExportProfile(profile.get(), _currentExportId, rumRecordsJson);
+    success = ExportProfile(profile.get(), _currentExportId, rumRecordsJson, lastCall);
     if (!success) {
       Log::Error("Failed to export profile to backend");
     }
   }
 
+  if (!success && !_lastDiagnostic) {
+    RecordDiagnostic(
+        ProfilingSeverity::Error, ProfilingErrorCode::FinalExportFailed, _lastError
+    );
+  }
   LogExport(lastCall, endUnixTimeMs - startUnixTimeMs, bytes ? bytes->len : 0);
   return FinishExport(end) && success;
 }
@@ -391,9 +403,8 @@ bool ProfileExporter::DeliverProfileToCallback(
   return DeliverProfilingData(std::move(data));
 }
 
-void ProfileExporter::LogExport(
-    bool lastCall, int64_t durationMs, size_t profileSize
-) const {
+void ProfileExporter::LogExport(bool lastCall, int64_t durationMs, size_t profileSize)
+    const {
   Log::Info(
       lastCall ? "Export last profile #" : "Export profile #",
       _currentExportId,
@@ -421,16 +432,35 @@ bool ProfileExporter::DeliverProfilingData(ProfilingDataResult result) {
   } catch (...) {
     _lastError = "Profiling data callback threw a non-standard exception";
   }
+  RecordDiagnostic(
+      ProfilingSeverity::Fatal, ProfilingErrorCode::CallbackFailed, _lastError
+  );
   Log::Error(_lastError);
   return false;
 }
 
-void ProfileExporter::ReportError(ProfilingErrorCode code, std::string message) {
-  _lastError = std::move(message);
-  Log::Error("Profile operation failed (non-fatal): ", _lastError);
-  if (_profilingDataCallback) {
-    DeliverProfilingData(ProfilingError{ProfilingSeverity::Error, code, _lastError});
+void ProfileExporter::RecordDiagnostic(
+    ProfilingSeverity severity,
+    ProfilingErrorCode code,
+    std::string message,
+    bool reportedToCallback
+) {
+  if (!_lastDiagnostic || severity > _lastDiagnostic->severity) {
+    _lastDiagnostic =
+        ProfilingError{severity, code, std::move(message), reportedToCallback};
   }
+}
+
+void ProfileExporter::ReportError(ProfilingErrorCode code, std::string message) {
+  _lastError = message;
+  bool reported = false;
+  if (_profilingDataCallback) {
+    reported =
+        DeliverProfilingData(ProfilingError{ProfilingSeverity::Error, code, message});
+  } else {
+    Log::Error("Profile operation failed (non-fatal): ", message);
+  }
+  RecordDiagnostic(ProfilingSeverity::Error, code, std::move(message), reported);
 }
 
 bool ProfileExporter::FinishExport(std::chrono::system_clock::time_point end) {
@@ -1510,7 +1540,8 @@ bool ProfileExporter::CreateExporterEndpoint(ddog_prof_Endpoint& endpoint) {
 bool ProfileExporter::ExportProfile(
     const ddog_prof_EncodedProfile* encodedProfile,
     uint32_t profileSeq,
-    const std::string& rumRecordsJson
+    const std::string& rumRecordsJson,
+    bool requireDelivery
 ) {
   if (!_exporter.inner || !encodedProfile) {
     _lastError = "Exporter not initialized or invalid profile";
@@ -1609,7 +1640,7 @@ bool ProfileExporter::ExportProfile(
     );
 
     // Don't fail completely unless we have too many consecutive errors
-    return _consecutiveErrors < MAX_CONSECUTIVE_ERRORS;
+    return !requireDelivery && _consecutiveErrors < MAX_CONSECUTIVE_ERRORS;
   }
 
   // Success - reset error counter
@@ -1617,15 +1648,17 @@ bool ProfileExporter::ExportProfile(
 
   // Check HTTP response code
   uint16_t responseCode = sendResult.ok.code;
-  bool responseOk = CheckExportResponse(responseCode);
+  bool responseOk = CheckExportResponse(responseCode, requireDelivery);
 
-  Log::Info(
-      "Successfully sent profile, HTTP ",
-      responseCode,
-      " (size: ",
-      bytesResult.ok.len,
-      " bytes)"
-  );
+  if (responseCode >= 200 && responseCode < 300) {
+    Log::Info(
+        "Successfully sent profile, HTTP ",
+        responseCode,
+        " (size: ",
+        bytesResult.ok.len,
+        " bytes)"
+    );
+  }
 
   return responseOk;
 }
@@ -1655,7 +1688,7 @@ bool ProfileExporter::PrepareAdditionalTags(ddog_Vec_Tag& tags, uint32_t profile
   return true;
 }
 
-bool ProfileExporter::CheckExportResponse(uint16_t responseCode) {
+bool ProfileExporter::CheckExportResponse(uint16_t responseCode, bool requireDelivery) {
   constexpr uint16_t HTTP_OK = 200;
   constexpr uint16_t HTTP_ACCEPTED = 202;
   constexpr uint16_t HTTP_MULTIPLE_CHOICES = 300;
@@ -1672,6 +1705,12 @@ bool ProfileExporter::CheckExportResponse(uint16_t responseCode) {
       Log::Warn("Unexpected success code: ", responseCode);
     }
     return true;
+  }
+
+  _lastError = "Profile upload rejected with HTTP " + std::to_string(responseCode);
+  if (requireDelivery) {
+    Log::Error(_lastError);
+    return false;
   }
 
   // Handle specific error codes

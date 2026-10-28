@@ -28,7 +28,7 @@ class Configuration {
   int32_t GetAgentPort() const;
   bool IsAgentless() const;
   bool ValidateTransportConfig(
-      ProfileDeliveryMode mode = ProfileDeliveryMode::Http
+      ProfileDeliveryMode mode = ProfileDeliveryMode::Http, std::string* error = nullptr
   ) const;
   std::string const& GetSite() const;
   std::string const& GetApiKey() const;

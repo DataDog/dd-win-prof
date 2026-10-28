@@ -14,5 +14,6 @@
 bool InitializeConfiguration(
     Configuration* pConfig,
     const ProfilerConfig* pSettings,
-    ProfileDeliveryMode mode = ProfileDeliveryMode::Http
+    ProfileDeliveryMode mode = ProfileDeliveryMode::Http,
+    std::string* error = nullptr
 );
