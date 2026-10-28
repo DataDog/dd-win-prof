@@ -131,8 +131,8 @@ TEST_F(ProfilingDataCallbackTests, FailedCallbackCopyPreservesRegistration) {
   fail = true;
   const auto error = SetupProfilingDataCallback(replacement);
   ASSERT_TRUE(error.has_value());
-  EXPECT_EQ(error->code, DD_WIN_PROF_CODE_CALLBACK_COPY_FAILED);
-  EXPECT_EQ(error->severity, DD_WIN_PROF_FATAL);
+  EXPECT_EQ(error->code, ProfilingErrorCode::CallbackCopyFailed);
+  EXPECT_EQ(error->severity, ProfilingSeverity::Fatal);
   EXPECT_NE(error->message.find("callback copy failed"), std::string::npos);
   EXPECT_FALSE(profiler->IsStarted());
   EXPECT_EQ(calls, 0);
@@ -154,8 +154,8 @@ TEST_F(ProfilingDataCallbackTests, NonStandardCopyExceptionPreservesRegistration
 
   const auto error = SetupProfilingDataCallback(replacement);
   ASSERT_TRUE(error.has_value());
-  EXPECT_EQ(error->code, DD_WIN_PROF_CODE_CALLBACK_COPY_FAILED);
-  EXPECT_EQ(error->severity, DD_WIN_PROF_FATAL);
+  EXPECT_EQ(error->code, ProfilingErrorCode::CallbackCopyFailed);
+  EXPECT_EQ(error->severity, ProfilingSeverity::Fatal);
   EXPECT_NE(error->message.find("non-standard exception"), std::string::npos);
   EXPECT_FALSE(profiler->IsStarted());
   EXPECT_EQ(calls, 0);
@@ -185,7 +185,7 @@ TEST_F(ProfilingDataCallbackTests, NoHttpSettingsNeededWithNoEnvVars) {
   config.size = sizeof(config);
   config.noEnvVars = true;
   config.uploadIntervalSeconds = 17;
-  ASSERT_EQ(SetupProfiler(&config), DD_WIN_PROF_SUCCESS);
+  ASSERT_EQ(SetupProfiler(config), ProfilingSeverity::Success);
   EXPECT_EQ(
       Profiler::GetConfiguration()->GetUploadInterval(), std::chrono::seconds(17)
   );
@@ -202,7 +202,7 @@ TEST_F(ProfilingDataCallbackTests, FailedSetupDoesNotInvokeCallback) {
 
   ProfilerConfig config{};
   config.size = sizeof(config) - 1;
-  EXPECT_NE(SetupProfiler(&config), DD_WIN_PROF_SUCCESS);
+  EXPECT_NE(SetupProfiler(config), ProfilingSeverity::Success);
   EXPECT_FALSE(profiler->IsStarted());
   EXPECT_TRUE(profiler->GetProfilingDataCallback());
   EXPECT_EQ(calls, 0);
@@ -236,9 +236,9 @@ TEST_F(ProfilingDataCallbackTests, FailedStartDoesNotInvokeCallback) {
   ASSERT_FALSE(SetupProfilingDataCallback(callback).has_value());
   ProfilerConfig config{};
   config.size = sizeof(config);
-  ASSERT_EQ(SetupProfiler(&config), DD_WIN_PROF_SUCCESS);
+  ASSERT_EQ(SetupProfiler(config), ProfilingSeverity::Success);
 
-  EXPECT_NE(StartProfiler(), DD_WIN_PROF_SUCCESS);
+  EXPECT_NE(StartProfiler(), ProfilingSeverity::Success);
   EXPECT_FALSE(profiler->IsStarted());
   EXPECT_TRUE(profiler->GetProfilingDataCallback());
   EXPECT_EQ(calls, 0);
@@ -254,7 +254,7 @@ TEST_F(ProfilingDataCallbackTests, UnregisterRestoresHttpRequirements) {
   ProfilerConfig config{};
   config.size = sizeof(config);
   config.noEnvVars = true;
-  EXPECT_NE(SetupProfiler(&config), DD_WIN_PROF_SUCCESS);
+  EXPECT_NE(SetupProfiler(config), ProfilingSeverity::Success);
   EXPECT_TRUE(Profiler::GetConfiguration()->IsExportEnabled());
 }
 
@@ -278,7 +278,7 @@ TEST_F(
                                  std::chrono::system_clock::now().time_since_epoch()
   )
                                  .count();
-  ASSERT_EQ(StartProfiler(), DD_WIN_PROF_SUCCESS);
+  ASSERT_EQ(StartProfiler(), ProfilingSeverity::Success);
   const auto registrationError = SetupProfilingDataCallback({});
   StopProfiler();
   const auto afterStopMs = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -286,8 +286,8 @@ TEST_F(
   )
                                .count();
   ASSERT_TRUE(registrationError.has_value());
-  EXPECT_EQ(registrationError->code, DD_WIN_PROF_CODE_ALREADY_RUNNING);
-  EXPECT_EQ(registrationError->severity, DD_WIN_PROF_ERROR);
+  EXPECT_EQ(registrationError->code, ProfilingErrorCode::ProfilerAlreadyRunning);
+  EXPECT_EQ(registrationError->severity, ProfilingSeverity::Error);
   EXPECT_NE(registrationError->message.find("running"), std::string::npos);
   EXPECT_TRUE(profiler->GetProfilingDataCallback());
   EXPECT_EQ(callbackThread, std::this_thread::get_id());
@@ -356,12 +356,12 @@ TEST_F(ProfilingDataCallbackTests, CallbackDiscardsRumRecordsWithoutMetadataFile
 
 TEST_F(ProfilingDataCallbackTests, EncodingErrorsAreNonFatalAndNextExportRecovers) {
   for (const auto code :
-       {DD_WIN_PROF_CODE_SERIALIZATION_FAILED,
-        DD_WIN_PROF_CODE_PROFILE_BYTES_UNAVAILABLE}) {
+       {ProfilingErrorCode::SerializationFailed,
+        ProfilingErrorCode::ProfileBytesUnavailable}) {
     SCOPED_TRACE(static_cast<int>(code));
     encodingFailure = {};
-    encodingFailure.serialize = code == DD_WIN_PROF_CODE_SERIALIZATION_FAILED;
-    encodingFailure.bytes = code == DD_WIN_PROF_CODE_PROFILE_BYTES_UNAVAILABLE;
+    encodingFailure.serialize = code == ProfilingErrorCode::SerializationFailed;
+    encodingFailure.bytes = code == ProfilingErrorCode::ProfileBytesUnavailable;
     std::vector<ProfilingDataResult> results;
     ProfilingDataCallback callback = [&](ProfilingDataResult result) {
       results.push_back(std::move(result));
@@ -389,7 +389,7 @@ TEST_F(ProfilingDataCallbackTests, EncodingErrorsAreNonFatalAndNextExportRecover
     ASSERT_EQ(results.size(), 1u);
     ASSERT_TRUE(std::holds_alternative<ProfilingError>(results.front()));
     const auto& error = std::get<ProfilingError>(results.front());
-    EXPECT_EQ(error.severity, DD_WIN_PROF_ERROR);
+    EXPECT_EQ(error.severity, ProfilingSeverity::Error);
     EXPECT_EQ(error.code, code);
     ASSERT_FALSE(encodingFailure.message.empty());
     EXPECT_NE(error.message.find(encodingFailure.message), std::string::npos);
@@ -407,13 +407,13 @@ TEST_F(ProfilingDataCallbackTests, EncodingErrorsAreNonFatalAndNextExportRecover
     EXPECT_TRUE(std::get<ProfilingData>(results.back()).isLast);
     EXPECT_TRUE(exporter.GetLastErrorMessage().empty());
 
-    encodingFailure.serialize = code == DD_WIN_PROF_CODE_SERIALIZATION_FAILED;
-    encodingFailure.bytes = code == DD_WIN_PROF_CODE_PROFILE_BYTES_UNAVAILABLE;
+    encodingFailure.serialize = code == ProfilingErrorCode::SerializationFailed;
+    encodingFailure.bytes = code == ProfilingErrorCode::ProfileBytesUnavailable;
     EXPECT_FALSE(exporter.Export(true));
     ASSERT_EQ(results.size(), 3u);
     ASSERT_TRUE(std::holds_alternative<ProfilingError>(results.back()));
     const auto& finalError = std::get<ProfilingError>(results.back());
-    EXPECT_EQ(finalError.severity, DD_WIN_PROF_ERROR);
+    EXPECT_EQ(finalError.severity, ProfilingSeverity::Error);
     EXPECT_EQ(finalError.code, code);
     EXPECT_NE(finalError.message.find(encodingFailure.message), std::string::npos);
     exporter.Cleanup();
@@ -422,14 +422,14 @@ TEST_F(ProfilingDataCallbackTests, EncodingErrorsAreNonFatalAndNextExportRecover
 
 TEST_F(ProfilingDataCallbackTests, FinalEncodingErrorRetainsCallbackReportingState) {
   for (const auto code :
-       {DD_WIN_PROF_CODE_SERIALIZATION_FAILED,
-        DD_WIN_PROF_CODE_PROFILE_BYTES_UNAVAILABLE,
-        DD_WIN_PROF_CODE_PROFILE_RESET_FAILED}) {
+       {ProfilingErrorCode::SerializationFailed,
+        ProfilingErrorCode::ProfileBytesUnavailable,
+        ProfilingErrorCode::ProfileResetFailed}) {
     SCOPED_TRACE(static_cast<uint32_t>(code));
     encodingFailure = {};
-    encodingFailure.serialize = code == DD_WIN_PROF_CODE_SERIALIZATION_FAILED;
-    encodingFailure.bytes = code == DD_WIN_PROF_CODE_PROFILE_BYTES_UNAVAILABLE;
-    encodingFailure.reset = code == DD_WIN_PROF_CODE_PROFILE_RESET_FAILED;
+    encodingFailure.serialize = code == ProfilingErrorCode::SerializationFailed;
+    encodingFailure.bytes = code == ProfilingErrorCode::ProfileBytesUnavailable;
+    encodingFailure.reset = code == ProfilingErrorCode::ProfileResetFailed;
     int errors = 0;
     ProfilingDataCallback callback = [&](ProfilingDataResult result) {
       if (const auto* error = std::get_if<ProfilingError>(&result)) {
@@ -451,7 +451,7 @@ TEST_F(ProfilingDataCallbackTests, FinalEncodingErrorRetainsCallbackReportingSta
     exporter.Cleanup();
     ASSERT_TRUE(error);
     EXPECT_EQ(error->code, code);
-    EXPECT_EQ(error->severity, DD_WIN_PROF_ERROR);
+    EXPECT_EQ(error->severity, ProfilingSeverity::Error);
     EXPECT_TRUE(error->reportedToCallback);
     EXPECT_EQ(errors, 1);
   }
@@ -474,8 +474,8 @@ TEST_F(ProfilingDataCallbackTests, CallbackExceptionTakesPrecedenceOverEncodingE
   const auto error = exporter.GetLastDiagnostic();
   exporter.Cleanup();
   ASSERT_TRUE(error);
-  EXPECT_EQ(error->severity, DD_WIN_PROF_FATAL);
-  EXPECT_EQ(error->code, DD_WIN_PROF_CODE_CALLBACK_FAILED);
+  EXPECT_EQ(error->severity, ProfilingSeverity::Fatal);
+  EXPECT_EQ(error->code, ProfilingErrorCode::CallbackFailed);
   EXPECT_FALSE(error->reportedToCallback);
 }
 
@@ -490,21 +490,21 @@ TEST_F(ProfilingDataCallbackTests, CanReconfigureAndReplaceCallbackAfterStop) {
   config.noEnvVars = true;
   config.uploadIntervalSeconds = 3600;
 
-  ASSERT_EQ(SetupProfiler(&config), DD_WIN_PROF_SUCCESS);
-  ASSERT_EQ(StartProfiler(), DD_WIN_PROF_SUCCESS);
+  ASSERT_EQ(SetupProfiler(config), ProfilingSeverity::Success);
+  ASSERT_EQ(StartProfiler(), ProfilingSeverity::Success);
   StopProfiler();
   EXPECT_EQ(firstCalls, 1);
   StopProfiler();
   EXPECT_EQ(firstCalls, 1);
 
-  ASSERT_EQ(SetupProfiler(&config), DD_WIN_PROF_SUCCESS);
-  ASSERT_EQ(StartProfiler(), DD_WIN_PROF_SUCCESS);
+  ASSERT_EQ(SetupProfiler(config), ProfilingSeverity::Success);
+  ASSERT_EQ(StartProfiler(), ProfilingSeverity::Success);
   StopProfiler();
   EXPECT_EQ(firstCalls, 2);
 
   ASSERT_FALSE(SetupProfilingDataCallback(second).has_value());
-  ASSERT_EQ(SetupProfiler(&config), DD_WIN_PROF_SUCCESS);
-  ASSERT_EQ(StartProfiler(), DD_WIN_PROF_SUCCESS);
+  ASSERT_EQ(SetupProfiler(config), ProfilingSeverity::Success);
+  ASSERT_EQ(StartProfiler(), ProfilingSeverity::Success);
   StopProfiler();
   EXPECT_EQ(firstCalls, 2);
   EXPECT_EQ(secondCalls, 1);
@@ -532,8 +532,8 @@ TEST_F(
   config.size = sizeof(config);
   config.noEnvVars = true;
   config.uploadIntervalSeconds = 1;
-  ASSERT_EQ(SetupProfiler(&config), DD_WIN_PROF_SUCCESS);
-  ASSERT_EQ(StartProfiler(), DD_WIN_PROF_SUCCESS);
+  ASSERT_EQ(SetupProfiler(config), ProfilingSeverity::Success);
+  ASSERT_EQ(StartProfiler(), ProfilingSeverity::Success);
 
   const auto status = entered.wait_for(std::chrono::seconds(5));
   EXPECT_EQ(status, std::future_status::ready);
@@ -558,8 +558,8 @@ TEST_F(ProfilingDataCallbackTests, MissingProfilerRejectsRegistration) {
   const auto error = SetupProfilingDataCallback({});
   profiler = std::make_unique<Profiler>();
   ASSERT_TRUE(error.has_value());
-  EXPECT_EQ(error->code, DD_WIN_PROF_CODE_PROFILER_UNAVAILABLE);
-  EXPECT_EQ(error->severity, DD_WIN_PROF_ERROR);
+  EXPECT_EQ(error->code, ProfilingErrorCode::ProfilerUnavailable);
+  EXPECT_EQ(error->severity, ProfilingSeverity::Error);
   EXPECT_NE(error->message.find("unavailable"), std::string::npos);
 }
 
@@ -618,8 +618,8 @@ TEST(ProfilingDataExportTests, ResetErrorIsDeliveredAndNextExportRecovers) {
     EXPECT_FALSE(std::get<ProfilingData>(results.front()).pprof.empty());
     ASSERT_TRUE(std::holds_alternative<ProfilingError>(results.back()));
     const auto& error = std::get<ProfilingError>(results.back());
-    EXPECT_EQ(error.severity, DD_WIN_PROF_ERROR);
-    EXPECT_EQ(error.code, DD_WIN_PROF_CODE_PROFILE_RESET_FAILED);
+    EXPECT_EQ(error.severity, ProfilingSeverity::Error);
+    EXPECT_EQ(error.code, ProfilingErrorCode::ProfileResetFailed);
     ASSERT_FALSE(encodingFailure.message.empty());
     EXPECT_NE(error.message.find(encodingFailure.message), std::string::npos);
     EXPECT_EQ(exporter.GetLastErrorMessage(), error.message);

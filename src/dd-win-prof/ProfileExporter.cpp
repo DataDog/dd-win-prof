@@ -138,8 +138,8 @@ bool ProfileExporter::Initialize() {
     auto storageResult = ddog_prof_ManagedStringStorage_new();
     if (storageResult.tag != DDOG_PROF_MANAGED_STRING_STORAGE_NEW_RESULT_OK) {
       return RecordDiagnostic(
-          DD_WIN_PROF_ERROR,
-          DD_WIN_PROF_CODE_INITIALIZATION_FAILED,
+          ProfilingSeverity::Error,
+          ProfilingErrorCode::InitializationFailed,
           "Failed to create libdatadog ManagedStringStorage"
       );
     }
@@ -151,8 +151,8 @@ bool ProfileExporter::Initialize() {
             _stringStorage, _pConfiguration->AreCallstacksSymbolized()
         )) {
       return RecordDiagnostic(
-          DD_WIN_PROF_ERROR,
-          DD_WIN_PROF_CODE_INITIALIZATION_FAILED,
+          ProfilingSeverity::Error,
+          ProfilingErrorCode::InitializationFailed,
           "Failed to initialize symbolication engine"
       );
     }
@@ -165,8 +165,8 @@ bool ProfileExporter::Initialize() {
 
     if (!_aggregator->IsInitialized()) {
       return RecordDiagnostic(
-          DD_WIN_PROF_ERROR,
-          DD_WIN_PROF_CODE_INITIALIZATION_FAILED,
+          ProfilingSeverity::Error,
+          ProfilingErrorCode::InitializationFailed,
           "Failed to initialize PprofAggregator: " + _aggregator->GetLastError()
       );
     }
@@ -203,8 +203,8 @@ bool ProfileExporter::Initialize() {
     return true;
   } catch (const std::exception& ex) {
     return RecordDiagnostic(
-        DD_WIN_PROF_FATAL,
-        DD_WIN_PROF_CODE_UNEXPECTED_EXCEPTION,
+        ProfilingSeverity::Fatal,
+        ProfilingErrorCode::UnexpectedException,
         "Exception during initialization: " + std::string(ex.what())
     );
   }
@@ -266,8 +266,8 @@ bool ProfileExporter::Export(bool lastCall) {
   _lastDiagnostic.reset();
   if (!_initialized) {
     return RecordDiagnostic(
-        DD_WIN_PROF_ERROR,
-        DD_WIN_PROF_CODE_INITIALIZATION_FAILED,
+        ProfilingSeverity::Error,
+        ProfilingErrorCode::InitializationFailed,
         "ProfileExporter::Export() called but not initialized"
     );
   }
@@ -319,7 +319,7 @@ ProfileExporter::EncodedProfilePtr ProfileExporter::SerializeProfile(
 ) {
   EncodedProfilePtr profile(_aggregator->Serialize(startUnixTimeMs, endUnixTimeMs));
   if (!profile) {
-    ReportError(DD_WIN_PROF_CODE_SERIALIZATION_FAILED, _aggregator->GetLastError());
+    ReportError(ProfilingErrorCode::SerializationFailed, _aggregator->GetLastError());
   }
   return profile;
 }
@@ -382,7 +382,7 @@ std::optional<ddog_ByteSlice> ProfileExporter::ReadProfileBytes(
       reinterpret_cast<const char*>(bytes.err.message.ptr), bytes.err.message.len
   );
   ddog_Error_drop(&bytes.err);
-  ReportError(DD_WIN_PROF_CODE_PROFILE_BYTES_UNAVAILABLE, std::move(message));
+  ReportError(ProfilingErrorCode::ProfileBytesUnavailable, std::move(message));
   return std::nullopt;
 }
 
@@ -433,13 +433,13 @@ bool ProfileExporter::DeliverProfilingData(ProfilingDataResult result) {
     message = "Profiling data callback threw a non-standard exception";
   }
   return RecordDiagnostic(
-      DD_WIN_PROF_FATAL, DD_WIN_PROF_CODE_CALLBACK_FAILED, std::move(message)
+      ProfilingSeverity::Fatal, ProfilingErrorCode::CallbackFailed, std::move(message)
   );
 }
 
 bool ProfileExporter::RecordDiagnostic(
-    DDWinProfSeverity severity,
-    DDWinProfErrorCode code,
+    ProfilingSeverity severity,
+    ProfilingErrorCode code,
     std::string message,
     bool reportedToCallback
 ) {
@@ -450,18 +450,19 @@ bool ProfileExporter::RecordDiagnostic(
   return false;
 }
 
-void ProfileExporter::ReportError(DDWinProfErrorCode code, std::string message) {
+void ProfileExporter::ReportError(ProfilingErrorCode code, std::string message) {
   bool reported = false;
   if (_profilingDataCallback) {
-    reported = DeliverProfilingData(ProfilingError{DD_WIN_PROF_ERROR, code, message});
+    reported =
+        DeliverProfilingData(ProfilingError{ProfilingSeverity::Error, code, message});
   }
-  RecordDiagnostic(DD_WIN_PROF_ERROR, code, std::move(message), reported);
+  RecordDiagnostic(ProfilingSeverity::Error, code, std::move(message), reported);
 }
 
 bool ProfileExporter::FinishExport(std::chrono::system_clock::time_point end) {
   bool success = _aggregator->Reset();
   if (!success) {
-    ReportError(DD_WIN_PROF_CODE_PROFILE_RESET_FAILED, _aggregator->GetLastError());
+    ReportError(ProfilingErrorCode::ProfileResetFailed, _aggregator->GetLastError());
   }
   if (auto error = InternSampleLabels(_sampleLabels)) {
     ReportError(error->code, std::move(error->message));
@@ -776,7 +777,9 @@ bool ProfileExporter::AddSingleTag(
     std::string message = "Failed to add tag: " + std::string(key);
     ddog_Error_drop(&pushResult.err);
     return RecordDiagnostic(
-        DD_WIN_PROF_ERROR, DD_WIN_PROF_CODE_INVALID_CONFIGURATION, std::move(message)
+        ProfilingSeverity::Error,
+        ProfilingErrorCode::InvalidConfiguration,
+        std::move(message)
     );
   }
 
@@ -918,14 +921,14 @@ std::optional<ProfilingError> ProfileExporter::InternSampleLabels(SampleLabels& 
                        const char* message) -> std::optional<ProfilingError> {
     ddog_Error_drop(&error);
     return ProfilingError{
-        DD_WIN_PROF_ERROR, DD_WIN_PROF_CODE_SAMPLE_LABELS_UNAVAILABLE, message
+        ProfilingSeverity::Error, ProfilingErrorCode::SampleLabelsUnavailable, message
     };
   };
   ddog_prof_Profile* profile = _aggregator->GetProfile();
   if (profile == nullptr) {
     return ProfilingError{
-        DD_WIN_PROF_ERROR,
-        DD_WIN_PROF_CODE_SAMPLE_LABELS_UNAVAILABLE,
+        ProfilingSeverity::Error,
+        ProfilingErrorCode::SampleLabelsUnavailable,
         "Profile unavailable while interning sample labels"
     };
   }
@@ -1423,7 +1426,9 @@ bool ProfileExporter::InitializeExporter() {
       message += " with unknown error tag: " + std::to_string(exporterResult.tag);
     }
     return RecordDiagnostic(
-        DD_WIN_PROF_ERROR, DD_WIN_PROF_CODE_INITIALIZATION_FAILED, std::move(message)
+        ProfilingSeverity::Error,
+        ProfilingErrorCode::InitializationFailed,
+        std::move(message)
     );
   }
 
@@ -1441,7 +1446,9 @@ bool ProfileExporter::InitializeExporter() {
     ddog_Error_drop(&timeoutResult.err);
     CleanupExporter();
     return RecordDiagnostic(
-        DD_WIN_PROF_ERROR, DD_WIN_PROF_CODE_INITIALIZATION_FAILED, std::move(message)
+        ProfilingSeverity::Error,
+        ProfilingErrorCode::InitializationFailed,
+        std::move(message)
     );
   }
 
@@ -1491,8 +1498,8 @@ bool ProfileExporter::CreateExporterEndpoint(ddog_prof_Endpoint& endpoint) {
   } else {
     if (_apiKey.empty()) {
       return RecordDiagnostic(
-          DD_WIN_PROF_ERROR,
-          DD_WIN_PROF_CODE_INVALID_CONFIGURATION,
+          ProfilingSeverity::Error,
+          ProfilingErrorCode::InvalidConfiguration,
           "Missing API key for agentless mode"
       );
     }
@@ -1510,8 +1517,8 @@ bool ProfileExporter::ExportProfile(
 ) {
   if (!_exporter.inner || !encodedProfile) {
     return RecordDiagnostic(
-        DD_WIN_PROF_ERROR,
-        DD_WIN_PROF_CODE_EXPORT_FAILED,
+        ProfilingSeverity::Error,
+        ProfilingErrorCode::ExportFailed,
         "Exporter not initialized or invalid profile"
     );
   }
@@ -1531,8 +1538,8 @@ bool ProfileExporter::ExportProfile(
     ddog_Error_drop(&bytesResult.err);
     ddog_Vec_Tag_drop(additionalTags);
     return RecordDiagnostic(
-        DD_WIN_PROF_ERROR,
-        DD_WIN_PROF_CODE_PROFILE_BYTES_UNAVAILABLE,
+        ProfilingSeverity::Error,
+        ProfilingErrorCode::ProfileBytesUnavailable,
         "Failed to get profile bytes"
     );
   }
@@ -1574,7 +1581,7 @@ bool ProfileExporter::ExportProfile(
       message += " with unknown error tag: " + std::to_string(requestResult.tag);
     }
     return RecordDiagnostic(
-        DD_WIN_PROF_ERROR, DD_WIN_PROF_CODE_EXPORT_FAILED, std::move(message)
+        ProfilingSeverity::Error, ProfilingErrorCode::ExportFailed, std::move(message)
     );
   }
 
@@ -1594,7 +1601,7 @@ bool ProfileExporter::ExportProfile(
     message += ": " + errorMessage;
     ddog_Error_drop(&sendResult.err);
     return RecordDiagnostic(
-        DD_WIN_PROF_ERROR, DD_WIN_PROF_CODE_EXPORT_FAILED, std::move(message)
+        ProfilingSeverity::Error, ProfilingErrorCode::ExportFailed, std::move(message)
     );
   }
 
@@ -1645,8 +1652,8 @@ bool ProfileExporter::CheckExportResponse(uint16_t responseCode) {
     return true;
   }
   return RecordDiagnostic(
-      DD_WIN_PROF_ERROR,
-      DD_WIN_PROF_CODE_EXPORT_FAILED,
+      ProfilingSeverity::Error,
+      ProfilingErrorCode::ExportFailed,
       "Profile upload rejected with HTTP " + std::to_string(responseCode)
   );
 }

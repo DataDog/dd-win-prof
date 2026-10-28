@@ -124,10 +124,10 @@ class ProfileExporter {
       bool lastCall
   );
   bool DeliverProfilingData(ProfilingDataResult result);
-  void ReportError(DDWinProfErrorCode code, std::string message);
+  void ReportError(ProfilingErrorCode code, std::string message);
   bool RecordDiagnostic(
-      DDWinProfSeverity severity,
-      DDWinProfErrorCode code,
+      ProfilingSeverity severity,
+      ProfilingErrorCode code,
       std::string message,
       bool reportedToCallback = false
   );

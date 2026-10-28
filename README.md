@@ -71,41 +71,38 @@ install(FILES "$<TARGET_FILE:dd_win_prof_libdatadog_dynamic>" DESTINATION bin)
 
 ## Lifecycle diagnostics
 
-Prebuilt consumers can use `SetupProfiler`, `StartProfiler`, and
-`StopProfiler`. Each returns a fixed-width `int32_t`: `0` success, `1` info,
-`2` warning, `3` error, or `4` fatal. Nonzero means a diagnostic is available,
-not necessarily that profiling is running or that teardown failed. For example,
-explicit disable returns info; a failed final export returns error after stopping.
-Use the detailed code to distinguish outcomes.
+This is a C++ API intended to be wrapped by the SDK. Build the profiler and its
+consumers with compatible C++ toolchains and matching headers. There is no C API
+or promised binary compatibility across versions/toolchains.
+
+`SetupProfiler(const ProfilerConfig&)`, `StartProfiler()`, and `StopProfiler()`
+return `ProfilingSeverity`: `Success` (zero), `Info`, `Warning`, `Error`, or
+`Fatal`. A diagnostic does not by itself indicate whether profiling is running.
+For example, explicit disable returns `Info`; a failed final export returns
+`Error` after stopping. Use the detailed code to distinguish outcomes.
 
 ```cpp
+#include <string>
 #include "dd-win-prof.h"
 
-int32_t severity = StartProfiler();
-if (severity != DD_WIN_PROF_SUCCESS) {
-    uint32_t code = DD_WIN_PROF_CODE_NONE;
-    char message[1024];
-    GetLastProfilerDiagnostic(nullptr, &code, message, sizeof(message));
-    // Handle or log severity, code, and message here.
+if (StartProfiler() != ProfilingSeverity::Success) {
+    const auto diagnostic = GetLastProfilerDiagnostic();
+    // Handle or log diagnostic.severity, diagnostic.code, and diagnostic.message.
+    std::string savedMessage = diagnostic.message; // Caller-owned copy, if needed.
 }
 ```
 
-`GetLastProfilerDiagnostic` copies severity, code, and UTF-8 text into
-caller-owned storage. All outputs are optional. Its return value is the required
-message size including NUL, or zero if there is no diagnostic. A null message
-requires zero capacity; positive capacity receives a NUL-terminated string,
-truncated at a UTF-8 boundary when necessary. The library retains at most 1023
-message bytes and replaces invalid UTF-8 bytes and embedded NULs with `?`.
-No returned allocation needs freeing, including across different CRTs.
+`GetLastProfilerDiagnostic()` returns a small value containing severity, code,
+and a borrowed `const char*` message. The library owns the text: do not free it.
+It remains valid until the next lifecycle call on the same thread, thread exit,
+or library unload. Copy it into caller-owned storage if needed longer. No owning
+`std::string` crosses this interface, so the caller never frees DLL allocations.
 
-The diagnostic belongs to the calling thread's most recent public lifecycle
-call. Each such call replaces it; success clears it.
-Getter calls do not consume or overwrite it, so querying size and then copying
-is safe unless another lifecycle call intervenes on that thread. Background
-errors and SDK callback registration do not overwrite this slot. Do not repeat a
-lifecycle operation to retrieve a longer message. Codes and severity values are
-stable; message wording is not. Treat unknown nonzero severities/codes as a
-diagnostic requiring handling.
+The getter does not consume or modify the diagnostic. Each lifecycle call replaces
+it; success clears it. Background errors and callback registration leave it alone.
+Message text is passed through without UTF-8 validation, normalization, or
+fixed-size truncation. Encoding conversion, if needed, belongs in the SDK.
+Do not parse message wording to identify failures; use `ProfilingErrorCode`.
 
 Serialize all lifecycle and callback-registration calls, and do not invoke them
 from a profiling callback. Stop waits for collection and callbacks and attempts
@@ -114,7 +111,8 @@ overall timeout. Already stopped succeeds. Stop reports failures from its final
 export, not earlier periodic failures. When several failures occur, the highest
 severity wins, with the first failure breaking ties. A fatal result does not by
 itself guarantee shutdown; establish a successful stop before reconfiguration or
-unloading. The C boundary catches C++ exceptions, not access violations,
+unloading. Lifecycle calls report caught C++ exceptions as fatal diagnostics;
+they do not contain access violations,
 process termination, or non-unwinding Rust panics.
 
 Lifecycle calls do not log synchronous failures; callers own reporting.
@@ -123,16 +121,16 @@ the SDK callback. Operational logging, including debug-file warnings, remains
 independent. A final encoding error can reach the SDK callback and the stop
 result; the SDK should report it only once.
 
-`error.h` declares the common severity and error-code enums once for both C and
-C++. The SDK-private `ProfilingError` uses these same types with an owning
-message. Only fixed-width integers and caller-owned buffers cross the C API.
-Both `dd-win-prof.h` and `error.h` are C-compatible. `ProfilerConfig` and its
-exact-size validation are unchanged.
+`error.h` declares the shared enum classes and the non-owning diagnostic view.
+The SDK-private `ProfilingError` uses the same enums with an owning message;
+that private API requires compatible standard-library and CRT settings.
+`ProfilerConfig` and its exact-size validation are unchanged.
 
-**Breaking change:** setup/start now return severity rather than bool, and stop
-returns severity rather than void. Rebuild all consumers and compare explicitly
-with `DD_WIN_PROF_SUCCESS`. Old binaries and old boolean call sites are not
-compatible. There are no parallel legacy or version-suffixed lifecycle exports.
+**Breaking change:** lifecycle functions now use C++ linkage and typed severity
+returns, and setup takes configuration by const reference. Rebuild all consumers
+and compare explicitly with `ProfilingSeverity::Success`. Old binaries, pointer
+setup calls, and boolean result checks are incompatible. There are no parallel
+legacy or version-suffixed exports.
 
 ## Configuration
 
@@ -149,13 +147,13 @@ Define your configuration in a `ProfilerConfig` instance and pass it to `SetupPr
     config.serviceEnvironment = "production";
     config.serviceName = "my-windows-app";
     config.serviceVersion = "1.2.3";
-    if (SetupProfiler(&config) != DD_WIN_PROF_SUCCESS) {
+    if (SetupProfiler(config) != ProfilingSeverity::Success) {
         // Setup failed (e.g. mandatory fields missing when noEnvVars=true)
         return -1;
     }
 ```
 
-**No-env-vars mode** (`config.noEnvVars = true`): Ignores all environment variables and uses only values from the struct. In this mode, `url` and `apiKey` are **mandatory**; `SetupProfiler` returns `DD_WIN_PROF_ERROR` if either is missing.
+**No-env-vars mode** (`config.noEnvVars = true`): Ignores all environment variables and uses only values from the struct. In this mode, `url` and `apiKey` are **mandatory**; `SetupProfiler` returns `ProfilingSeverity::Error` if either is missing.
 
 ```C++
     config.noEnvVars = true;
@@ -330,11 +328,11 @@ cmake --build build --config Debug
 build\src\Tests\Debug\Tests.exe
 ```
 
-Separate targets compile the C header and exercise the current public DLL API
-with `/MT` and `/MD` consumers. Build and run them with the unit suite using:
+Separate targets exercise borrowed diagnostics across the DLL boundary with
+`/MT` and `/MD` consumers built using the same C++ toolchain. Build and run them with the unit suite using:
 
 ```powershell
-cmake --build build --config Debug --target Tests DiagnosticHeaderC LifecycleAbiMT LifecycleAbiMD
+cmake --build build --config Debug --target Tests LifecycleDllMT LifecycleDllMD
 ctest --test-dir build/src/Tests -C Debug --output-on-failure --no-tests=error
 ```
 

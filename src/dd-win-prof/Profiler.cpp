@@ -33,8 +33,8 @@ std::optional<ProfilingError> Profiler::SetProfilingDataCallback(
 ) {
   if (IsStarted()) {
     return ProfilingError{
-        DD_WIN_PROF_ERROR,
-        DD_WIN_PROF_CODE_ALREADY_RUNNING,
+        ProfilingSeverity::Error,
+        ProfilingErrorCode::ProfilerAlreadyRunning,
         "Cannot change the profiling callback while the profiler is running"
     };
   }
@@ -43,47 +43,42 @@ std::optional<ProfilingError> Profiler::SetProfilingDataCallback(
     return std::nullopt;
   } catch (const std::exception& error) {
     return ProfilingError{
-        DD_WIN_PROF_FATAL,
-        DD_WIN_PROF_CODE_CALLBACK_COPY_FAILED,
+        ProfilingSeverity::Fatal,
+        ProfilingErrorCode::CallbackCopyFailed,
         "Failed to copy profiling data callback: " + std::string(error.what())
     };
   } catch (...) {
     return ProfilingError{
-        DD_WIN_PROF_FATAL,
-        DD_WIN_PROF_CODE_CALLBACK_COPY_FAILED,
+        ProfilingSeverity::Fatal,
+        ProfilingErrorCode::CallbackCopyFailed,
         "Failed to copy profiling data callback: non-standard exception"
     };
   }
 }
 
-std::optional<ProfilingError> Profiler::Configure(const ProfilerConfig* settings) {
-  if (settings == nullptr) {
+std::optional<ProfilingError> Profiler::Configure(const ProfilerConfig& settings) {
+  if (settings.size != sizeof(ProfilerConfig)) {
     return ProfilingError{
-        DD_WIN_PROF_ERROR,
-        DD_WIN_PROF_CODE_INVALID_ARGUMENT,
-        "Null profiler configuration structure"
-    };
-  }
-  if (settings->size != sizeof(ProfilerConfig)) {
-    return ProfilingError{
-        DD_WIN_PROF_ERROR,
-        DD_WIN_PROF_CODE_UNSUPPORTED_CONFIG_SIZE,
+        ProfilingSeverity::Error,
+        ProfilingErrorCode::UnsupportedConfigSize,
         "Invalid profiler configuration structure size"
     };
   }
   if (IsStarted()) {
     return ProfilingError{
-        DD_WIN_PROF_ERROR,
-        DD_WIN_PROF_CODE_ALREADY_RUNNING,
+        ProfilingSeverity::Error,
+        ProfilingErrorCode::ProfilerAlreadyRunning,
         "SetupProfiler must be called while stopped"
     };
   }
   std::string message;
   if (!InitializeConfiguration(
-          _pConfiguration.get(), settings, GetDeliveryMode(), &message
+          _pConfiguration.get(), &settings, GetDeliveryMode(), &message
       )) {
     return ProfilingError{
-        DD_WIN_PROF_ERROR, DD_WIN_PROF_CODE_INVALID_CONFIGURATION, std::move(message)
+        ProfilingSeverity::Error,
+        ProfilingErrorCode::InvalidConfiguration,
+        std::move(message)
     };
   }
   return std::nullopt;
@@ -92,15 +87,15 @@ std::optional<ProfilingError> Profiler::Configure(const ProfilerConfig* settings
 std::optional<ProfilingError> Profiler::StartProfiling() {
   if (IsStarted()) {
     return ProfilingError{
-        DD_WIN_PROF_ERROR,
-        DD_WIN_PROF_CODE_ALREADY_RUNNING,
+        ProfilingSeverity::Error,
+        ProfilingErrorCode::ProfilerAlreadyRunning,
         "Profiler is already running"
     };
   }
   if (_pConfiguration->IsProfilerExplicitlyDisabled()) {
     return ProfilingError{
-        DD_WIN_PROF_INFO,
-        DD_WIN_PROF_CODE_EXPLICITLY_DISABLED,
+        ProfilingSeverity::Info,
+        ProfilingErrorCode::ExplicitlyDisabled,
         "Profiler is explicitly disabled by DD_PROFILING_ENABLED"
     };
   }
@@ -108,8 +103,8 @@ std::optional<ProfilingError> Profiler::StartProfiling() {
   std::string configError;
   if (!_pConfiguration->ValidateTransportConfig(GetDeliveryMode(), &configError)) {
     return ProfilingError{
-        DD_WIN_PROF_ERROR,
-        DD_WIN_PROF_CODE_INVALID_CONFIGURATION,
+        ProfilingSeverity::Error,
+        ProfilingErrorCode::InvalidConfiguration,
         std::move(configError)
     };
   }

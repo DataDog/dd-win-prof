@@ -27,7 +27,6 @@ add_library(dd-win-prof SHARED
     CpuTimeProvider.h
     include/dd-win-prof.h
     include/error.h
-    LifecycleDiagnostic.h
     include/internal/dd-win-rum-private.h
     dd-win-prof-internal.h
     EnvironmentVariables.h

@@ -104,12 +104,12 @@ std::optional<ProfilingError> SamplesCollector::Export(bool lastCall) {
     return _exporter->GetLastDiagnostic();
   } catch (std::exception const& ex) {
     return ProfilingError{
-        DD_WIN_PROF_FATAL, DD_WIN_PROF_CODE_UNEXPECTED_EXCEPTION, ex.what()
+        ProfilingSeverity::Fatal, ProfilingErrorCode::UnexpectedException, ex.what()
     };
   } catch (...) {
     return ProfilingError{
-        DD_WIN_PROF_FATAL,
-        DD_WIN_PROF_CODE_UNEXPECTED_EXCEPTION,
+        ProfilingSeverity::Fatal,
+        ProfilingErrorCode::UnexpectedException,
         "A non-standard exception occurred during export"
     };
   }

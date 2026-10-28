@@ -484,16 +484,14 @@ int main(int argc, char* argv[]) {
   config.symbolizeCallstacks = opts.symbolize;
 
   const auto reportDiagnostic = [] {
-    char message[1024];
-    GetLastProfilerDiagnostic(nullptr, nullptr, message, sizeof(message));
-    std::cerr << message << std::endl;
+    std::cerr << GetLastProfilerDiagnostic().message << std::endl;
   };
-  if (SetupProfiler(&config) != DD_WIN_PROF_SUCCESS) {
+  if (SetupProfiler(config) != ProfilingSeverity::Success) {
     reportDiagnostic();
     return -2;
   }
 
-  if (StartProfiler() != DD_WIN_PROF_SUCCESS) {
+  if (StartProfiler() != ProfilingSeverity::Success) {
     reportDiagnostic();
     return -1;
   }
@@ -525,7 +523,7 @@ int main(int argc, char* argv[]) {
     }
   }
 
-  if (StopProfiler() != DD_WIN_PROF_SUCCESS) {
+  if (StopProfiler() != ProfilingSeverity::Success) {
     reportDiagnostic();
     return -3;
   }

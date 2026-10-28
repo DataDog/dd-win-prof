@@ -99,10 +99,10 @@ include(CTest)
 add_test(NAME Tests COMMAND Tests)
 set_tests_properties(Tests PROPERTIES TIMEOUT 180)
 
-# Exercise the public DLL API with independently selected CRTs.
+# Check borrowed diagnostics with independently selected consumer CRTs.
 foreach(_crt IN ITEMS MT MD)
-    set(_consumer "LifecycleAbi${_crt}")
-    add_executable(${_consumer} LifecycleAbiTests.cpp)
+    set(_consumer "LifecycleDll${_crt}")
+    add_executable(${_consumer} LifecycleDllTests.cpp)
     target_link_libraries(${_consumer} PRIVATE dd-win-prof)
     set_property(TARGET ${_consumer} PROPERTY RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/${_consumer}")
     if(_crt STREQUAL "MT")
@@ -127,8 +127,3 @@ foreach(_crt IN ITEMS MT MD)
         ENVIRONMENT "DD_PROFILING_AUTO_START=0;DD_PROFILING_ENABLED=1;DD_INTERNAL_PROFILING_EXPORT_ENABLED=0;DD_API_KEY=;DD_TRACE_AGENT_URL=;DD_AGENT_HOST=localhost;DD_TRACE_AGENT_PORT=8126"
     )
 endforeach()
-
-add_library(DiagnosticHeaderC OBJECT DiagnosticHeaderC.c)
-target_include_directories(DiagnosticHeaderC PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../dd-win-prof/include")
-set_property(TARGET DiagnosticHeaderC PROPERTY C_STANDARD 11)
-set_property(TARGET DiagnosticHeaderC PROPERTY C_STANDARD_REQUIRED ON)
