@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "Configuration.h"
+#include "EnvironmentVariables.h"
 #include "LibDatadogHelper.h"
 #include "ProfileExporter.h"
 #include "Profiler.h"
@@ -164,6 +165,58 @@ TEST_F(ProfilingDataCallbackTests, NoHttpSettingsNeededWithNoEnvVars) {
       Profiler::GetConfiguration()->IsExportEnabled(profiler->GetDeliveryMode())
   );
   EXPECT_TRUE(Profiler::GetConfiguration()->GetApiKey().empty());
+}
+
+TEST_F(ProfilingDataCallbackTests, FailedSetupDoesNotInvokeCallback) {
+  int calls = 0;
+  ProfilingDataCallback callback = [&](ProfilingDataResult) { ++calls; };
+  ASSERT_TRUE(SetupProfilingDataCallback(callback));
+
+  ProfilerConfig config{};
+  config.size = sizeof(config) - 1;
+  EXPECT_FALSE(SetupProfiler(&config));
+  EXPECT_FALSE(profiler->IsStarted());
+  EXPECT_TRUE(profiler->GetProfilingDataCallback());
+  EXPECT_EQ(calls, 0);
+
+  StopProfiler();
+  EXPECT_EQ(calls, 0);
+}
+
+TEST_F(ProfilingDataCallbackTests, FailedStartDoesNotInvokeCallback) {
+  const auto* name = EnvironmentVariables::ProfilerEnabled;
+  const auto size = ::GetEnvironmentVariableA(name, nullptr, 0);
+  std::string previousValue(size, '\0');
+  if (size != 0) {
+    ASSERT_NE(::GetEnvironmentVariableA(name, previousValue.data(), size), 0u);
+  }
+  struct RestoreEnvironment {
+    const char* name;
+    const std::string& value;
+    ~RestoreEnvironment() {
+      EXPECT_TRUE(
+          ::SetEnvironmentVariableA(name, value.empty() ? nullptr : value.c_str())
+      );
+    }
+  } restore{name, previousValue};
+  ASSERT_TRUE(::SetEnvironmentVariableA(name, "0"));
+  *Profiler::GetConfiguration() = Configuration();
+  ASSERT_TRUE(Profiler::GetConfiguration()->IsProfilerExplicitlyDisabled());
+
+  int calls = 0;
+  ProfilingDataCallback callback = [&](ProfilingDataResult) { ++calls; };
+  ASSERT_TRUE(SetupProfilingDataCallback(callback));
+  ProfilerConfig config{};
+  config.size = sizeof(config);
+  ASSERT_TRUE(SetupProfiler(&config));
+
+  EXPECT_FALSE(StartProfiler());
+  EXPECT_FALSE(profiler->IsStarted());
+  EXPECT_TRUE(profiler->GetProfilingDataCallback());
+  EXPECT_EQ(calls, 0);
+
+  StopProfiler();
+  EXPECT_EQ(calls, 0);
 }
 
 TEST_F(ProfilingDataCallbackTests, UnregisterRestoresHttpRequirements) {

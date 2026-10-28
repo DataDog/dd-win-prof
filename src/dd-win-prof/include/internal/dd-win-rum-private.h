@@ -12,6 +12,9 @@
 
 #include "dd-win-prof.h"
 
+// SDK-private C++ callback API. Use only when building dd-win-prof from source as
+// a dependency, with compatible compiler, standard library and CRT settings.
+// No API or ABI compatibility is guaranteed across versions or independent builds.
 struct ProfilingData {
   // Owned LZ4-compressed pprof bytes, safe to move to an SDK upload queue.
   std::vector<uint8_t> pprof;
