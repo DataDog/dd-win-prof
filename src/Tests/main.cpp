@@ -31,7 +31,6 @@ int main(int argc, char** argv) {
   }
 
   int new_argc = static_cast<int>(new_argv.size());
-  new_argv.push_back(nullptr);
   ::testing::InitGoogleTest(&new_argc, const_cast<char**>(new_argv.data()));
 
   std::cout << "==================================================" << std::endl;

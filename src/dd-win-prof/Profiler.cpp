@@ -282,9 +282,6 @@ void Profiler::CompleteCurrentSession() {
 }
 
 bool Profiler::SetRumSession(const RumSessionContext* pContext) {
-  // Acquire lifecycle before RUM context, as start/stop may join RUM readers.
-  std::lock_guard lifecycleLock(_lifecycleMutex);
-
   if (pContext == nullptr) {
     std::unique_lock lock(_rumContextMutex);
     CompleteCurrentSession();

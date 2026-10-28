@@ -57,13 +57,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
     } break;
 
     case DLL_PROCESS_DETACH: {
-      // ExitProcess has terminated other threads, possibly while they held locks.
-      // Leave reclamation to the OS; explicit StopProfiler performs normal cleanup.
-      if (lpReserved != nullptr) {
-        break;
-      }
-
-      // Dynamic unloading is not supported.
+      // this is called when the process exits or the DLL is unloaded (which is not
+      // supported)
       Log::Debug("<   Detach from ", ::GetCurrentThreadId());
 
       auto profiler = Profiler::GetInstance();
