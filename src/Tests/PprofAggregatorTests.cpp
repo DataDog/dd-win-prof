@@ -610,7 +610,7 @@ TEST_F(PprofAggregatorTest, ResetProfile) {
   aggregator.AddSample(locationIds, values, timestamp, labelsetId);
 
   // Act
-  aggregator.Reset();
+  EXPECT_TRUE(aggregator.Reset());
 
   // Assert
   EXPECT_TRUE(aggregator.IsInitialized())
@@ -636,7 +636,8 @@ TEST_F(PprofAggregatorTest, ResetUninitializedAggregator) {
       << "Precondition: aggregator must not be initialized";
 
   // Act
-  aggregator.Reset();
+  EXPECT_FALSE(aggregator.Reset());
+  EXPECT_EQ(aggregator.GetLastError(), "Cannot reset an uninitialized profile");
 
   // Assert
   EXPECT_FALSE(aggregator.IsInitialized())

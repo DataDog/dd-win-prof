@@ -287,8 +287,7 @@ bool ProfileExporter::Export(bool lastCall) {
   }
 
   LogExport(lastCall, endUnixTimeMs - startUnixTimeMs, bytes ? bytes->len : 0);
-  FinishExport(end);
-  return success;
+  return FinishExport(end) && success;
 }
 
 void ProfileExporter::EncodedProfileDeleter::operator()(
@@ -308,13 +307,7 @@ ProfileExporter::EncodedProfilePtr ProfileExporter::SerializeProfile(
 ) {
   EncodedProfilePtr profile(_aggregator->Serialize(startUnixTimeMs, endUnixTimeMs));
   if (!profile) {
-    _lastError = _aggregator->GetLastError();
-    Log::Error("Failed to serialize profile: ", _lastError);
-    if (_profilingDataCallback) {
-      DeliverProfilingData(
-          ProfilingError{ProfilingErrorCode::SerializationFailed, _lastError}
-      );
-    }
+    ReportError(ProfilingErrorCode::SerializationFailed, _aggregator->GetLastError());
   }
   return profile;
 }
@@ -377,12 +370,7 @@ std::optional<ddog_ByteSlice> ProfileExporter::ReadProfileBytes(
       reinterpret_cast<const char*>(bytes.err.message.ptr), bytes.err.message.len
   );
   ddog_Error_drop(&bytes.err);
-  Log::Error(_lastError);
-  if (_profilingDataCallback) {
-    DeliverProfilingData(
-        ProfilingError{ProfilingErrorCode::ProfileBytesUnavailable, _lastError}
-    );
-  }
+  ReportError(ProfilingErrorCode::ProfileBytesUnavailable, _lastError);
   return std::nullopt;
 }
 
@@ -436,14 +424,25 @@ bool ProfileExporter::DeliverProfilingData(ProfilingDataResult result) {
   return false;
 }
 
-void ProfileExporter::FinishExport(std::chrono::system_clock::time_point end) {
-  // Reset the aggregator for next collection cycle
-  _aggregator->Reset();
+void ProfileExporter::ReportError(ProfilingErrorCode code, std::string message) {
+  _lastError = std::move(message);
+  Log::Error("Profile operation failed (non-fatal): ", _lastError);
+  if (_profilingDataCallback) {
+    DeliverProfilingData(ProfilingError{ProfilingSeverity::Error, code, _lastError});
+  }
+}
 
-  // Re-intern sample labels since they become invalid after profile reset
+bool ProfileExporter::FinishExport(std::chrono::system_clock::time_point end) {
+  bool success = _aggregator->Reset();
+  if (!success) {
+    ReportError(ProfilingErrorCode::ProfileResetFailed, _aggregator->GetLastError());
+  }
   if (!InternSampleLabels(_sampleLabels)) {
-    Log::Error("Failed to re-intern sample labels after reset");
-    // Continue anyway - this will cause Add() calls to fail but won't crash
+    ReportError(
+        ProfilingErrorCode::SampleLabelsUnavailable,
+        "Failed to re-intern sample labels after reset"
+    );
+    success = false;
   }
 
   // Reset the profile start time for the next collection cycle
@@ -456,6 +455,7 @@ void ProfileExporter::FinishExport(std::chrono::system_clock::time_point end) {
   if (_currentExportId % CACHE_CLEANUP_THRESHOLD == 0) {
     CleanupUnusedCacheEntries(_currentExportId);
   }
+  return success;
 }
 
 std::string ProfileExporter::ComputeRuntimeId() {

@@ -21,6 +21,7 @@ namespace dd_win_prof {
 struct ProfileEncodingApi {
   decltype(&ddog_prof_Profile_serialize) serialize = ddog_prof_Profile_serialize;
   decltype(&ddog_prof_EncodedProfile_bytes) bytes = ddog_prof_EncodedProfile_bytes;
+  decltype(&ddog_prof_Profile_reset) reset = ddog_prof_Profile_reset;
 };
 
 /// <summary>
@@ -81,7 +82,7 @@ class PprofAggregator {
   /// Resets the profile, clearing all accumulated data while preserving configuration
   /// </summary>
   /// <returns>True if reset was successful, false otherwise</returns>
-  void Reset();
+  bool Reset();
 
   /// <summary>
   /// Adds a sample to the profile using interned location IDs and labels

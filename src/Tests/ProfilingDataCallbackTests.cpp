@@ -20,6 +20,7 @@ namespace {
 struct EncodingFailureState {
   bool serialize = false;
   bool bytes = false;
+  bool reset = false;
   std::string message;
 };
 thread_local EncodingFailureState encodingFailure;
@@ -59,6 +60,16 @@ ddog_prof_Result_ByteSlice ReadBytesWithFailure(ddog_prof_EncodedProfile* profil
     return result;
   }
   return ddog_prof_EncodedProfile_bytes(profile);
+}
+
+ddog_prof_Profile_Result ResetWithFailure(ddog_prof_Profile* profile) {
+  if (std::exchange(encodingFailure.reset, false)) {
+    ddog_prof_Profile_Result result{};
+    result.tag = DDOG_PROF_PROFILE_RESULT_ERR;
+    result.err = MakeNativeError();
+    return result;
+  }
+  return ddog_prof_Profile_reset(profile);
 }
 }  // namespace
 
@@ -237,7 +248,7 @@ TEST_F(ProfilingDataCallbackTests, CallbackDiscardsRumRecordsWithoutMetadataFile
   fs::remove_all(outputDir);
 }
 
-TEST_F(ProfilingDataCallbackTests, EncodingErrorsAreDeliveredAndNextExportRecovers) {
+TEST_F(ProfilingDataCallbackTests, EncodingErrorsAreNonFatalAndNextExportRecovers) {
   for (const auto code :
        {ProfilingErrorCode::SerializationFailed,
         ProfilingErrorCode::ProfileBytesUnavailable}) {
@@ -266,6 +277,7 @@ TEST_F(ProfilingDataCallbackTests, EncodingErrorsAreDeliveredAndNextExportRecove
     ASSERT_EQ(results.size(), 1u);
     ASSERT_TRUE(std::holds_alternative<ProfilingError>(results.front()));
     const auto& error = std::get<ProfilingError>(results.front());
+    EXPECT_EQ(error.severity, ProfilingSeverity::Error);
     EXPECT_EQ(error.code, code);
     ASSERT_FALSE(encodingFailure.message.empty());
     EXPECT_NE(error.message.find(encodingFailure.message), std::string::npos);
@@ -282,6 +294,16 @@ TEST_F(ProfilingDataCallbackTests, EncodingErrorsAreDeliveredAndNextExportRecove
     EXPECT_FALSE(std::get<ProfilingData>(results.back()).pprof.empty());
     EXPECT_TRUE(std::get<ProfilingData>(results.back()).isLast);
     EXPECT_TRUE(exporter.GetLastError().empty());
+
+    encodingFailure.serialize = code == ProfilingErrorCode::SerializationFailed;
+    encodingFailure.bytes = code == ProfilingErrorCode::ProfileBytesUnavailable;
+    EXPECT_FALSE(exporter.Export(true));
+    ASSERT_EQ(results.size(), 3u);
+    ASSERT_TRUE(std::holds_alternative<ProfilingError>(results.back()));
+    const auto& finalError = std::get<ProfilingError>(results.back());
+    EXPECT_EQ(finalError.severity, ProfilingSeverity::Error);
+    EXPECT_EQ(finalError.code, code);
+    EXPECT_NE(finalError.message.find(encodingFailure.message), std::string::npos);
     exporter.Cleanup();
   }
 }
@@ -395,6 +417,45 @@ TEST(ProfilingDataExportTests, CallbackBypassesHttpAndOwnsBytes) {
   EXPECT_FALSE(second.pprof.empty());
   EXPECT_LE(first.startUnixTimeMs, first.endUnixTimeMs);
   EXPECT_EQ(first.endUnixTimeMs, second.startUnixTimeMs);
+}
+
+TEST(ProfilingDataExportTests, ResetErrorIsDeliveredAndNextExportRecovers) {
+  for (const bool lastCall : {false, true}) {
+    SCOPED_TRACE(lastCall);
+    encodingFailure = {};
+    encodingFailure.reset = true;
+    Configuration config;
+    config.ResetToDefaults();
+    std::vector<ProfilingDataResult> results;
+    config.SetProfilingDataCallback([&](ProfilingDataResult result) {
+      results.push_back(std::move(result));
+    });
+    dd_win_prof::ProfileEncodingApi api;
+    api.reset = ResetWithFailure;
+    std::vector<SampleValueType> types{{"cpu-time", "nanoseconds"}};
+    ProfileExporter exporter(&config, types, nullptr, api);
+    ASSERT_TRUE(exporter.Initialize()) << exporter.GetLastError();
+
+    EXPECT_FALSE(exporter.Export(lastCall));
+    ASSERT_EQ(results.size(), 2u);
+    ASSERT_TRUE(std::holds_alternative<ProfilingData>(results.front()));
+    EXPECT_EQ(std::get<ProfilingData>(results.front()).isLast, lastCall);
+    EXPECT_FALSE(std::get<ProfilingData>(results.front()).pprof.empty());
+    ASSERT_TRUE(std::holds_alternative<ProfilingError>(results.back()));
+    const auto& error = std::get<ProfilingError>(results.back());
+    EXPECT_EQ(error.severity, ProfilingSeverity::Error);
+    EXPECT_EQ(error.code, ProfilingErrorCode::ProfileResetFailed);
+    ASSERT_FALSE(encodingFailure.message.empty());
+    EXPECT_NE(error.message.find(encodingFailure.message), std::string::npos);
+    EXPECT_EQ(exporter.GetLastError(), error.message);
+
+    EXPECT_TRUE(exporter.Export(true));
+    ASSERT_EQ(results.size(), 3u);
+    ASSERT_TRUE(std::holds_alternative<ProfilingData>(results.back()));
+    EXPECT_FALSE(std::get<ProfilingData>(results.back()).pprof.empty());
+    EXPECT_TRUE(exporter.GetLastError().empty());
+    exporter.Cleanup();
+  }
 }
 
 TEST(ProfilingDataExportTests, ThrowingCallbackDoesNotPreventNextExport) {

@@ -116,8 +116,9 @@ class ProfileExporter {
       bool lastCall
   );
   bool DeliverProfilingData(ProfilingDataResult result);
+  void ReportError(ProfilingErrorCode code, std::string message);
   void LogExport(bool lastCall, int64_t durationMs, size_t profileSize) const;
-  void FinishExport(std::chrono::system_clock::time_point end);
+  bool FinishExport(std::chrono::system_clock::time_point end);
 
   // Helper methods for location/function/mapping management
   std::optional<ddog_prof_LocationId> InternLocation(uint64_t address);

@@ -111,16 +111,23 @@ ddog_prof_EncodedProfile* PprofAggregator::Serialize(
   return nullptr;
 }
 
-void PprofAggregator::Reset() {
+bool PprofAggregator::Reset() {
+  m_lastError.clear();
   if (!m_initialized) {
-    return;
+    m_lastError = "Cannot reset an uninitialized profile";
+    return false;
   }
 
-  auto result = ddog_prof_Profile_reset(&m_profile);
-  if (result.tag != DDOG_PROF_PROFILE_RESULT_OK) {
-    // Handle error - for now just log
-    Log::Error("Failed to reset profile");
+  auto result = m_encodingApi.reset(&m_profile);
+  if (result.tag == DDOG_PROF_PROFILE_RESULT_OK) {
+    return true;
   }
+
+  m_lastError = "libdatadog failed to reset profile: ";
+  const auto message = ddog_Error_message(&result.err);
+  m_lastError.append(message.ptr, message.len);
+  ddog_Error_drop(&result.err);
+  return false;
 }
 
 bool PprofAggregator::AddSample(

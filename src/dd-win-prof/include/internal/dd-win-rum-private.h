@@ -26,9 +26,24 @@ enum class ProfilingErrorCode {
   // libdatadog serializes and compresses in a single operation.
   SerializationFailed = 1,
   ProfileBytesUnavailable = 2,
+  ProfileResetFailed = 3,
+  SampleLabelsUnavailable = 4,
+};
+
+enum class ProfilingSeverity {
+  // Exceptions and panics are assumed fatal. Stop-on-fatal handling is not yet
+  // implemented; this severity is not currently emitted.
+  Fatal,
+  // An operation failed; profiling can continue.
+  Error,
+  // Profiling continues with degraded data.
+  Warning,
+  // Informational diagnostic, not a failure.
+  Info,
 };
 
 struct ProfilingError {
+  ProfilingSeverity severity;
   ProfilingErrorCode code;
   std::string message;
 };
@@ -38,7 +53,11 @@ using ProfilingDataResult = std::variant<ProfilingData, ProfilingError>;
 // the final invocation runs inside StopProfiler() on its calling thread.
 // Do not perform blocking I/O, wait for upload completion, or call profiler
 // setup/start/stop/registration APIs here. Callback execution delays export and stop.
-// Exceptions are caught and logged; failed results are not retried.
+// Encoding and next-profile preparation failures have Error severity and do not
+// stop profiling. A preparation error can follow a successfully delivered profile.
+// StopProfiler() still completes if the final export fails. Setup/start failures
+// are reported synchronously, not through this callback.
+// Callback exceptions are caught and logged; failed results are not retried.
 using ProfilingDataCallback = std::function<void(ProfilingDataResult)>;
 
 typedef struct _RumSessionContext {
