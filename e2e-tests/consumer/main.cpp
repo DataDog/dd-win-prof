@@ -12,10 +12,6 @@
 // Deliberately the first include: the public header must be self-contained.
 #include "dd-win-prof.h"
 
-bool TestSdkCallback();
+int TestSdkCallback();
 
-int main() {
-  const bool callbackPassed = TestSdkCallback();
-  StopProfiler();
-  return callbackPassed ? 0 : 1;
-}
+int main() { return TestSdkCallback(); }
