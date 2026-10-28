@@ -8,11 +8,16 @@
 #include "internal/dd-win-rum-private.h"
 #include "pch.h"
 
-DD_WIN_PROF_API bool SetupProfilingDataCallback(const ProfilingDataCallback& callback) {
+DD_WIN_PROF_API std::optional<ProfilingError> SetupProfilingDataCallback(
+    const ProfilingDataCallback& callback
+) {
   auto profiler = Profiler::GetInstance();
   if (profiler == nullptr) {
-    Log::Warn("SetupProfilingDataCallback() requires a stopped profiler.");
-    return false;
+    return ProfilingError{
+        ProfilingSeverity::Error,
+        ProfilingErrorCode::ProfilerUnavailable,
+        "Profiler instance is unavailable; callback was not registered"
+    };
   }
   return profiler->SetProfilingDataCallback(callback);
 }

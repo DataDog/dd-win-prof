@@ -2,7 +2,9 @@
 // the Apache 2 License. This product includes software developed at Datadog
 // (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
 
+// clang-format off: verify the SDK header is self-contained.
 #include "internal/dd-win-rum-private.h"
+// clang-format on
 
 #include <iostream>
 #include <utility>
@@ -12,8 +14,9 @@ int TestSdkCallback() {
   const ProfilingDataCallback callback = [&](ProfilingDataResult result) {
     results.push_back(std::move(result));
   };
-  if (!SetupProfilingDataCallback(callback)) {
-    std::cerr << "Failed to register the profiling callback\n";
+  if (auto error = SetupProfilingDataCallback(callback)) {
+    std::cerr << "Failed to register the profiling callback: " << error->message
+              << '\n';
     return 1;
   }
 
@@ -23,13 +26,17 @@ int TestSdkCallback() {
   config.uploadIntervalSeconds = 3600;
   if (!SetupProfiler(&config) || !StartProfiler()) {
     std::cerr << "Failed to configure or start the profiler\n";
-    SetupProfilingDataCallback({});
+    if (auto error = SetupProfilingDataCallback({})) {
+      std::cerr << "Failed to unregister the profiling callback: " << error->message
+                << '\n';
+    }
     return 1;
   }
 
   StopProfiler();
-  if (!SetupProfilingDataCallback({})) {
-    std::cerr << "Failed to unregister the profiling callback\n";
+  if (auto error = SetupProfilingDataCallback({})) {
+    std::cerr << "Failed to unregister the profiling callback: " << error->message
+              << '\n';
     return 1;
   }
 

@@ -180,7 +180,7 @@ Configuration is managed in `Configuration.cpp`. Values come from two sources, w
 
 2. **`SetupProfiler(const ProfilerConfig*)`** (`dd-win-prof.cpp`): Callers pass a `ProfilerConfig` struct; `InitializeConfiguration()` applies its fields to the shared `Configuration` instance.
 
-**SDK callback registration**: `Profiler` owns the callback registered through `SetupProfilingDataCallback()`. Registration survives configuration resets and stop/start cycles. Each `ProfileExporter` receives a copy for its run. Configuration validation receives the delivery mode explicitly and does not own the callable.
+**SDK callback registration**: `Profiler` owns the callback registered through `SetupProfilingDataCallback()`. The function returns `std::optional<ProfilingError>`: empty on success, or a synchronous diagnostic without invoking the callback or replacing the previous registration. Registration survives configuration resets and stop/start cycles. Each `ProfileExporter` receives a copy for its run. Configuration validation receives the delivery mode explicitly and does not own the callable.
 
 **No-env-vars mode** (`ProfilerConfig.noEnvVars == true`): `ResetToDefaults()` is called first, then only explicit struct fields are applied. All environment variables are ignored. For HTTP delivery, `url` and `apiKey` are mandatory; `SetupProfiler` returns `false` if either is missing. Callback delivery does not require them.
 

@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <variant>
 #include <vector>
@@ -31,11 +32,14 @@ enum class ProfilingErrorCode {
   ProfileBytesUnavailable = 2,
   ProfileResetFailed = 3,
   SampleLabelsUnavailable = 4,
+  ProfilerUnavailable = 5,
+  ProfilerAlreadyRunning = 6,
+  CallbackCopyFailed = 7,
 };
 
 enum class ProfilingSeverity {
-  // Exceptions and panics are assumed fatal. Stop-on-fatal handling is not yet
-  // implemented; this severity is not currently emitted.
+  // Exceptions and panics are assumed fatal. Automatic stop-on-fatal handling is
+  // not yet implemented.
   Fatal,
   // An operation failed; profiling can continue.
   Error,
@@ -81,8 +85,12 @@ typedef struct _RumViewValues {
 // run. Registration persists across StopProfiler() and SetupProfiler(). Stop, then
 // unregister before unloading callback code. Captured references must remain valid
 // through the last callback.
-// Returns false if the profiler is unavailable/running or copying the callable fails.
-DD_WIN_PROF_API bool SetupProfilingDataCallback(const ProfilingDataCallback& callback);
+// Returns no error on success. Failures are returned synchronously, never through
+// the callback, and leave registration unchanged. Copy exceptions are Fatal;
+// the profiler is already stopped when copying is attempted.
+[[nodiscard]] DD_WIN_PROF_API std::optional<ProfilingError> SetupProfilingDataCallback(
+    const ProfilingDataCallback& callback
+);
 
 extern "C" {
 // Set stable RUM session context. Safe to call from any thread.
