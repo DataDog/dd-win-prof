@@ -14,8 +14,10 @@ Implementation of a Windows CPU profiler
 
 In your project, you need the following files:
 
-- **dd-win-prof.h** and **error.h**: public lifecycle, configuration, and diagnostic declarations.
-- **dd-win-prof.lib**: library containing the stub for the two functions pointing to **dd-win-prof.dll**
+- **dd-win-prof.h**: public API and configuration declarations.
+- **dd-win-prof.lib**: import library for **dd-win-prof.dll**
+
+Use matching headers and binaries built with compatible C++ toolchains.
 
 The following files are required in the folder from where the application runs:
 - **dd-win-prof.dll**: profiling code
@@ -67,77 +69,6 @@ install(FILES
 )
 install(FILES "$<TARGET_FILE:dd_win_prof_libdatadog_dynamic>" DESTINATION bin)
 ```
-
-## Lifecycle diagnostics
-
-This is a C++ API intended to be wrapped by the SDK. Build the profiler and its
-consumers with compatible C++ toolchains and matching headers. There is no C API
-or promised binary compatibility across versions/toolchains.
-
-`SetupProfiler(const ProfilerConfig&)` and `StartProfiler()` return `bool`;
-`StopProfiler()` returns `void`. Rich diagnostics are SDK-private, not part of the
-public lifecycle results. A false start can mean explicit disable (`Info`) or a
-failure; the private error's code distinguishes them.
-
-```cpp
-#include "internal/dd-win-rum-private.h"
-
-if (!StartProfiler()) {
-    if (const auto* error = GetLastProfilerError()) {
-        // Handle or log error->severity, error->code, and error->message.
-    }
-}
-
-StopProfiler();
-if (const auto* error = GetLastProfilerError()) {
-    // Handle an error from the final export or teardown.
-}
-```
-
-`GetLastProfilerError()` is declared in `internal/dd-win-rum-private.h` and
-returns a borrowed `const ProfilingError*`, or `nullptr` after success. It reuses
-the callback API's existing rich error type, including its owning message.
-The DLL owns the thread-local error: do not delete it or retain the pointer past
-the next lifecycle call on the same thread, thread exit, or library unload.
-Copy the error or message into caller-owned storage if needed longer. No owning
-error or string is returned through the public lifecycle API.
-
-The getter does not consume or modify the error. Each lifecycle call replaces
-it; success clears it. Background errors and callback registration leave it alone.
-Message text is passed through without UTF-8 validation, normalization, or
-fixed-size truncation. Encoding conversion, if needed, belongs in the SDK.
-Do not parse message wording to identify failures; use `ProfilingErrorCode`.
-
-Serialize all lifecycle and callback-registration calls, and do not invoke them
-from a profiling callback. Stop waits for collection and callbacks and attempts
-a final export. It does not wait for SDK uploads queued by a callback and has no
-overall timeout. Already stopped clears the error. Inspect the private getter
-after stop for final-export failures, not earlier periodic failures. When several
-failures occur, the highest severity wins, with the first failure breaking ties.
-A fatal error during active profiling does not itself trigger shutdown. Lifecycle
-calls contain C++ exceptions and store fatal errors; if allocating exception text
-fails, the code and severity remain available with an empty message. Access
-violations, process termination, and non-unwinding Rust panics are not contained.
-
-Lifecycle calls do not log synchronous failures; callers own reporting.
-Background failures are reported by the worker unless already delivered through
-the SDK callback. Operational logging, including debug-file warnings, remains
-independent. A final encoding error can reach the SDK callback and the private
-getter; the SDK should report it only once (`reportedToCallback` records delivery).
-
-`internal/error.h` declares `ProfilingError`, its enums, and `ProfilingResult`
-(`std::optional<ProfilingError>`, with no value meaning success). Internal lifecycle,
-configuration, and export operations return these errors directly and stop
-dependent work at the first failure. Export reset and stop cleanup still run.
-Only the public lifecycle boundary stores the thread-local error and maps it to
-the bool/void return convention. The SDK-private API requires compatible compiler,
-standard-library and CRT settings. `ProfilerConfig` fields and exact-size
-validation are unchanged.
-
-**Breaking change:** lifecycle functions use C++ linkage and setup takes
-configuration by const reference. Rebuild consumers with matching headers.
-The bool/void return conventions are preserved; no switch to integer or severity
-returns is included. There are no parallel legacy or version-suffixed exports.
 
 ## Configuration
 
@@ -334,17 +265,6 @@ Layout is owned by `install()` rules in the relevant `CMakeLists.txt` files.
 cmake --build build --config Debug
 build\src\Tests\Debug\Tests.exe
 ```
-
-Separate targets exercise borrowed diagnostics across the DLL boundary with
-`/MT` and `/MD` consumers built using the same C++ toolchain. Build and run them with the unit suite using:
-
-```powershell
-cmake --build build --config Debug --target Tests LifecycleDllMT LifecycleDllMD
-ctest --test-dir build/src/Tests -C Debug --output-on-failure --no-tests=error
-```
-
-For the Release worker loop, use
-`e2e-tests/run-lifecycle-diagnostics-tests.ps1`.
 
 See [`src/Tests/README.md`](src/Tests/README.md) for details on test coverage.
 
