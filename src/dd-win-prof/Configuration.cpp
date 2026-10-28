@@ -268,8 +268,8 @@ bool Configuration::IsWallTimeProfilingEnabled() const {
   return _isWallTimeProfilingEnabled;
 }
 
-bool Configuration::IsExportEnabled() const {
-  return !_profilingDataCallback && _upload.enabled;
+bool Configuration::IsExportEnabled(ProfileDeliveryMode mode) const {
+  return mode == ProfileDeliveryMode::Http && _upload.enabled;
 }
 
 void Configuration::SetExportEnabled(bool enabled) { _upload.enabled = enabled; }
@@ -325,8 +325,8 @@ int32_t Configuration::GetAgentPort() const { return _upload.agentPort; }
 
 bool Configuration::IsAgentless() const { return !_upload.apiKey.empty(); }
 
-bool Configuration::ValidateTransportConfig() const {
-  if (_profilingDataCallback) {
+bool Configuration::ValidateTransportConfig(ProfileDeliveryMode mode) const {
+  if (mode == ProfileDeliveryMode::Callback) {
     return true;
   }
   bool hasAgentSettings = !_upload.agentUrl.empty() ||
@@ -472,7 +472,9 @@ T Configuration::GetEnvironmentValue(char const* name, T const& defaultValue) {
   return result;
 }
 
-bool InitializeConfiguration(Configuration* pConfig, const ProfilerConfig* pSettings) {
+bool InitializeConfiguration(
+    Configuration* pConfig, const ProfilerConfig* pSettings, ProfileDeliveryMode mode
+) {
   // if noEnvVars is set, we ignore all environment variables and use only the values
   // provided in the ProfilerConfig struct (or defaults if not set in the struct)
   if (pSettings->noEnvVars) {
@@ -481,14 +483,14 @@ bool InitializeConfiguration(Configuration* pConfig, const ProfilerConfig* pSett
 
   if (pSettings->url != nullptr) {
     pConfig->SetEndpoint(pSettings->url);
-  } else if (pSettings->noEnvVars && !pConfig->GetProfilingDataCallback()) {
+  } else if (pSettings->noEnvVars && mode == ProfileDeliveryMode::Http) {
     Log::Error("Url endpoint must be set.");
     return false;
   }
 
   if (pSettings->apiKey != nullptr) {
     pConfig->SetApiKey(pSettings->apiKey);
-  } else if (pSettings->noEnvVars && !pConfig->GetProfilingDataCallback()) {
+  } else if (pSettings->noEnvVars && mode == ProfileDeliveryMode::Http) {
     Log::Error("Datadog API Key must be set.");
     return false;
   }
@@ -533,5 +535,5 @@ bool InitializeConfiguration(Configuration* pConfig, const ProfilerConfig* pSett
     pConfig->EnableSymbolizedCallstacks();
   }
 
-  return pConfig->ValidateTransportConfig();
+  return pConfig->ValidateTransportConfig(mode);
 }

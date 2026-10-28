@@ -504,20 +504,16 @@ TEST_F(ConfigurationTest, Agent_NoApiKey) {
   EXPECT_FALSE(config.IsAgentless());
 }
 
-TEST_F(
-    ConfigurationTest, CallbackIgnoresTransportConflictAndUnregisterRestoresValidation
-) {
+TEST_F(ConfigurationTest, TransportValidationAndExportUseExplicitDeliveryMode) {
   SetTestEnvVar(EnvironmentVariables::ApiKey, "my-api-key");
   SetTestEnvVar(EnvironmentVariables::AgentUrl, "http://localhost:8126");
 
   Configuration config;
   config.SetExportEnabled(true);
-  config.SetProfilingDataCallback([](ProfilingDataResult) {});
-  EXPECT_TRUE(config.ValidateTransportConfig());
-  EXPECT_FALSE(config.IsExportEnabled());
-  config.SetProfilingDataCallback({});
-  EXPECT_FALSE(config.ValidateTransportConfig());
-  EXPECT_TRUE(config.IsExportEnabled());
+  EXPECT_TRUE(config.ValidateTransportConfig(ProfileDeliveryMode::Callback));
+  EXPECT_FALSE(config.IsExportEnabled(ProfileDeliveryMode::Callback));
+  EXPECT_FALSE(config.ValidateTransportConfig(ProfileDeliveryMode::Http));
+  EXPECT_TRUE(config.IsExportEnabled(ProfileDeliveryMode::Http));
 }
 
 TEST_F(ConfigurationTest, InitConfig_ConflictingTransportConfig_Fails) {

@@ -10,17 +10,11 @@
 
 DD_WIN_PROF_API bool SetupProfilingDataCallback(const ProfilingDataCallback& callback) {
   auto profiler = Profiler::GetInstance();
-  if (profiler == nullptr || profiler->IsStarted()) {
+  if (profiler == nullptr) {
     Log::Warn("SetupProfilingDataCallback() requires a stopped profiler.");
     return false;
   }
-  try {
-    Profiler::GetConfiguration()->SetProfilingDataCallback(callback);
-    return true;
-  } catch (...) {
-    Log::Error("Failed to copy profiling data callback.");
-    return false;
-  }
+  return profiler->SetProfilingDataCallback(callback);
 }
 
 extern "C" {
@@ -49,7 +43,9 @@ DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig* pSettings) {
     return false;
   }
 
-  return InitializeConfiguration(Profiler::GetConfiguration(), pSettings);
+  return InitializeConfiguration(
+      Profiler::GetConfiguration(), pSettings, profiler->GetDeliveryMode()
+  );
 }
 
 DD_WIN_PROF_API bool StartProfiler() {

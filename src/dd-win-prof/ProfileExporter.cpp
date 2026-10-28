@@ -39,6 +39,7 @@ ProfileExporter::ProfileExporter(
     Configuration* pConfiguration,
     std::span<const SampleValueType> sampleTypeDefinitions,
     IRumRecordProvider* pRumRecordProvider,
+    ProfilingDataCallback callback,
     ProfileEncodingApi encodingApi
 )
     : _pConfiguration(pConfiguration),
@@ -51,6 +52,7 @@ ProfileExporter::ProfileExporter(
       _debugPprofFileWritingEnabled(false),
       _debugPprofPrefix(""),
       _exportEnabled(false),
+      _profilingDataCallback(std::move(callback)),
       _exporter(nullptr),
       _agentMode(true),
       _consecutiveErrors(0),
@@ -81,10 +83,9 @@ ProfileExporter::ProfileExporter(
       _debugPprofPrefix += "profile_";
     }
 
-    // Configure export settings from Configuration
-    _exportEnabled =
-        _pConfiguration->IsExportEnabled();  // Use dedicated export setting
-    _profilingDataCallback = _pConfiguration->GetProfilingDataCallback();
+    const auto mode = _profilingDataCallback ? ProfileDeliveryMode::Callback
+                                             : ProfileDeliveryMode::Http;
+    _exportEnabled = _pConfiguration->IsExportEnabled(mode);
     if (_exportEnabled) {
       _apiKey = _pConfiguration->GetApiKey();
       _agentMode = !_pConfiguration->IsAgentless();

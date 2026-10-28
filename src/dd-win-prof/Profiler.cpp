@@ -27,6 +27,20 @@ Profiler::~Profiler() {
   _isStarted = false;
 }
 
+bool Profiler::SetProfilingDataCallback(const ProfilingDataCallback& callback) {
+  if (IsStarted()) {
+    Log::Warn("SetupProfilingDataCallback() requires a stopped profiler.");
+    return false;
+  }
+  try {
+    _profilingDataCallback = callback;
+    return true;
+  } catch (...) {
+    Log::Error("Failed to copy profiling data callback.");
+    return false;
+  }
+}
+
 bool Profiler::StartProfiling() {
   // no needed to look at env var to enable profiler
   // --> used only as kill switch to disable it
@@ -38,7 +52,7 @@ bool Profiler::StartProfiling() {
     return false;
   }
 
-  if (!_pConfiguration->ValidateTransportConfig()) {
+  if (!_pConfiguration->ValidateTransportConfig(GetDeliveryMode())) {
     return false;
   }
 
@@ -65,7 +79,7 @@ bool Profiler::StartProfiling() {
 
   //... and pass them to the exporter
   _pProfileExporter = std::make_unique<ProfileExporter>(
-      _pConfiguration.get(), sampleTypeDefinitions, this
+      _pConfiguration.get(), sampleTypeDefinitions, this, _profilingDataCallback
   );
 
   // Initialize the ProfileExporter

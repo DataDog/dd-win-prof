@@ -5,8 +5,9 @@
 #pragma once
 
 #include "TagsHelper.h"
-#include "internal/dd-win-rum-private.h"
 #include "pch.h"
+
+enum class ProfileDeliveryMode { Http, Callback };
 
 class Configuration {
  public:
@@ -26,7 +27,9 @@ class Configuration {
   std::string const& GetAgentHost() const;
   int32_t GetAgentPort() const;
   bool IsAgentless() const;
-  bool ValidateTransportConfig() const;
+  bool ValidateTransportConfig(
+      ProfileDeliveryMode mode = ProfileDeliveryMode::Http
+  ) const;
   std::string const& GetSite() const;
   std::string const& GetApiKey() const;
   std::string const& GetServiceName() const;
@@ -37,17 +40,11 @@ class Configuration {
   bool IsProfilerAutoStartEnabled() const;
   bool IsCpuProfilingEnabled() const;
   bool IsWallTimeProfilingEnabled() const;
-  bool IsExportEnabled() const;
+  bool IsExportEnabled(ProfileDeliveryMode mode = ProfileDeliveryMode::Http) const;
   bool AreCallstacksSymbolized() const;
 
   // Manual configuration methods (primarily for testing)
   void SetExportEnabled(bool enabled);
-  void SetProfilingDataCallback(ProfilingDataCallback callback) {
-    _profilingDataCallback = std::move(callback);
-  }
-  const ProfilingDataCallback& GetProfilingDataCallback() const {
-    return _profilingDataCallback;
-  }
 
   std::chrono::nanoseconds CpuWallTimeSamplingPeriod() const;
   int32_t WalltimeThreadsThreshold() const;
@@ -56,7 +53,7 @@ class Configuration {
   template <typename T>
   static T GetEnvironmentValue(char const* name, T const& defaultValue);
 
-  // Reset settings to defaults (no env var reads), preserving callback registration.
+  // Reset settings to defaults (no env var reads).
   // Used when noEnvVars is set in ProfilerConfig.
   void ResetToDefaults();
 
@@ -135,7 +132,6 @@ class Configuration {
     tags userTags;
   };
   UploadConfiguration _upload;
-  ProfilingDataCallback _profilingDataCallback;
   std::chrono::seconds _uploadPeriod;
   std::string _namedPipeName;
 

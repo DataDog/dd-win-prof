@@ -78,7 +78,6 @@ class ProfilingDataCallbackTests : public ::testing::Test {
   void SetUp() override {
     previous = *Profiler::GetConfiguration();
     Profiler::GetConfiguration()->ResetToDefaults();
-    Profiler::GetConfiguration()->SetProfilingDataCallback({});
     profiler = std::make_unique<Profiler>();
   }
 
@@ -99,7 +98,7 @@ TEST_F(ProfilingDataCallbackTests, RegistrationCopiesCallable) {
   ProfilingDataCallback callback = [&](ProfilingDataResult) { ++calls; };
   ASSERT_TRUE(SetupProfilingDataCallback(callback));
   callback = {};
-  Profiler::GetConfiguration()->GetProfilingDataCallback()(ProfilingData{});
+  profiler->GetProfilingDataCallback()(ProfilingData{});
   EXPECT_EQ(calls, 1);
 }
 
@@ -108,7 +107,8 @@ TEST_F(ProfilingDataCallbackTests, EmptyCallableUnregistersCallback) {
   ASSERT_TRUE(SetupProfilingDataCallback(callback));
   const ProfilingDataCallback empty;
   EXPECT_TRUE(SetupProfilingDataCallback(empty));
-  EXPECT_FALSE(Profiler::GetConfiguration()->GetProfilingDataCallback());
+  EXPECT_FALSE(profiler->GetProfilingDataCallback());
+  EXPECT_EQ(profiler->GetDeliveryMode(), ProfileDeliveryMode::Http);
 }
 
 TEST_F(ProfilingDataCallbackTests, FailedCallbackCopyPreservesRegistration) {
@@ -129,8 +129,23 @@ TEST_F(ProfilingDataCallbackTests, FailedCallbackCopyPreservesRegistration) {
   ProfilingDataCallback replacement = ThrowOnCopy(&fail);
   fail = true;
   EXPECT_FALSE(SetupProfilingDataCallback(replacement));
-  Profiler::GetConfiguration()->GetProfilingDataCallback()(ProfilingData{});
+  profiler->GetProfilingDataCallback()(ProfilingData{});
   EXPECT_EQ(calls, 1);
+}
+
+TEST_F(ProfilingDataCallbackTests, RegistrationLifetimeMatchesProfiler) {
+  auto captured = std::make_shared<int>(0);
+  std::weak_ptr<int> lifetime = captured;
+  {
+    ProfilingDataCallback callback = [captured](ProfilingDataResult) { ++*captured; };
+    ASSERT_TRUE(SetupProfilingDataCallback(callback));
+  }
+  captured.reset();
+  EXPECT_FALSE(lifetime.expired());
+  profiler.reset();
+  EXPECT_TRUE(lifetime.expired());
+  profiler = std::make_unique<Profiler>();
+  EXPECT_FALSE(profiler->GetProfilingDataCallback());
 }
 
 TEST_F(ProfilingDataCallbackTests, NoHttpSettingsNeededWithNoEnvVars) {
@@ -144,7 +159,10 @@ TEST_F(ProfilingDataCallbackTests, NoHttpSettingsNeededWithNoEnvVars) {
   EXPECT_EQ(
       Profiler::GetConfiguration()->GetUploadInterval(), std::chrono::seconds(17)
   );
-  EXPECT_FALSE(Profiler::GetConfiguration()->IsExportEnabled());
+  EXPECT_EQ(profiler->GetDeliveryMode(), ProfileDeliveryMode::Callback);
+  EXPECT_FALSE(
+      Profiler::GetConfiguration()->IsExportEnabled(profiler->GetDeliveryMode())
+  );
   EXPECT_TRUE(Profiler::GetConfiguration()->GetApiKey().empty());
 }
 
@@ -218,7 +236,9 @@ TEST_F(ProfilingDataCallbackTests, CallbackDiscardsRumRecordsWithoutMetadataFile
   auto config = Profiler::GetConfiguration();
   config->SetProfilesOutputDirectory(outputDir);
   std::vector<SampleValueType> types{{"cpu-time", "nanoseconds"}};
-  ProfileExporter exporter(config, types, profiler.get());
+  ProfileExporter exporter(
+      config, types, profiler.get(), profiler->GetProfilingDataCallback()
+  );
   ASSERT_TRUE(exporter.Initialize()) << exporter.GetLastError();
 
   for (int cycle = 0; cycle < 2; ++cycle) {
@@ -265,7 +285,13 @@ TEST_F(ProfilingDataCallbackTests, EncodingErrorsAreNonFatalAndNextExportRecover
         SerializeWithFailure, ReadBytesWithFailure
     };
     std::vector<SampleValueType> types{{"cpu-time", "nanoseconds"}};
-    ProfileExporter exporter(Profiler::GetConfiguration(), types, profiler.get(), api);
+    ProfileExporter exporter(
+        Profiler::GetConfiguration(),
+        types,
+        profiler.get(),
+        profiler->GetProfilingDataCallback(),
+        api
+    );
     ASSERT_TRUE(exporter.Initialize()) << exporter.GetLastError();
     RumSessionContext session{"app-1", "session-1"};
     RumViewValues view{"view-1", "HomePage"};
@@ -393,14 +419,14 @@ TEST(ProfilingDataExportTests, CallbackBypassesHttpAndOwnsBytes) {
   config.ResetToDefaults();
   config.SetApiKey("unused");
   std::vector<ProfilingDataResult> results;
-  config.SetProfilingDataCallback([&](ProfilingDataResult result) {
+  ProfilingDataCallback callback = [&](ProfilingDataResult result) {
     results.push_back(std::move(result));
-  });
-  ASSERT_TRUE(config.ValidateTransportConfig());
-  EXPECT_FALSE(config.IsExportEnabled());
+  };
+  ASSERT_TRUE(config.ValidateTransportConfig(ProfileDeliveryMode::Callback));
+  EXPECT_FALSE(config.IsExportEnabled(ProfileDeliveryMode::Callback));
   std::vector<SampleValueType> types{{"cpu-time", "nanoseconds"}};
   {
-    ProfileExporter exporter(&config, types);
+    ProfileExporter exporter(&config, types, nullptr, callback);
     ASSERT_TRUE(exporter.Initialize()) << exporter.GetLastError();
     ASSERT_TRUE(exporter.Export());
     ASSERT_TRUE(exporter.Export(true));
@@ -427,13 +453,13 @@ TEST(ProfilingDataExportTests, ResetErrorIsDeliveredAndNextExportRecovers) {
     Configuration config;
     config.ResetToDefaults();
     std::vector<ProfilingDataResult> results;
-    config.SetProfilingDataCallback([&](ProfilingDataResult result) {
+    ProfilingDataCallback callback = [&](ProfilingDataResult result) {
       results.push_back(std::move(result));
-    });
+    };
     dd_win_prof::ProfileEncodingApi api;
     api.reset = ResetWithFailure;
     std::vector<SampleValueType> types{{"cpu-time", "nanoseconds"}};
-    ProfileExporter exporter(&config, types, nullptr, api);
+    ProfileExporter exporter(&config, types, nullptr, callback, api);
     ASSERT_TRUE(exporter.Initialize()) << exporter.GetLastError();
 
     EXPECT_FALSE(exporter.Export(lastCall));
@@ -462,16 +488,16 @@ TEST(ProfilingDataExportTests, ThrowingCallbackDoesNotPreventNextExport) {
   Configuration config;
   config.ResetToDefaults();
   int calls = 0;
-  config.SetProfilingDataCallback([&](ProfilingDataResult) {
+  ProfilingDataCallback callback = [&](ProfilingDataResult) {
     if (++calls == 1) {
       throw std::runtime_error("queue unavailable");
     }
     if (calls == 2) {
       throw 42;
     }
-  });
+  };
   std::vector<SampleValueType> types{{"cpu-time", "nanoseconds"}};
-  ProfileExporter exporter(&config, types);
+  ProfileExporter exporter(&config, types, nullptr, callback);
   ASSERT_TRUE(exporter.Initialize());
   EXPECT_FALSE(exporter.Export());
   EXPECT_NE(exporter.GetLastError().find("queue unavailable"), std::string::npos);

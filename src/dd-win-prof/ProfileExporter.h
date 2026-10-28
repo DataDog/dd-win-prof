@@ -17,6 +17,7 @@
 #include "Sample.h"
 #include "Symbolication.h"
 #include "datadog/profiling.h"
+#include "internal/dd-win-rum-private.h"
 #include "pch.h"
 
 class ProfileExporter {
@@ -25,6 +26,7 @@ class ProfileExporter {
       Configuration* pConfiguration,
       std::span<const SampleValueType> sampleTypeDefinitions,
       IRumRecordProvider* pRumRecordProvider = nullptr,
+      ProfilingDataCallback callback = {},
       dd_win_prof::ProfileEncodingApi encodingApi = {}
   );
   ~ProfileExporter();
