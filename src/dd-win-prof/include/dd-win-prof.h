@@ -5,8 +5,19 @@
 #pragma once
 
 #include <stdint.h>
+#ifndef __cplusplus
+#include <stdbool.h>
+#endif
 
-#include "dd-win-prof-diagnostics.h"
+#include "error.h"
+
+#ifdef DD_WIN_PROF_STATIC_LINK
+#define DD_WIN_PROF_API
+#elif defined(DD_WIN_PROF_EXPORTS)
+#define DD_WIN_PROF_API __declspec(dllexport)
+#else
+#define DD_WIN_PROF_API __declspec(dllimport)
+#endif
 
 // define a struct that will hold configuration parameters
 typedef struct _ProfilerConfig {
@@ -48,22 +59,36 @@ typedef struct _ProfilerConfig {
                                      // (default: empty = disabled)
 } ProfilerConfig;
 
+#ifdef __cplusplus
 extern "C" {
-// Configure while stopped, including after StopProfiler() returns.
-// Does not clear SDK-private callback registration. Serialize setup/start/stop calls.
-DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig* pSettings);
+#endif
 
-// Start profiling manually (returns false if already started or explicitly disabled).
-// May be called again after StopProfiler() returns.
-DD_WIN_PROF_API bool StartProfiler();
+// Lifecycle calls return DD_WIN_PROF_SUCCESS (zero) or a DDWinProfSeverity.
+// The caller owns synchronous diagnostic reporting. Serialize lifecycle/registration
+// calls and do not invoke them from profiling callbacks.
+// Configure while stopped, including after stop. Preserves callback registration.
+DD_WIN_PROF_API int32_t __cdecl SetupProfiler(const ProfilerConfig* settings);
+
+// May be called again after stop. Already running returns error; disabled returns info.
+DD_WIN_PROF_API int32_t __cdecl StartProfiler(void);
 
 // Stops collection, waits for the current export and attempts a final export.
 // Does not wait for the upload interval. The final SDK callback runs on this thread.
 // Blocks until callbacks finish, not until SDK work they queued finishes. No overall
-// timeout is imposed. No-op if already stopped.
+// timeout is imposed. Succeeds if already stopped.
 // After return, no callbacks run until the next start; setup/registration may run
 // again. Do not overlap lifecycle calls or call them from an SDK callback.
-DD_WIN_PROF_API void StopProfiler();
+DD_WIN_PROF_API int32_t __cdecl StopProfiler(void);
+
+// Copies the calling thread's most recent lifecycle diagnostic. Success clears it;
+// background errors and getter calls do not change it. All outputs are optional.
+// Returns required UTF-8 message bytes including NUL, or zero for no diagnostic.
+// A null message requires zero capacity. Positive capacity always receives a NUL;
+// truncation preserves UTF-8 boundaries. Storage is bounded to 1023 message bytes.
+// No pointers are retained or returned. Querying size does not repeat the operation.
+DD_WIN_PROF_API uint32_t __cdecl GetLastProfilerDiagnostic(
+    int32_t* severity, uint32_t* code, char* message, uint32_t capacity
+);
 
 // Enter a named view. Generates a unique view_id internally.
 // Updates per-sample pprof labels: rum.view_id and trace endpoint (viewName).
@@ -74,7 +99,7 @@ DD_WIN_PROF_API bool EnterView(const char* viewName);
 // Leave the current view (signals "between views").
 // Completes the active view record. No-op if no view is active.
 // Returns true if a view was active and is now cleared, false if no view was active.
-DD_WIN_PROF_API bool LeaveCurrentView();
+DD_WIN_PROF_API bool LeaveCurrentView(void);
 
 // Environment Variables (independent controls):
 // DD_PROFILING_ENABLED: Controls whether profiler CAN be started
@@ -87,4 +112,6 @@ DD_WIN_PROF_API bool LeaveCurrentView();
 //   - true/1: Auto-start when DLL is injected/loaded
 //   - false/0 or not set: Manual control only
 //
+#ifdef __cplusplus
 }
+#endif

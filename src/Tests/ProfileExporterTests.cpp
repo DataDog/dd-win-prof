@@ -21,8 +21,7 @@ class ProfileExporterExportTests : public ::testing::Test {
   void SetUp() override {
     // Create configuration and disable export for tests
     config = std::make_unique<Configuration>();
-    config->SetExportEnabled(
-        false
+    config->SetExportEnabled(false
     );  // Disable export to prevent hanging on network calls
 
     // Create sample value type definitions
@@ -49,7 +48,7 @@ TEST_F(ProfileExporterExportTests, InitializationWithExportEnabled) {
   // Test that exporter initializes correctly with export enabled
   ASSERT_TRUE(exporter->Initialize());
   EXPECT_TRUE(exporter->IsInitialized());
-  EXPECT_TRUE(exporter->GetLastError().empty());
+  EXPECT_TRUE(exporter->GetLastErrorMessage().empty());
 }
 
 TEST_F(ProfileExporterExportTests, ExportWithoutSamples) {
@@ -314,7 +313,7 @@ TEST_F(ProfileExporterExportTests, ExporterInitializesWithDefaultsAndExportEnabl
   auto exp = std::make_unique<ProfileExporter>(agentConfig.get(), types);
   ASSERT_TRUE(exp->Initialize())
       << "Exporter should initialize with default agent config: "
-      << exp->GetLastError();
+      << exp->GetLastErrorMessage();
   EXPECT_TRUE(exp->IsInitialized());
 
   // Explicit cleanup before destruction to avoid potential deadlocks

@@ -82,7 +82,10 @@ void SamplesCollector::ExportWork() {
   // we check it in case the periodic thread calls us at the same time as the shutdown.
   while (!IsShutdownReceived() &&
          future.wait_for(_uploadInterval) == std::future_status::timeout) {
-    Export();
+    const auto error = Export();
+    if (error && !error->reportedToCallback) {
+      Log::Error(error->message);
+    }
   }
 }
 
@@ -97,28 +100,16 @@ std::optional<ProfilingError> SamplesCollector::Export(bool lastCall) {
       samplesProvider.second = 0;
     }
 
-    const bool success = _exporter->Export(lastCall);
-    if (_exporter->GetLastDiagnostic()) {
-      return _exporter->GetLastDiagnostic();
-    }
-    if (!success) {
-      return ProfilingError{
-          ProfilingSeverity::Error,
-          ProfilingErrorCode::FinalExportFailed,
-          _exporter->GetLastError()
-      };
-    }
-    return std::nullopt;
+    _exporter->Export(lastCall);
+    return _exporter->GetLastDiagnostic();
   } catch (std::exception const& ex) {
-    Log::Error("An exception occurred during export: ", ex.what());
     return ProfilingError{
-        ProfilingSeverity::Fatal, ProfilingErrorCode::UnexpectedException, ex.what()
+        DD_WIN_PROF_FATAL, DD_WIN_PROF_CODE_UNEXPECTED_EXCEPTION, ex.what()
     };
   } catch (...) {
-    Log::Error("A non-standard exception occurred during export");
     return ProfilingError{
-        ProfilingSeverity::Fatal,
-        ProfilingErrorCode::UnexpectedException,
+        DD_WIN_PROF_FATAL,
+        DD_WIN_PROF_CODE_UNEXPECTED_EXCEPTION,
         "A non-standard exception occurred during export"
     };
   }

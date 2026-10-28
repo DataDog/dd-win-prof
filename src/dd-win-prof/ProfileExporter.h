@@ -39,7 +39,10 @@ class ProfileExporter {
 
   // Check if properly initialized
   bool IsInitialized() const { return _initialized; }
-  const std::string& GetLastError() const { return _lastError; }
+  std::string_view GetLastErrorMessage() const {
+    return _lastDiagnostic ? std::string_view(_lastDiagnostic->message)
+                           : std::string_view{};
+  }
   const std::optional<ProfilingError>& GetLastDiagnostic() const {
     return _lastDiagnostic;
   }
@@ -92,11 +95,10 @@ class ProfileExporter {
   bool ExportProfile(
       const ddog_prof_EncodedProfile* encodedProfile,
       uint32_t profileSeq,
-      const std::string& rumRecordsJson = {},
-      bool requireDelivery = false
+      const std::string& rumRecordsJson = {}
   );
   bool PrepareAdditionalTags(ddog_Vec_Tag& tags, uint32_t profileSeq);
-  bool CheckExportResponse(uint16_t responseCode, bool requireDelivery = false);
+  bool CheckExportResponse(uint16_t responseCode);
   void CleanupExporter();
 
  private:
@@ -122,10 +124,10 @@ class ProfileExporter {
       bool lastCall
   );
   bool DeliverProfilingData(ProfilingDataResult result);
-  void ReportError(ProfilingErrorCode code, std::string message);
-  void RecordDiagnostic(
-      ProfilingSeverity severity,
-      ProfilingErrorCode code,
+  void ReportError(DDWinProfErrorCode code, std::string message);
+  bool RecordDiagnostic(
+      DDWinProfSeverity severity,
+      DDWinProfErrorCode code,
       std::string message,
       bool reportedToCallback = false
   );
@@ -152,7 +154,7 @@ class ProfileExporter {
     ddog_prof_StringId traceEndpointKeyId;  // String ID for "trace endpoint" key
   };
 
-  bool InternSampleLabels(SampleLabels& labels);
+  std::optional<ProfilingError> InternSampleLabels(SampleLabels& labels);
   ddog_prof_LabelSetId CreateLabelSet(
       const SampleLabels& labels,
       std::shared_ptr<ThreadInfo> threadInfo,
@@ -220,7 +222,6 @@ class ProfileExporter {
   std::string _runtimeId;
   uint32_t _processId;
   bool _initialized;
-  std::string _lastError;
   std::optional<ProfilingError> _lastDiagnostic;
 
   // Debug pprof file writing configuration
@@ -234,8 +235,6 @@ class ProfileExporter {
   std::string _exportUrl;
   std::string _apiKey;
   bool _agentMode;  // true for agent, false for agentless
-  uint32_t _consecutiveErrors;
-  static constexpr uint32_t MAX_CONSECUTIVE_ERRORS = 3;
   static constexpr int EXPORT_TIMEOUT_MS = 10000;
 
   // libdatadog components

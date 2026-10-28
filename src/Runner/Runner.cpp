@@ -483,15 +483,18 @@ int main(int argc, char* argv[]) {
   config.pprofOutputDirectory = opts.pprofDir.empty() ? nullptr : opts.pprofDir.c_str();
   config.symbolizeCallstacks = opts.symbolize;
 
-  if (!SetupProfiler(&config)) {
-    std::cout << "SetupProfiler failed. Check that mandatory fields are set (url, "
-                 "apiKey when --noenvvars)."
-              << std::endl;
+  const auto reportDiagnostic = [] {
+    char message[1024];
+    GetLastProfilerDiagnostic(nullptr, nullptr, message, sizeof(message));
+    std::cerr << message << std::endl;
+  };
+  if (SetupProfiler(&config) != DD_WIN_PROF_SUCCESS) {
+    reportDiagnostic();
     return -2;
   }
 
-  if (!StartProfiler()) {
-    std::cout << "Failed to start profiling..." << std::endl;
+  if (StartProfiler() != DD_WIN_PROF_SUCCESS) {
+    reportDiagnostic();
     return -1;
   }
 
@@ -522,7 +525,10 @@ int main(int argc, char* argv[]) {
     }
   }
 
-  StopProfiler();
+  if (StopProfiler() != DD_WIN_PROF_SUCCESS) {
+    reportDiagnostic();
+    return -3;
+  }
 
   std::cout << "\nProfiling completed successfully!\n";
 

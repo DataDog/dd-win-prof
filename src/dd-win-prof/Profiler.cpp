@@ -9,6 +9,7 @@
 #include "Log.h"
 #include "SampleValueTypeProvider.h"
 #include "SamplesCollector.h"
+#include "dd-win-prof-internal.h"
 #include "pch.h"
 
 Profiler* Profiler::_this = nullptr;
@@ -32,8 +33,8 @@ std::optional<ProfilingError> Profiler::SetProfilingDataCallback(
 ) {
   if (IsStarted()) {
     return ProfilingError{
-        ProfilingSeverity::Error,
-        ProfilingErrorCode::ProfilerAlreadyRunning,
+        DD_WIN_PROF_ERROR,
+        DD_WIN_PROF_CODE_ALREADY_RUNNING,
         "Cannot change the profiling callback while the profiler is running"
     };
   }
@@ -42,38 +43,64 @@ std::optional<ProfilingError> Profiler::SetProfilingDataCallback(
     return std::nullopt;
   } catch (const std::exception& error) {
     return ProfilingError{
-        ProfilingSeverity::Fatal,
-        ProfilingErrorCode::CallbackCopyFailed,
+        DD_WIN_PROF_FATAL,
+        DD_WIN_PROF_CODE_CALLBACK_COPY_FAILED,
         "Failed to copy profiling data callback: " + std::string(error.what())
     };
   } catch (...) {
     return ProfilingError{
-        ProfilingSeverity::Fatal,
-        ProfilingErrorCode::CallbackCopyFailed,
+        DD_WIN_PROF_FATAL,
+        DD_WIN_PROF_CODE_CALLBACK_COPY_FAILED,
         "Failed to copy profiling data callback: non-standard exception"
     };
   }
 }
 
-bool Profiler::StartProfiling() {
-  const auto error = StartProfilingWithDiagnostics();
-  if (error) {
-    Log::Error(error->message);
+std::optional<ProfilingError> Profiler::Configure(const ProfilerConfig* settings) {
+  if (settings == nullptr) {
+    return ProfilingError{
+        DD_WIN_PROF_ERROR,
+        DD_WIN_PROF_CODE_INVALID_ARGUMENT,
+        "Null profiler configuration structure"
+    };
   }
-  return !error;
+  if (settings->size != sizeof(ProfilerConfig)) {
+    return ProfilingError{
+        DD_WIN_PROF_ERROR,
+        DD_WIN_PROF_CODE_UNSUPPORTED_CONFIG_SIZE,
+        "Invalid profiler configuration structure size"
+    };
+  }
+  if (IsStarted()) {
+    return ProfilingError{
+        DD_WIN_PROF_ERROR,
+        DD_WIN_PROF_CODE_ALREADY_RUNNING,
+        "SetupProfiler must be called while stopped"
+    };
+  }
+  std::string message;
+  if (!InitializeConfiguration(
+          _pConfiguration.get(), settings, GetDeliveryMode(), &message
+      )) {
+    return ProfilingError{
+        DD_WIN_PROF_ERROR, DD_WIN_PROF_CODE_INVALID_CONFIGURATION, std::move(message)
+    };
+  }
+  return std::nullopt;
 }
 
-std::optional<ProfilingError> Profiler::StartProfilingWithDiagnostics() {
-  // no needed to look at env var to enable profiler
-  // --> used only as kill switch to disable it
-  if (_pConfiguration->IsProfilerExplicitlyDisabled()) {
-    Log::Info(
-        "Profiler is explicitly disabled: check following environment variable "
-        "DD_PROFILING_ENABLED"
-    );
+std::optional<ProfilingError> Profiler::StartProfiling() {
+  if (IsStarted()) {
     return ProfilingError{
-        ProfilingSeverity::Info,
-        ProfilingErrorCode::ExplicitlyDisabled,
+        DD_WIN_PROF_ERROR,
+        DD_WIN_PROF_CODE_ALREADY_RUNNING,
+        "Profiler is already running"
+    };
+  }
+  if (_pConfiguration->IsProfilerExplicitlyDisabled()) {
+    return ProfilingError{
+        DD_WIN_PROF_INFO,
+        DD_WIN_PROF_CODE_EXPLICITLY_DISABLED,
         "Profiler is explicitly disabled by DD_PROFILING_ENABLED"
     };
   }
@@ -81,8 +108,8 @@ std::optional<ProfilingError> Profiler::StartProfilingWithDiagnostics() {
   std::string configError;
   if (!_pConfiguration->ValidateTransportConfig(GetDeliveryMode(), &configError)) {
     return ProfilingError{
-        ProfilingSeverity::Error,
-        ProfilingErrorCode::InvalidConfiguration,
+        DD_WIN_PROF_ERROR,
+        DD_WIN_PROF_CODE_INVALID_CONFIGURATION,
         std::move(configError)
     };
   }
@@ -116,17 +143,7 @@ std::optional<ProfilingError> Profiler::StartProfilingWithDiagnostics() {
 
     // Initialize the ProfileExporter
     if (!_pProfileExporter->Initialize()) {
-      Log::Error(
-          "Failed to initialize profile exporter: ", _pProfileExporter->GetLastError()
-      );
       auto error = _pProfileExporter->GetLastDiagnostic();
-      if (!error) {
-        error = ProfilingError{
-            ProfilingSeverity::Error,
-            ProfilingErrorCode::InitializationFailed,
-            _pProfileExporter->GetLastError()
-        };
-      }
       _pProfileExporter->Cleanup();
       _pProfileExporter.reset();
       return error;
@@ -175,16 +192,7 @@ std::optional<ProfilingError> Profiler::StartProfilingWithDiagnostics() {
   }
 }
 
-void Profiler::StopProfiling(bool shutdownOngoing) {
-  const auto error = StopProfilingWithDiagnostics(shutdownOngoing);
-  if (error && !error->reportedToCallback) {
-    Log::Error(error->message);
-  }
-}
-
-std::optional<ProfilingError> Profiler::StopProfilingWithDiagnostics(
-    bool shutdownOngoing
-) {
+std::optional<ProfilingError> Profiler::StopProfiling(bool shutdownOngoing) {
   // avoid being stopped multiple times
   if (!_isStarted) {
     return std::nullopt;

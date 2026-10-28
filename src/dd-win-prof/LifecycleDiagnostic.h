@@ -5,10 +5,11 @@
 #pragma once
 
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
 #include <string_view>
 
-#include "dd-win-prof-diagnostics.h"
+#include "error.h"
 
 namespace dd_win_prof {
 inline size_t Utf8SequenceLength(std::string_view text, size_t offset) noexcept {

@@ -26,37 +26,9 @@ struct ProfilingData {
   bool isLast = false;
 };
 
-enum class ProfilingErrorCode : uint32_t {
-  SerializationFailed = DD_WIN_PROF_CODE_SERIALIZATION_FAILED,
-  ProfileBytesUnavailable = DD_WIN_PROF_CODE_PROFILE_BYTES_UNAVAILABLE,
-  ProfileResetFailed = DD_WIN_PROF_CODE_PROFILE_RESET_FAILED,
-  SampleLabelsUnavailable = DD_WIN_PROF_CODE_SAMPLE_LABELS_UNAVAILABLE,
-  ProfilerUnavailable = DD_WIN_PROF_CODE_PROFILER_UNAVAILABLE,
-  ProfilerAlreadyRunning = DD_WIN_PROF_CODE_ALREADY_RUNNING,
-  CallbackCopyFailed = DD_WIN_PROF_CODE_CALLBACK_COPY_FAILED,
-  InvalidArgument = DD_WIN_PROF_CODE_INVALID_ARGUMENT,
-  UnsupportedConfigSize = DD_WIN_PROF_CODE_UNSUPPORTED_CONFIG_SIZE,
-  ExplicitlyDisabled = DD_WIN_PROF_CODE_EXPLICITLY_DISABLED,
-  InvalidConfiguration = DD_WIN_PROF_CODE_INVALID_CONFIGURATION,
-  InitializationFailed = DD_WIN_PROF_CODE_INITIALIZATION_FAILED,
-  FinalExportFailed = DD_WIN_PROF_CODE_FINAL_EXPORT_FAILED,
-  StopFailed = DD_WIN_PROF_CODE_STOP_FAILED,
-  UnexpectedException = DD_WIN_PROF_CODE_UNEXPECTED_EXCEPTION,
-  CallbackFailed = DD_WIN_PROF_CODE_CALLBACK_FAILED,
-};
-
-enum class ProfilingSeverity : int32_t {
-  Success = DD_WIN_PROF_SUCCESS,
-  Info = DD_WIN_PROF_INFO,
-  Warning = DD_WIN_PROF_WARNING,
-  Error = DD_WIN_PROF_ERROR,
-  // Automatic stop-on-fatal handling during an active run is not yet implemented.
-  Fatal = DD_WIN_PROF_FATAL,
-};
-
 struct ProfilingError {
-  ProfilingSeverity severity;
-  ProfilingErrorCode code;
+  DDWinProfSeverity severity;
+  DDWinProfErrorCode code;
   std::string message;
   // Private adapters can avoid reporting a final-export error twice.
   bool reportedToCallback = false;
@@ -71,7 +43,8 @@ using ProfilingDataResult = std::variant<ProfilingData, ProfilingError>;
 // stop profiling. A preparation error can follow a successfully delivered profile.
 // StopProfiler() still completes if the final export fails. Setup/start failures
 // are reported synchronously, not through this callback.
-// Callback exceptions are caught and logged; failed results are not retried.
+// Callback exceptions become Fatal diagnostics; failed results are not retried.
+// Active-run Fatal diagnostics do not yet trigger automatic shutdown.
 using ProfilingDataCallback = std::function<void(ProfilingDataResult)>;
 
 typedef struct _RumSessionContext {
@@ -97,15 +70,6 @@ typedef struct _RumViewValues {
 // the profiler is already stopped when copying is attempted.
 [[nodiscard]] DD_WIN_PROF_API std::optional<ProfilingError> SetupProfilingDataCallback(
     const ProfilingDataCallback& callback
-);
-
-// Synchronous lifecycle diagnostics. No library logging; the SDK owns reporting.
-// Success is nullopt. These calls do not change the public thread-local diagnostic.
-[[nodiscard]] DD_WIN_PROF_API std::optional<ProfilingError>
-SetupProfilerWithDiagnostics(const ProfilerConfig* settings);
-[[nodiscard]] DD_WIN_PROF_API std::optional<ProfilingError>
-StartProfilerWithDiagnostics();
-[[nodiscard]] DD_WIN_PROF_API std::optional<ProfilingError> StopProfilerWithDiagnostics(
 );
 
 extern "C" {

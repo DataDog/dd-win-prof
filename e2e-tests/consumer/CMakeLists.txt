@@ -35,7 +35,7 @@ install(TARGETS dd-win-prof
 )
 install(FILES
     "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/dd-win-prof.h"
-    "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/dd-win-prof-diagnostics.h"
+    "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/error.h"
     DESTINATION include
 )
 install(FILES "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/internal/dd-win-rum-private.h"

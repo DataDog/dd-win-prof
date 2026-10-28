@@ -342,7 +342,6 @@ bool Configuration::ValidateTransportConfig(
     if (error != nullptr) {
       *error = message;
     }
-    Log::Error(message);
     return false;
   }
   return true;
@@ -495,7 +494,6 @@ bool InitializeConfiguration(
     if (error != nullptr) {
       *error = "Url endpoint must be set.";
     }
-    Log::Error("Url endpoint must be set.");
     return false;
   }
 
@@ -505,7 +503,6 @@ bool InitializeConfiguration(
     if (error != nullptr) {
       *error = "Datadog API Key must be set.";
     }
-    Log::Error("Datadog API Key must be set.");
     return false;
   }
 

@@ -27,7 +27,16 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       // Auto-start profiler if DD_PROFILING_AUTO_START is set to true
       if (profiler->IsAutoStartEnabled()) {
         Log::Info("Auto-starting profiler (DD_PROFILING_AUTO_START=true)");
-        profiler->StartProfiling();
+        const auto severity = StartProfiler();
+        if (severity != DD_WIN_PROF_SUCCESS) {
+          char message[1024];
+          GetLastProfilerDiagnostic(nullptr, nullptr, message, sizeof(message));
+          if (severity == DD_WIN_PROF_INFO) {
+            Log::Info(message);
+          } else {
+            Log::Error(message);
+          }
+        }
       }
     } break;
 
@@ -66,7 +75,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         // Stop profiling with shutdown flag to indicate dangerous cleanup should be
         // skipped
         Log::Debug("    ", profiler->GetThreadCount(), " threads");
-        profiler->StopProfiling(true);  // shutdownOngoing = true
+        const auto error = profiler->StopProfiling(true);
+        if (error && !error->reportedToCallback) {
+          Log::Error(error->message);
+        }
         delete profiler;
       }
     } break;

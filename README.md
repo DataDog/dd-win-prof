@@ -14,7 +14,7 @@ Implementation of a Windows CPU profiler
 
 In your project, you need the following files:
 
-- **dd-win-prof.h** and **dd-win-prof-diagnostics.h**: public lifecycle, configuration, and diagnostic declarations.
+- **dd-win-prof.h** and **error.h**: public lifecycle, configuration, and diagnostic declarations.
 - **dd-win-prof.lib**: library containing the stub for the two functions pointing to **dd-win-prof.dll**
 
 The following files are required in the folder from where the application runs:
@@ -63,7 +63,7 @@ install(TARGETS dd-win-prof
 # use the path you added.
 install(FILES
    "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/dd-win-prof.h"
-   "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/dd-win-prof-diagnostics.h"
+   "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/error.h"
    DESTINATION include
 )
 install(FILES "$<TARGET_FILE:dd_win_prof_libdatadog_dynamic>" DESTINATION bin)
@@ -71,8 +71,8 @@ install(FILES "$<TARGET_FILE:dd_win_prof_libdatadog_dynamic>" DESTINATION bin)
 
 ## Lifecycle diagnostics
 
-Prebuilt consumers can use `SetupProfilerV1`, `StartProfilerV1`, and
-`StopProfilerV1`. Each returns a fixed-width `int32_t`: `0` success, `1` info,
+Prebuilt consumers can use `SetupProfiler`, `StartProfiler`, and
+`StopProfiler`. Each returns a fixed-width `int32_t`: `0` success, `1` info,
 `2` warning, `3` error, or `4` fatal. Nonzero means a diagnostic is available,
 not necessarily that profiling is running or that teardown failed. For example,
 explicit disable returns info; a failed final export returns error after stopping.
@@ -81,16 +81,16 @@ Use the detailed code to distinguish outcomes.
 ```cpp
 #include "dd-win-prof.h"
 
-int32_t severity = StartProfilerV1();
+int32_t severity = StartProfiler();
 if (severity != DD_WIN_PROF_SUCCESS) {
     uint32_t code = DD_WIN_PROF_CODE_NONE;
     char message[1024];
-    GetLastProfilerDiagnosticV1(nullptr, &code, message, sizeof(message));
+    GetLastProfilerDiagnostic(nullptr, &code, message, sizeof(message));
     // Handle or log severity, code, and message here.
 }
 ```
 
-`GetLastProfilerDiagnosticV1` copies severity, code, and UTF-8 text into
+`GetLastProfilerDiagnostic` copies severity, code, and UTF-8 text into
 caller-owned storage. All outputs are optional. Its return value is the required
 message size including NUL, or zero if there is no diagnostic. A null message
 requires zero capacity; positive capacity receives a NUL-terminated string,
@@ -99,10 +99,10 @@ message bytes and replaces invalid UTF-8 bytes and embedded NULs with `?`.
 No returned allocation needs freeing, including across different CRTs.
 
 The diagnostic belongs to the calling thread's most recent public lifecycle
-call, including legacy calls. Each such call replaces it; success clears it.
+call. Each such call replaces it; success clears it.
 Getter calls do not consume or overwrite it, so querying size and then copying
 is safe unless another lifecycle call intervenes on that thread. Background
-errors and SDK-private calls do not overwrite this slot. Do not repeat a
+errors and SDK callback registration do not overwrite this slot. Do not repeat a
 lifecycle operation to retrieve a longer message. Codes and severity values are
 stable; message wording is not. Treat unknown nonzero severities/codes as a
 diagnostic requiring handling.
@@ -117,24 +117,22 @@ itself guarantee shutdown; establish a successful stop before reconfiguration or
 unloading. The C boundary catches C++ exceptions, not access violations,
 process termination, or non-unwinding Rust panics.
 
-V1 calls do not log their synchronous diagnostics; callers own reporting.
-Background reporting remains separate. Legacy `SetupProfiler`, `StartProfiler`,
-and `StopProfiler` keep their original signatures and library-owned logging.
-Existing binaries do not need the new exports. Consumers that must also run with
-older DLLs should resolve all four V1 exports with `GetProcAddress` and fall back
-to the legacy API if unavailable. Directly importing V1 requires a DLL providing
-V1. The V1 signatures are frozen; incompatible changes require new exports.
-`ProfilerConfig` and its exact-size validation are unchanged. The standalone
-`dd-win-prof-diagnostics.h` is C-compatible; the existing configuration header
-remains C++.
+Lifecycle calls do not log synchronous failures; callers own reporting.
+Background failures are reported by the worker unless already delivered through
+the SDK callback. Operational logging, including debug-file warnings, remains
+independent. A final encoding error can reach the SDK callback and the stop
+result; the SDK should report it only once.
 
-Source-built SDK integrations can instead use the SDK-private
-`SetupProfilerWithDiagnostics`, `StartProfilerWithDiagnostics`, and
-`StopProfilerWithDiagnostics`, which return `std::optional<ProfilingError>`.
-They use the same numeric codes/severities, return no value on success, and do
-not log synchronous failures. A stop error with `reportedToCallback` set has
-already reached the SDK callback and must not be logged again by the lifecycle
-adapter. These rich APIs retain the private header's compiler/CRT restrictions.
+`error.h` declares the common severity and error-code enums once for both C and
+C++. The SDK-private `ProfilingError` uses these same types with an owning
+message. Only fixed-width integers and caller-owned buffers cross the C API.
+Both `dd-win-prof.h` and `error.h` are C-compatible. `ProfilerConfig` and its
+exact-size validation are unchanged.
+
+**Breaking change:** setup/start now return severity rather than bool, and stop
+returns severity rather than void. Rebuild all consumers and compare explicitly
+with `DD_WIN_PROF_SUCCESS`. Old binaries and old boolean call sites are not
+compatible. There are no parallel legacy or version-suffixed lifecycle exports.
 
 ## Configuration
 
@@ -151,13 +149,13 @@ Define your configuration in a `ProfilerConfig` instance and pass it to `SetupPr
     config.serviceEnvironment = "production";
     config.serviceName = "my-windows-app";
     config.serviceVersion = "1.2.3";
-    if (!SetupProfiler(&config)) {
+    if (SetupProfiler(&config) != DD_WIN_PROF_SUCCESS) {
         // Setup failed (e.g. mandatory fields missing when noEnvVars=true)
         return -1;
     }
 ```
 
-**No-env-vars mode** (`config.noEnvVars = true`): Ignores all environment variables and uses only values from the struct. In this mode, `url` and `apiKey` are **mandatory**; `SetupProfiler` returns `false` if either is missing.
+**No-env-vars mode** (`config.noEnvVars = true`): Ignores all environment variables and uses only values from the struct. In this mode, `url` and `apiKey` are **mandatory**; `SetupProfiler` returns `DD_WIN_PROF_ERROR` if either is missing.
 
 ```C++
     config.noEnvVars = true;
@@ -332,11 +330,11 @@ cmake --build build --config Debug
 build\src\Tests\Debug\Tests.exe
 ```
 
-The `Tests` target also builds C-header checks and real-DLL lifecycle consumers
-using `/MT` and `/MD`, with legacy declarations frozen at #85. Run those together
-with the unit suite using:
+Separate targets compile the C header and exercise the current public DLL API
+with `/MT` and `/MD` consumers. Build and run them with the unit suite using:
 
 ```powershell
+cmake --build build --config Debug --target Tests DiagnosticHeaderC LifecycleAbiMT LifecycleAbiMD
 ctest --test-dir build/src/Tests -C Debug --output-on-failure --no-tests=error
 ```
 

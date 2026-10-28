@@ -99,7 +99,7 @@ include(CTest)
 add_test(NAME Tests COMMAND Tests)
 set_tests_properties(Tests PROPERTIES TIMEOUT 180)
 
-# These consumers use #85's public declarations and independently selected CRTs.
+# Exercise the public DLL API with independently selected CRTs.
 foreach(_crt IN ITEMS MT MD)
     set(_consumer "LifecycleAbi${_crt}")
     add_executable(${_consumer} LifecycleAbiTests.cpp)
@@ -126,9 +126,9 @@ foreach(_crt IN ITEMS MT MD)
         TIMEOUT 60
         ENVIRONMENT "DD_PROFILING_AUTO_START=0;DD_PROFILING_ENABLED=1;DD_INTERNAL_PROFILING_EXPORT_ENABLED=0;DD_API_KEY=;DD_TRACE_AGENT_URL=;DD_AGENT_HOST=localhost;DD_TRACE_AGENT_PORT=8126"
     )
-    add_dependencies(Tests ${_consumer})
 endforeach()
 
 add_library(DiagnosticHeaderC OBJECT DiagnosticHeaderC.c)
 target_include_directories(DiagnosticHeaderC PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../dd-win-prof/include")
-add_dependencies(Tests DiagnosticHeaderC)
+set_property(TARGET DiagnosticHeaderC PROPERTY C_STANDARD 11)
+set_property(TARGET DiagnosticHeaderC PROPERTY C_STANDARD_REQUIRED ON)
