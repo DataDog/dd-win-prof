@@ -35,9 +35,10 @@ install(TARGETS dd-win-prof
 )
 install(FILES
     "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/dd-win-prof.h"
-    "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/error.h"
     DESTINATION include
 )
-install(FILES "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/internal/dd-win-rum-private.h"
+install(FILES
+    "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/internal/dd-win-rum-private.h"
+    "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/internal/error.h"
     DESTINATION include/internal)
 install(EXPORT ConsumerTargets DESTINATION lib/cmake/consumer)

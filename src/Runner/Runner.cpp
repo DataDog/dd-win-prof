@@ -484,14 +484,16 @@ int main(int argc, char* argv[]) {
   config.symbolizeCallstacks = opts.symbolize;
 
   const auto reportDiagnostic = [] {
-    std::cerr << GetLastProfilerDiagnostic().message << std::endl;
+    if (const auto* error = GetLastProfilerError()) {
+      std::cerr << error->message << std::endl;
+    }
   };
-  if (SetupProfiler(config) != ProfilingSeverity::Success) {
+  if (!SetupProfiler(config)) {
     reportDiagnostic();
     return -2;
   }
 
-  if (StartProfiler() != ProfilingSeverity::Success) {
+  if (!StartProfiler()) {
     reportDiagnostic();
     return -1;
   }
@@ -523,7 +525,8 @@ int main(int argc, char* argv[]) {
     }
   }
 
-  if (StopProfiler() != ProfilingSeverity::Success) {
+  StopProfiler();
+  if (GetLastProfilerError()) {
     reportDiagnostic();
     return -3;
   }

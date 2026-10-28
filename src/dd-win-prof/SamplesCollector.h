@@ -19,10 +19,10 @@ class SamplesCollector {
   SamplesCollector(Configuration* pConfiguration, ProfileExporter* exporter);
   ~SamplesCollector() = default;
   void Start();
-  std::optional<ProfilingError> Stop(bool shutdownOngoing = false);
+  ProfilingResult Stop(bool shutdownOngoing = false);
   void StopThreads();
   void Register(ISamplesProvider* samplesProvider);
-  std::optional<ProfilingError> Export(bool lastCall = false);
+  ProfilingResult Export(bool lastCall = false);
   static bool IsShutdownReceived();
   static void SignalShutdown();
 

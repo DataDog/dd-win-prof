@@ -63,7 +63,6 @@ install(TARGETS dd-win-prof
 # use the path you added.
 install(FILES
    "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/dd-win-prof.h"
-   "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/error.h"
    DESTINATION include
 )
 install(FILES "$<TARGET_FILE:dd_win_prof_libdatadog_dynamic>" DESTINATION bin)
@@ -75,30 +74,35 @@ This is a C++ API intended to be wrapped by the SDK. Build the profiler and its
 consumers with compatible C++ toolchains and matching headers. There is no C API
 or promised binary compatibility across versions/toolchains.
 
-`SetupProfiler(const ProfilerConfig&)`, `StartProfiler()`, and `StopProfiler()`
-return `ProfilingSeverity`: `Success` (zero), `Info`, `Warning`, `Error`, or
-`Fatal`. A diagnostic does not by itself indicate whether profiling is running.
-For example, explicit disable returns `Info`; a failed final export returns
-`Error` after stopping. Use the detailed code to distinguish outcomes.
+`SetupProfiler(const ProfilerConfig&)` and `StartProfiler()` return `bool`;
+`StopProfiler()` returns `void`. Rich diagnostics are SDK-private, not part of the
+public lifecycle results. A false start can mean explicit disable (`Info`) or a
+failure; the private error's code distinguishes them.
 
 ```cpp
-#include <string>
-#include "dd-win-prof.h"
+#include "internal/dd-win-rum-private.h"
 
-if (StartProfiler() != ProfilingSeverity::Success) {
-    const auto diagnostic = GetLastProfilerDiagnostic();
-    // Handle or log diagnostic.severity, diagnostic.code, and diagnostic.message.
-    std::string savedMessage = diagnostic.message; // Caller-owned copy, if needed.
+if (!StartProfiler()) {
+    if (const auto* error = GetLastProfilerError()) {
+        // Handle or log error->severity, error->code, and error->message.
+    }
+}
+
+StopProfiler();
+if (const auto* error = GetLastProfilerError()) {
+    // Handle an error from the final export or teardown.
 }
 ```
 
-`GetLastProfilerDiagnostic()` returns a small value containing severity, code,
-and a borrowed `const char*` message. The library owns the text: do not free it.
-It remains valid until the next lifecycle call on the same thread, thread exit,
-or library unload. Copy it into caller-owned storage if needed longer. No owning
-`std::string` crosses this interface, so the caller never frees DLL allocations.
+`GetLastProfilerError()` is declared in `internal/dd-win-rum-private.h` and
+returns a borrowed `const ProfilingError*`, or `nullptr` after success. It reuses
+the callback API's existing rich error type, including its owning message.
+The DLL owns the thread-local error: do not delete it or retain the pointer past
+the next lifecycle call on the same thread, thread exit, or library unload.
+Copy the error or message into caller-owned storage if needed longer. No owning
+error or string is returned through the public lifecycle API.
 
-The getter does not consume or modify the diagnostic. Each lifecycle call replaces
+The getter does not consume or modify the error. Each lifecycle call replaces
 it; success clears it. Background errors and callback registration leave it alone.
 Message text is passed through without UTF-8 validation, normalization, or
 fixed-size truncation. Encoding conversion, if needed, belongs in the SDK.
@@ -107,30 +111,33 @@ Do not parse message wording to identify failures; use `ProfilingErrorCode`.
 Serialize all lifecycle and callback-registration calls, and do not invoke them
 from a profiling callback. Stop waits for collection and callbacks and attempts
 a final export. It does not wait for SDK uploads queued by a callback and has no
-overall timeout. Already stopped succeeds. Stop reports failures from its final
-export, not earlier periodic failures. When several failures occur, the highest
-severity wins, with the first failure breaking ties. A fatal result does not by
-itself guarantee shutdown; establish a successful stop before reconfiguration or
-unloading. Lifecycle calls report caught C++ exceptions as fatal diagnostics;
-they do not contain access violations,
-process termination, or non-unwinding Rust panics.
+overall timeout. Already stopped clears the error. Inspect the private getter
+after stop for final-export failures, not earlier periodic failures. When several
+failures occur, the highest severity wins, with the first failure breaking ties.
+A fatal error during active profiling does not itself trigger shutdown. Lifecycle
+calls contain C++ exceptions and store fatal errors; if allocating exception text
+fails, the code and severity remain available with an empty message. Access
+violations, process termination, and non-unwinding Rust panics are not contained.
 
 Lifecycle calls do not log synchronous failures; callers own reporting.
 Background failures are reported by the worker unless already delivered through
 the SDK callback. Operational logging, including debug-file warnings, remains
-independent. A final encoding error can reach the SDK callback and the stop
-result; the SDK should report it only once.
+independent. A final encoding error can reach the SDK callback and the private
+getter; the SDK should report it only once (`reportedToCallback` records delivery).
 
-`error.h` declares the shared enum classes and the non-owning diagnostic view.
-The SDK-private `ProfilingError` uses the same enums with an owning message;
-that private API requires compatible standard-library and CRT settings.
-`ProfilerConfig` and its exact-size validation are unchanged.
+`internal/error.h` declares `ProfilingError`, its enums, and `ProfilingResult`
+(`std::optional<ProfilingError>`, with no value meaning success). Internal lifecycle,
+configuration, and export operations return these errors directly and stop
+dependent work at the first failure. Export reset and stop cleanup still run.
+Only the public lifecycle boundary stores the thread-local error and maps it to
+the bool/void return convention. The SDK-private API requires compatible compiler,
+standard-library and CRT settings. `ProfilerConfig` fields and exact-size
+validation are unchanged.
 
-**Breaking change:** lifecycle functions now use C++ linkage and typed severity
-returns, and setup takes configuration by const reference. Rebuild all consumers
-and compare explicitly with `ProfilingSeverity::Success`. Old binaries, pointer
-setup calls, and boolean result checks are incompatible. There are no parallel
-legacy or version-suffixed exports.
+**Breaking change:** lifecycle functions use C++ linkage and setup takes
+configuration by const reference. Rebuild consumers with matching headers.
+The bool/void return conventions are preserved; no switch to integer or severity
+returns is included. There are no parallel legacy or version-suffixed exports.
 
 ## Configuration
 
@@ -147,13 +154,13 @@ Define your configuration in a `ProfilerConfig` instance and pass it to `SetupPr
     config.serviceEnvironment = "production";
     config.serviceName = "my-windows-app";
     config.serviceVersion = "1.2.3";
-    if (SetupProfiler(config) != ProfilingSeverity::Success) {
+    if (!SetupProfiler(config)) {
         // Setup failed (e.g. mandatory fields missing when noEnvVars=true)
         return -1;
     }
 ```
 
-**No-env-vars mode** (`config.noEnvVars = true`): Ignores all environment variables and uses only values from the struct. In this mode, `url` and `apiKey` are **mandatory**; `SetupProfiler` returns `ProfilingSeverity::Error` if either is missing.
+**No-env-vars mode** (`config.noEnvVars = true`): Ignores all environment variables and uses only values from the struct. In this mode, `url` and `apiKey` are **mandatory**; `SetupProfiler` returns `false` if either is missing.
 
 ```C++
     config.noEnvVars = true;

@@ -24,8 +24,7 @@ int TestSdkCallback() {
   config.size = sizeof(config);
   config.noEnvVars = true;
   config.uploadIntervalSeconds = 3600;
-  if (SetupProfiler(config) != ProfilingSeverity::Success ||
-      StartProfiler() != ProfilingSeverity::Success) {
+  if (!SetupProfiler(config) || !StartProfiler()) {
     std::cerr << "Failed to configure or start the profiler\n";
     if (auto error = SetupProfilingDataCallback({})) {
       std::cerr << "Failed to unregister the profiling callback: " << error->message
@@ -34,15 +33,15 @@ int TestSdkCallback() {
     return 1;
   }
 
-  const auto stopSeverity = StopProfiler();
+  StopProfiler();
   if (auto error = SetupProfilingDataCallback({})) {
     std::cerr << "Failed to unregister the profiling callback: " << error->message
               << '\n';
     return 1;
   }
 
-  if (stopSeverity != ProfilingSeverity::Success) {
-    std::cerr << GetLastProfilerDiagnostic().message << '\n';
+  if (const auto* error = GetLastProfilerError()) {
+    std::cerr << error->message << '\n';
     return 1;
   }
 

@@ -4,6 +4,9 @@
 
 #pragma once
 
+#include <optional>
+#include <string>
+
 enum class ProfilingSeverity {
   Success = 0,
   Info = 1,
@@ -30,9 +33,13 @@ enum class ProfilingErrorCode {
   CallbackFailed = 16,
 };
 
-struct ProfilingDiagnostic {
-  ProfilingSeverity severity = ProfilingSeverity::Success;
-  ProfilingErrorCode code = ProfilingErrorCode::None;
-  // Library-owned, NUL-terminated text. See GetLastProfilerDiagnostic for lifetime.
-  const char* message = "";
+struct ProfilingError {
+  ProfilingSeverity severity;
+  ProfilingErrorCode code;
+  std::string message;
+  // Private adapters can avoid reporting a final-export error twice.
+  bool reportedToCallback = false;
 };
+
+// No error means success.
+using ProfilingResult = std::optional<ProfilingError>;

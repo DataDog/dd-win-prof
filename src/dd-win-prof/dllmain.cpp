@@ -27,13 +27,13 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       // Auto-start profiler if DD_PROFILING_AUTO_START is set to true
       if (profiler->IsAutoStartEnabled()) {
         Log::Info("Auto-starting profiler (DD_PROFILING_AUTO_START=true)");
-        const auto severity = StartProfiler();
-        if (severity != ProfilingSeverity::Success) {
-          const auto diagnostic = GetLastProfilerDiagnostic();
-          if (severity == ProfilingSeverity::Info) {
-            Log::Info(diagnostic.message);
-          } else {
-            Log::Error(diagnostic.message);
+        if (!StartProfiler()) {
+          if (const auto* error = GetLastProfilerError()) {
+            if (error->severity == ProfilingSeverity::Info) {
+              Log::Info(error->message);
+            } else {
+              Log::Error(error->message);
+            }
           }
         }
       }

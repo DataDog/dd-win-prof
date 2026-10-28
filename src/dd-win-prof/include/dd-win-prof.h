@@ -6,8 +6,6 @@
 
 #include <cstdint>
 
-#include "error.h"
-
 #ifdef DD_WIN_PROF_STATIC_LINK
 #define DD_WIN_PROF_API
 #elif defined(DD_WIN_PROF_EXPORTS)
@@ -56,15 +54,14 @@ struct ProfilerConfig {
 };
 
 // C++ API, not a versioned ABI. Consumers need matching headers and toolchains.
-// Lifecycle calls return Success or a diagnostic severity.
+// Setup/start return false on failure. SDK-private callers can retrieve the error.
 // The caller owns synchronous diagnostic reporting. Serialize lifecycle/registration
 // calls and do not invoke them from profiling callbacks.
 // Configure while stopped, including after stop. Preserves callback registration.
-DD_WIN_PROF_API ProfilingSeverity SetupProfiler(const ProfilerConfig& settings
-) noexcept;
+DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig& settings) noexcept;
 
-// May be called again after stop. Already running returns error; disabled returns info.
-DD_WIN_PROF_API ProfilingSeverity StartProfiler() noexcept;
+// May be called again after stop. Returns false if already running or disabled.
+DD_WIN_PROF_API bool StartProfiler() noexcept;
 
 // Stops collection, waits for the current export and attempts a final export.
 // Does not wait for the upload interval. The final SDK callback runs on this thread.
@@ -72,14 +69,7 @@ DD_WIN_PROF_API ProfilingSeverity StartProfiler() noexcept;
 // timeout is imposed. Succeeds if already stopped.
 // After return, no callbacks run until the next start; setup/registration may run
 // again. Do not overlap lifecycle calls or call them from an SDK callback.
-DD_WIN_PROF_API ProfilingSeverity StopProfiler() noexcept;
-
-// Snapshot of the calling thread's most recent lifecycle diagnostic. Success clears
-// it; getter calls, background errors and callback registration do not change it.
-// Message text is owned by the library. Do not free it. It remains valid until the
-// next lifecycle call on this thread, thread exit, or library unload. Copy it on the
-// caller's side if needed longer. Text is not truncated or encoding-normalized.
-DD_WIN_PROF_API ProfilingDiagnostic GetLastProfilerDiagnostic() noexcept;
+DD_WIN_PROF_API void StopProfiler() noexcept;
 
 // Enter a named view. Generates a unique view_id internally.
 // Updates per-sample pprof labels: rum.view_id and trace endpoint (viewName).

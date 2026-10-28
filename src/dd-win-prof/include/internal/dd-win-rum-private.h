@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "dd-win-prof.h"
+#include "error.h"
 
 // SDK-private C++ callback API. Use only when building dd-win-prof from source as
 // a dependency, with compatible compiler, standard library and CRT settings.
@@ -24,14 +25,6 @@ struct ProfilingData {
   int64_t endUnixTimeMs = 0;
   // True for the final profile from an explicit StopProfiler().
   bool isLast = false;
-};
-
-struct ProfilingError {
-  ProfilingSeverity severity;
-  ProfilingErrorCode code;
-  std::string message;
-  // Private adapters can avoid reporting a final-export error twice.
-  bool reportedToCallback = false;
 };
 
 using ProfilingDataResult = std::variant<ProfilingData, ProfilingError>;
@@ -68,9 +61,13 @@ typedef struct _RumViewValues {
 // Returns no error on success. Failures are returned synchronously, never through
 // the callback, and leave registration unchanged. Copy exceptions are Fatal;
 // the profiler is already stopped when copying is attempted.
-[[nodiscard]] DD_WIN_PROF_API std::optional<ProfilingError> SetupProfilingDataCallback(
-    const ProfilingDataCallback& callback
-);
+[[nodiscard]] DD_WIN_PROF_API ProfilingResult
+SetupProfilingDataCallback(const ProfilingDataCallback& callback);
+
+// Borrows the calling thread's last lifecycle error; nullptr after success.
+// Getter calls, background errors and callback registration do not change it.
+// Valid until the next lifecycle call on this thread, thread exit, or DLL unload.
+DD_WIN_PROF_API const ProfilingError* GetLastProfilerError() noexcept;
 
 // Set stable RUM session context. Safe to call from any thread.
 // application_id: write-once per process. First non-empty value is stored

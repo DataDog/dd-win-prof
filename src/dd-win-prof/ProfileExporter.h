@@ -30,22 +30,15 @@ class ProfileExporter {
       dd_win_prof::ProfileEncodingApi encodingApi = {}
   );
   ~ProfileExporter();
-  bool Initialize();
+  ProfilingResult Initialize();
   bool Add(std::shared_ptr<Sample> const& sample);
-  bool Export(bool lastCall = false);
+  ProfilingResult Export(bool lastCall = false);
   void Cleanup(
       bool skipExporterCleanup = false
   );  // Explicit cleanup with option to skip exporter cleanup
 
   // Check if properly initialized
   bool IsInitialized() const { return _initialized; }
-  std::string_view GetLastErrorMessage() const {
-    return _lastDiagnostic ? std::string_view(_lastDiagnostic->message)
-                           : std::string_view{};
-  }
-  const std::optional<ProfilingError>& GetLastDiagnostic() const {
-    return _lastDiagnostic;
-  }
 
   // RUM application ID tag (set once by Profiler, emitted per-export)
   void SetRumApplicationId(const std::string& applicationId);
@@ -85,20 +78,22 @@ class ProfileExporter {
   const std::string& GetDebugPprofPrefix() const { return _debugPprofPrefix; }
 
   // Export tags (stable metadata set at export time)
-  bool PrepareStableTags(ddog_Vec_Tag& tags);
-  bool AddSingleTag(ddog_Vec_Tag& tags, std::string_view key, std::string_view value);
+  ProfilingResult PrepareStableTags(ddog_Vec_Tag& tags);
+  ProfilingResult AddSingleTag(
+      ddog_Vec_Tag& tags, std::string_view key, std::string_view value
+  );
 
   // Export functionality
-  bool InitializeExporter();
-  bool CreateExporterEndpoint(ddog_prof_Endpoint& endpoint);
-  bool BuildExportUrl();
-  bool ExportProfile(
+  ProfilingResult InitializeExporter();
+  ProfilingResult CreateExporterEndpoint(ddog_prof_Endpoint& endpoint);
+  void BuildExportUrl();
+  ProfilingResult ExportProfile(
       const ddog_prof_EncodedProfile* encodedProfile,
       uint32_t profileSeq,
       const std::string& rumRecordsJson = {}
   );
-  bool PrepareAdditionalTags(ddog_Vec_Tag& tags, uint32_t profileSeq);
-  bool CheckExportResponse(uint16_t responseCode);
+  ProfilingResult PrepareAdditionalTags(ddog_Vec_Tag& tags, uint32_t profileSeq);
+  ProfilingResult CheckExportResponse(uint16_t responseCode);
   void CleanupExporter();
 
  private:
@@ -108,7 +103,9 @@ class ProfileExporter {
   using EncodedProfilePtr =
       std::unique_ptr<ddog_prof_EncodedProfile, EncodedProfileDeleter>;
 
-  EncodedProfilePtr SerializeProfile(int64_t startUnixTimeMs, int64_t endUnixTimeMs);
+  ProfilingResult ExportCurrentProfile(
+      bool lastCall, int64_t startUnixTimeMs, int64_t endUnixTimeMs
+  );
   std::string CollectRumRecordsJson();
   void DiscardRumRecords();
   void WriteDebugFiles(
@@ -116,23 +113,16 @@ class ProfileExporter {
       const std::string& rumRecordsJson,
       int64_t endUnixTimeMs
   );
-  std::optional<ddog_ByteSlice> ReadProfileBytes(ddog_prof_EncodedProfile* profile);
-  bool DeliverProfileToCallback(
+  ProfilingResult DeliverProfileToCallback(
       const ddog_ByteSlice& bytes,
       int64_t startUnixTimeMs,
       int64_t endUnixTimeMs,
       bool lastCall
   );
-  bool DeliverProfilingData(ProfilingDataResult result);
-  void ReportError(ProfilingErrorCode code, std::string message);
-  bool RecordDiagnostic(
-      ProfilingSeverity severity,
-      ProfilingErrorCode code,
-      std::string message,
-      bool reportedToCallback = false
-  );
+  ProfilingResult DeliverProfilingData(ProfilingDataResult result);
+  ProfilingResult ReportError(ProfilingErrorCode code, std::string message);
   void LogExport(bool lastCall, int64_t durationMs, size_t profileSize) const;
-  bool FinishExport(std::chrono::system_clock::time_point end);
+  ProfilingResult FinishExport(std::chrono::system_clock::time_point end);
 
   // Helper methods for location/function/mapping management
   std::optional<ddog_prof_LocationId> InternLocation(uint64_t address);
@@ -154,7 +144,7 @@ class ProfileExporter {
     ddog_prof_StringId traceEndpointKeyId;  // String ID for "trace endpoint" key
   };
 
-  std::optional<ProfilingError> InternSampleLabels(SampleLabels& labels);
+  ProfilingResult InternSampleLabels(SampleLabels& labels);
   ddog_prof_LabelSetId CreateLabelSet(
       const SampleLabels& labels,
       std::shared_ptr<ThreadInfo> threadInfo,
@@ -222,7 +212,6 @@ class ProfileExporter {
   std::string _runtimeId;
   uint32_t _processId;
   bool _initialized;
-  std::optional<ProfilingError> _lastDiagnostic;
 
   // Debug pprof file writing configuration
   bool _debugPprofFileWritingEnabled;

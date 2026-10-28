@@ -26,7 +26,7 @@ add_library(dd-win-prof SHARED
     Configuration.h
     CpuTimeProvider.h
     include/dd-win-prof.h
-    include/error.h
+    include/internal/error.h
     include/internal/dd-win-rum-private.h
     dd-win-prof-internal.h
     EnvironmentVariables.h
@@ -152,8 +152,8 @@ if(DD_WIN_PROF_BUILD_INSTALL)
         ARCHIVE DESTINATION Profiler
     )
     install(FILES $<TARGET_PDB_FILE:dd-win-prof> DESTINATION Profiler OPTIONAL)
-    install(FILES include/dd-win-prof.h include/error.h DESTINATION Profiler)
-    install(FILES include/internal/dd-win-rum-private.h DESTINATION Profiler/internal)
+    install(FILES include/dd-win-prof.h DESTINATION Profiler)
+    install(FILES include/internal/dd-win-rum-private.h include/internal/error.h DESTINATION Profiler/internal)
     install(FILES
         "${libdatadog_SOURCE_DIR}/${DD_WIN_PROF_LIBDATADOG_CONFIG_DIR}/dynamic/datadog_profiling_ffi.dll"
         "${libdatadog_SOURCE_DIR}/${DD_WIN_PROF_LIBDATADOG_CONFIG_DIR}/dynamic/datadog_profiling_ffi.pdb"

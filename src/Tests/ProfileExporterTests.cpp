@@ -46,22 +46,21 @@ class ProfileExporterExportTests : public ::testing::Test {
 
 TEST_F(ProfileExporterExportTests, InitializationWithExportEnabled) {
   // Test that exporter initializes correctly with export enabled
-  ASSERT_TRUE(exporter->Initialize());
+  ASSERT_FALSE(exporter->Initialize());
   EXPECT_TRUE(exporter->IsInitialized());
-  EXPECT_TRUE(exporter->GetLastErrorMessage().empty());
 }
 
 TEST_F(ProfileExporterExportTests, ExportWithoutSamples) {
   // Test export with empty profile
-  ASSERT_TRUE(exporter->Initialize());
+  ASSERT_FALSE(exporter->Initialize());
 
   // Export should succeed even with no samples
-  EXPECT_TRUE(exporter->Export());
+  EXPECT_FALSE(exporter->Export());
 }
 
 TEST_F(ProfileExporterExportTests, ExportWithSamples) {
   // Test export with actual samples
-  ASSERT_TRUE(exporter->Initialize());
+  ASSERT_FALSE(exporter->Initialize());
 
   // Create a sample with test data using the correct constructor
   std::chrono::nanoseconds timestamp =
@@ -94,12 +93,12 @@ TEST_F(ProfileExporterExportTests, ExportWithSamples) {
   EXPECT_TRUE(exporter->Add(sample));
 
   // Export profile
-  EXPECT_TRUE(exporter->Export());
+  EXPECT_FALSE(exporter->Export());
 }
 
 TEST_F(ProfileExporterExportTests, MultipleExports) {
   // Test multiple consecutive exports
-  ASSERT_TRUE(exporter->Initialize());
+  ASSERT_FALSE(exporter->Initialize());
 
   // Create a valid ThreadInfo with a real handle
   HANDLE hThread;
@@ -133,13 +132,13 @@ TEST_F(ProfileExporterExportTests, MultipleExports) {
     sample->AddValue(1, 1);                 // sample count
 
     EXPECT_TRUE(exporter->Add(sample));
-    EXPECT_TRUE(exporter->Export());
+    EXPECT_FALSE(exporter->Export());
   }
 }
 
 TEST_F(ProfileExporterExportTests, TagPreparation) {
   // Test that we can prepare tags without errors
-  ASSERT_TRUE(exporter->Initialize());
+  ASSERT_FALSE(exporter->Initialize());
 
   // This is more of an integration test - if initialization succeeds,
   // tag preparation worked correctly during exporter creation
@@ -148,7 +147,7 @@ TEST_F(ProfileExporterExportTests, TagPreparation) {
 
 TEST_F(ProfileExporterExportTests, ConfigurationIntegration) {
   // Test that exporter correctly uses Configuration data
-  ASSERT_TRUE(exporter->Initialize());
+  ASSERT_FALSE(exporter->Initialize());
 
   // Verify that configuration data is being used
   // The exporter should read service name, environment, version, etc. from config
@@ -184,7 +183,7 @@ TEST_F(ProfileExporterExportTests, ConfigurationIntegration) {
   EXPECT_TRUE(exporter->Add(sample));
 
   // Export should use the configuration data for tags, URLs, etc.
-  EXPECT_TRUE(exporter->Export());
+  EXPECT_FALSE(exporter->Export());
 }
 
 // Note: These tests will attempt to connect to localhost:8126 (Datadog Agent)
@@ -227,11 +226,11 @@ TEST_F(ProfileExporterExportTests, ExporterWithDefaultsOnlyConfig) {
   Sample::SetValuesCount(types.size());
 
   auto exp = std::make_unique<ProfileExporter>(defaultsConfig.get(), types);
-  ASSERT_TRUE(exp->Initialize());
+  ASSERT_FALSE(exp->Initialize());
   EXPECT_TRUE(exp->IsInitialized());
 
   EXPECT_TRUE(exp->Add(CreateTestSample()));
-  EXPECT_TRUE(exp->Export());
+  EXPECT_FALSE(exp->Export());
 }
 
 TEST_F(ProfileExporterExportTests, ExporterWithApiOverriddenConfig) {
@@ -250,11 +249,11 @@ TEST_F(ProfileExporterExportTests, ExporterWithApiOverriddenConfig) {
   Sample::SetValuesCount(types.size());
 
   auto exp = std::make_unique<ProfileExporter>(overriddenConfig.get(), types);
-  ASSERT_TRUE(exp->Initialize());
+  ASSERT_FALSE(exp->Initialize());
   EXPECT_TRUE(exp->IsInitialized());
 
   EXPECT_TRUE(exp->Add(CreateTestSample()));
-  EXPECT_TRUE(exp->Export());
+  EXPECT_FALSE(exp->Export());
 }
 
 TEST_F(ProfileExporterExportTests, ExporterWithDebugOutputDir) {
@@ -275,9 +274,9 @@ TEST_F(ProfileExporterExportTests, ExporterWithDebugOutputDir) {
   Sample::SetValuesCount(types.size());
 
   auto exp = std::make_unique<ProfileExporter>(debugConfig.get(), types);
-  ASSERT_TRUE(exp->Initialize());
+  ASSERT_FALSE(exp->Initialize());
   EXPECT_TRUE(exp->Add(CreateTestSample()));
-  EXPECT_TRUE(exp->Export());
+  EXPECT_FALSE(exp->Export());
 
   // Verify at least one .pprof file was created
   bool foundPprof = false;
@@ -311,9 +310,8 @@ TEST_F(ProfileExporterExportTests, ExporterInitializesWithDefaultsAndExportEnabl
   Sample::SetValuesCount(types.size());
 
   auto exp = std::make_unique<ProfileExporter>(agentConfig.get(), types);
-  ASSERT_TRUE(exp->Initialize())
-      << "Exporter should initialize with default agent config: "
-      << exp->GetLastErrorMessage();
+  const auto error = exp->Initialize();
+  ASSERT_FALSE(error) << error->message;
   EXPECT_TRUE(exp->IsInitialized());
 
   // Explicit cleanup before destruction to avoid potential deadlocks

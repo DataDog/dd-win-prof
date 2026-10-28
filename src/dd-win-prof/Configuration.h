@@ -5,6 +5,7 @@
 #pragma once
 
 #include "TagsHelper.h"
+#include "internal/error.h"
 #include "pch.h"
 
 enum class ProfileDeliveryMode { Http, Callback };
@@ -27,8 +28,8 @@ class Configuration {
   std::string const& GetAgentHost() const;
   int32_t GetAgentPort() const;
   bool IsAgentless() const;
-  bool ValidateTransportConfig(
-      ProfileDeliveryMode mode = ProfileDeliveryMode::Http, std::string* error = nullptr
+  ProfilingResult ValidateTransportConfig(
+      ProfileDeliveryMode mode = ProfileDeliveryMode::Http
   ) const;
   std::string const& GetSite() const;
   std::string const& GetApiKey() const;

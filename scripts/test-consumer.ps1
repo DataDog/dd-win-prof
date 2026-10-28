@@ -152,7 +152,7 @@ $expectedInstalled = @(
     'bin/consumer.exe',
     'bin/dd-win-prof.dll',
     'include/dd-win-prof.h',
-    'include/error.h',
+    'include/internal/error.h',
     'include/internal/dd-win-rum-private.h',
     'lib/cmake/consumer/ConsumerTargets.cmake',
     "lib/cmake/consumer/ConsumerTargets-$($Config.ToLower()).cmake",

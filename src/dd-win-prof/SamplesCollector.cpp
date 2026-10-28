@@ -50,7 +50,7 @@ void SamplesCollector::StopThreads() {
   }
 }
 
-std::optional<ProfilingError> SamplesCollector::Stop(bool shutdownOngoing) {
+ProfilingResult SamplesCollector::Stop(bool shutdownOngoing) {
   StopThreads();
 
   if (shutdownOngoing) {
@@ -89,7 +89,7 @@ void SamplesCollector::ExportWork() {
   }
 }
 
-std::optional<ProfilingError> SamplesCollector::Export(bool lastCall) {
+ProfilingResult SamplesCollector::Export(bool lastCall) {
   try {
     std::lock_guard lock(_exportLock);
 
@@ -100,8 +100,7 @@ std::optional<ProfilingError> SamplesCollector::Export(bool lastCall) {
       samplesProvider.second = 0;
     }
 
-    _exporter->Export(lastCall);
-    return _exporter->GetLastDiagnostic();
+    return _exporter->Export(lastCall);
   } catch (std::exception const& ex) {
     return ProfilingError{
         ProfilingSeverity::Fatal, ProfilingErrorCode::UnexpectedException, ex.what()

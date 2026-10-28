@@ -22,11 +22,11 @@ class Profiler : public IRumViewContextProvider,
   Profiler();
   virtual ~Profiler();
 
-  std::optional<ProfilingError> Configure(const ProfilerConfig& settings);
-  std::optional<ProfilingError> StartProfiling();
-  std::optional<ProfilingError> StopProfiling(bool shutdownOngoing = false);
+  ProfilingResult Configure(const ProfilerConfig& settings);
+  ProfilingResult StartProfiling();
+  ProfilingResult StopProfiling(bool shutdownOngoing = false);
 
-  [[nodiscard]] std::optional<ProfilingError> SetProfilingDataCallback(
+  [[nodiscard]] ProfilingResult SetProfilingDataCallback(
       const ProfilingDataCallback& callback
   );
   const ProfilingDataCallback& GetProfilingDataCallback() const {

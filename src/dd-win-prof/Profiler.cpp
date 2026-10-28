@@ -28,8 +28,7 @@ Profiler::~Profiler() {
   _isStarted = false;
 }
 
-std::optional<ProfilingError> Profiler::SetProfilingDataCallback(
-    const ProfilingDataCallback& callback
+ProfilingResult Profiler::SetProfilingDataCallback(const ProfilingDataCallback& callback
 ) {
   if (IsStarted()) {
     return ProfilingError{
@@ -56,7 +55,7 @@ std::optional<ProfilingError> Profiler::SetProfilingDataCallback(
   }
 }
 
-std::optional<ProfilingError> Profiler::Configure(const ProfilerConfig& settings) {
+ProfilingResult Profiler::Configure(const ProfilerConfig& settings) {
   if (settings.size != sizeof(ProfilerConfig)) {
     return ProfilingError{
         ProfilingSeverity::Error,
@@ -71,20 +70,10 @@ std::optional<ProfilingError> Profiler::Configure(const ProfilerConfig& settings
         "SetupProfiler must be called while stopped"
     };
   }
-  std::string message;
-  if (!InitializeConfiguration(
-          _pConfiguration.get(), &settings, GetDeliveryMode(), &message
-      )) {
-    return ProfilingError{
-        ProfilingSeverity::Error,
-        ProfilingErrorCode::InvalidConfiguration,
-        std::move(message)
-    };
-  }
-  return std::nullopt;
+  return InitializeConfiguration(_pConfiguration.get(), &settings, GetDeliveryMode());
 }
 
-std::optional<ProfilingError> Profiler::StartProfiling() {
+ProfilingResult Profiler::StartProfiling() {
   if (IsStarted()) {
     return ProfilingError{
         ProfilingSeverity::Error,
@@ -100,13 +89,8 @@ std::optional<ProfilingError> Profiler::StartProfiling() {
     };
   }
 
-  std::string configError;
-  if (!_pConfiguration->ValidateTransportConfig(GetDeliveryMode(), &configError)) {
-    return ProfilingError{
-        ProfilingSeverity::Error,
-        ProfilingErrorCode::InvalidConfiguration,
-        std::move(configError)
-    };
+  if (auto error = _pConfiguration->ValidateTransportConfig(GetDeliveryMode())) {
+    return error;
   }
 
   try {
@@ -137,8 +121,7 @@ std::optional<ProfilingError> Profiler::StartProfiling() {
     );
 
     // Initialize the ProfileExporter
-    if (!_pProfileExporter->Initialize()) {
-      auto error = _pProfileExporter->GetLastDiagnostic();
+    if (auto error = _pProfileExporter->Initialize()) {
       _pProfileExporter->Cleanup();
       _pProfileExporter.reset();
       return error;
@@ -187,14 +170,14 @@ std::optional<ProfilingError> Profiler::StartProfiling() {
   }
 }
 
-std::optional<ProfilingError> Profiler::StopProfiling(bool shutdownOngoing) {
+ProfilingResult Profiler::StopProfiling(bool shutdownOngoing) {
   // avoid being stopped multiple times
   if (!_isStarted) {
     return std::nullopt;
   }
 
   Log::Info("Stopping profiler...");
-  std::optional<ProfilingError> error;
+  ProfilingResult error;
 
   // Signal SamplesCollector if we're in shutdown mode to stop exports immediately
   if (shutdownOngoing) {

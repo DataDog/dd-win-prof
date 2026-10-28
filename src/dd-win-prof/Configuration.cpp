@@ -325,26 +325,23 @@ int32_t Configuration::GetAgentPort() const { return _upload.agentPort; }
 
 bool Configuration::IsAgentless() const { return !_upload.apiKey.empty(); }
 
-bool Configuration::ValidateTransportConfig(
-    ProfileDeliveryMode mode, std::string* error
-) const {
+ProfilingResult Configuration::ValidateTransportConfig(ProfileDeliveryMode mode) const {
   if (mode == ProfileDeliveryMode::Callback) {
-    return true;
+    return std::nullopt;
   }
   bool hasAgentSettings = !_upload.agentUrl.empty() ||
                           _upload.agentHost != DefaultAgentHost ||
                           _upload.agentPort != DefaultAgentPort;
   if (IsAgentless() && hasAgentSettings) {
-    const char* message =
+    return ProfilingError{
+        ProfilingSeverity::Error,
+        ProfilingErrorCode::InvalidConfiguration,
         "Conflicting transport config: DD_API_KEY is set (agentless) but agent "
         "settings (DD_TRACE_AGENT_URL / DD_AGENT_HOST / DD_TRACE_AGENT_PORT) are "
-        "also configured. Remove one or the other.";
-    if (error != nullptr) {
-      *error = message;
-    }
-    return false;
+        "also configured. Remove one or the other."
+    };
   }
-  return true;
+  return std::nullopt;
 }
 
 std::string const& Configuration::GetSite() const { return _upload.site; }
@@ -476,11 +473,8 @@ T Configuration::GetEnvironmentValue(char const* name, T const& defaultValue) {
   return result;
 }
 
-bool InitializeConfiguration(
-    Configuration* pConfig,
-    const ProfilerConfig* pSettings,
-    ProfileDeliveryMode mode,
-    std::string* error
+ProfilingResult InitializeConfiguration(
+    Configuration* pConfig, const ProfilerConfig* pSettings, ProfileDeliveryMode mode
 ) {
   // if noEnvVars is set, we ignore all environment variables and use only the values
   // provided in the ProfilerConfig struct (or defaults if not set in the struct)
@@ -491,19 +485,21 @@ bool InitializeConfiguration(
   if (pSettings->url != nullptr) {
     pConfig->SetEndpoint(pSettings->url);
   } else if (pSettings->noEnvVars && mode == ProfileDeliveryMode::Http) {
-    if (error != nullptr) {
-      *error = "Url endpoint must be set.";
-    }
-    return false;
+    return ProfilingError{
+        ProfilingSeverity::Error,
+        ProfilingErrorCode::InvalidConfiguration,
+        "Url endpoint must be set."
+    };
   }
 
   if (pSettings->apiKey != nullptr) {
     pConfig->SetApiKey(pSettings->apiKey);
   } else if (pSettings->noEnvVars && mode == ProfileDeliveryMode::Http) {
-    if (error != nullptr) {
-      *error = "Datadog API Key must be set.";
-    }
-    return false;
+    return ProfilingError{
+        ProfilingSeverity::Error,
+        ProfilingErrorCode::InvalidConfiguration,
+        "Datadog API Key must be set."
+    };
   }
 
   if (pSettings->serviceEnvironment != nullptr) {
@@ -546,5 +542,5 @@ bool InitializeConfiguration(
     pConfig->EnableSymbolizedCallstacks();
   }
 
-  return pConfig->ValidateTransportConfig(mode, error);
+  return pConfig->ValidateTransportConfig(mode);
 }

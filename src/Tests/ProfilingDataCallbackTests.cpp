@@ -22,6 +22,9 @@ struct EncodingFailureState {
   bool serialize = false;
   bool bytes = false;
   bool reset = false;
+  int serializeCalls = 0;
+  int bytesCalls = 0;
+  int resetCalls = 0;
   std::string message;
 };
 thread_local EncodingFailureState encodingFailure;
@@ -44,6 +47,7 @@ ddog_Error MakeNativeError() {
 ddog_prof_Profile_SerializeResult SerializeWithFailure(
     ddog_prof_Profile* profile, const ddog_Timespec* start, const ddog_Timespec* end
 ) {
+  ++encodingFailure.serializeCalls;
   if (std::exchange(encodingFailure.serialize, false)) {
     ddog_prof_Profile_SerializeResult result{};
     result.tag = DDOG_PROF_PROFILE_SERIALIZE_RESULT_ERR;
@@ -54,6 +58,7 @@ ddog_prof_Profile_SerializeResult SerializeWithFailure(
 }
 
 ddog_prof_Result_ByteSlice ReadBytesWithFailure(ddog_prof_EncodedProfile* profile) {
+  ++encodingFailure.bytesCalls;
   if (std::exchange(encodingFailure.bytes, false)) {
     ddog_prof_Result_ByteSlice result{};
     result.tag = DDOG_PROF_RESULT_BYTE_SLICE_ERR_BYTE_SLICE;
@@ -64,6 +69,7 @@ ddog_prof_Result_ByteSlice ReadBytesWithFailure(ddog_prof_EncodedProfile* profil
 }
 
 ddog_prof_Profile_Result ResetWithFailure(ddog_prof_Profile* profile) {
+  ++encodingFailure.resetCalls;
   if (std::exchange(encodingFailure.reset, false)) {
     ddog_prof_Profile_Result result{};
     result.tag = DDOG_PROF_PROFILE_RESULT_ERR;
@@ -185,7 +191,7 @@ TEST_F(ProfilingDataCallbackTests, NoHttpSettingsNeededWithNoEnvVars) {
   config.size = sizeof(config);
   config.noEnvVars = true;
   config.uploadIntervalSeconds = 17;
-  ASSERT_EQ(SetupProfiler(config), ProfilingSeverity::Success);
+  ASSERT_TRUE(SetupProfiler(config));
   EXPECT_EQ(
       Profiler::GetConfiguration()->GetUploadInterval(), std::chrono::seconds(17)
   );
@@ -202,7 +208,7 @@ TEST_F(ProfilingDataCallbackTests, FailedSetupDoesNotInvokeCallback) {
 
   ProfilerConfig config{};
   config.size = sizeof(config) - 1;
-  EXPECT_NE(SetupProfiler(config), ProfilingSeverity::Success);
+  EXPECT_FALSE(SetupProfiler(config));
   EXPECT_FALSE(profiler->IsStarted());
   EXPECT_TRUE(profiler->GetProfilingDataCallback());
   EXPECT_EQ(calls, 0);
@@ -236,9 +242,9 @@ TEST_F(ProfilingDataCallbackTests, FailedStartDoesNotInvokeCallback) {
   ASSERT_FALSE(SetupProfilingDataCallback(callback).has_value());
   ProfilerConfig config{};
   config.size = sizeof(config);
-  ASSERT_EQ(SetupProfiler(config), ProfilingSeverity::Success);
+  ASSERT_TRUE(SetupProfiler(config));
 
-  EXPECT_NE(StartProfiler(), ProfilingSeverity::Success);
+  EXPECT_FALSE(StartProfiler());
   EXPECT_FALSE(profiler->IsStarted());
   EXPECT_TRUE(profiler->GetProfilingDataCallback());
   EXPECT_EQ(calls, 0);
@@ -254,7 +260,7 @@ TEST_F(ProfilingDataCallbackTests, UnregisterRestoresHttpRequirements) {
   ProfilerConfig config{};
   config.size = sizeof(config);
   config.noEnvVars = true;
-  EXPECT_NE(SetupProfiler(config), ProfilingSeverity::Success);
+  EXPECT_FALSE(SetupProfiler(config));
   EXPECT_TRUE(Profiler::GetConfiguration()->IsExportEnabled());
 }
 
@@ -278,7 +284,7 @@ TEST_F(
                                  std::chrono::system_clock::now().time_since_epoch()
   )
                                  .count();
-  ASSERT_EQ(StartProfiler(), ProfilingSeverity::Success);
+  ASSERT_TRUE(StartProfiler());
   const auto registrationError = SetupProfilingDataCallback({});
   StopProfiler();
   const auto afterStopMs = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -325,7 +331,7 @@ TEST_F(ProfilingDataCallbackTests, CallbackDiscardsRumRecordsWithoutMetadataFile
   ProfileExporter exporter(
       config, types, profiler.get(), profiler->GetProfilingDataCallback()
   );
-  ASSERT_TRUE(exporter.Initialize()) << exporter.GetLastErrorMessage();
+  ASSERT_FALSE(exporter.Initialize());
 
   for (int cycle = 0; cycle < 2; ++cycle) {
     RumSessionContext session{"app-1", "session-1"};
@@ -333,7 +339,7 @@ TEST_F(ProfilingDataCallbackTests, CallbackDiscardsRumRecordsWithoutMetadataFile
     ASSERT_TRUE(SetRumSession(&session));
     ASSERT_TRUE(SetRumView(&view));
     ASSERT_TRUE(SetRumSession(nullptr));
-    ASSERT_TRUE(exporter.Export(cycle == 1));
+    ASSERT_FALSE(exporter.Export(cycle == 1));
 
     std::vector<RumViewRecord> remainingViews;
     std::vector<RumSessionRecord> remainingSessions;
@@ -368,7 +374,7 @@ TEST_F(ProfilingDataCallbackTests, EncodingErrorsAreNonFatalAndNextExportRecover
     };
     ASSERT_FALSE(SetupProfilingDataCallback(callback).has_value());
     const dd_win_prof::ProfileEncodingApi api{
-        SerializeWithFailure, ReadBytesWithFailure
+        SerializeWithFailure, ReadBytesWithFailure, ResetWithFailure
     };
     std::vector<SampleValueType> types{{"cpu-time", "nanoseconds"}};
     ProfileExporter exporter(
@@ -378,14 +384,23 @@ TEST_F(ProfilingDataCallbackTests, EncodingErrorsAreNonFatalAndNextExportRecover
         profiler->GetProfilingDataCallback(),
         api
     );
-    ASSERT_TRUE(exporter.Initialize()) << exporter.GetLastErrorMessage();
+    ASSERT_FALSE(exporter.Initialize());
     RumSessionContext session{"app-1", "session-1"};
     RumViewValues view{"view-1", "HomePage"};
     ASSERT_TRUE(SetRumSession(&session));
     ASSERT_TRUE(SetRumView(&view));
     ASSERT_TRUE(SetRumSession(nullptr));
 
-    EXPECT_FALSE(exporter.Export());
+    const auto exportError = exporter.Export();
+    ASSERT_TRUE(exportError);
+    EXPECT_EQ(exportError->code, code);
+    EXPECT_TRUE(exportError->reportedToCallback);
+    EXPECT_EQ(encodingFailure.serializeCalls, 1);
+    EXPECT_EQ(
+        encodingFailure.bytesCalls,
+        code == ProfilingErrorCode::SerializationFailed ? 0 : 1
+    );
+    EXPECT_EQ(encodingFailure.resetCalls, 1);
     ASSERT_EQ(results.size(), 1u);
     ASSERT_TRUE(std::holds_alternative<ProfilingError>(results.front()));
     const auto& error = std::get<ProfilingError>(results.front());
@@ -400,16 +415,15 @@ TEST_F(ProfilingDataCallbackTests, EncodingErrorsAreNonFatalAndNextExportRecover
     EXPECT_TRUE(remainingViews.empty());
     EXPECT_TRUE(remainingSessions.empty());
 
-    EXPECT_TRUE(exporter.Export(true));
+    EXPECT_FALSE(exporter.Export(true));
     ASSERT_EQ(results.size(), 2u);
     ASSERT_TRUE(std::holds_alternative<ProfilingData>(results.back()));
     EXPECT_FALSE(std::get<ProfilingData>(results.back()).pprof.empty());
     EXPECT_TRUE(std::get<ProfilingData>(results.back()).isLast);
-    EXPECT_TRUE(exporter.GetLastErrorMessage().empty());
 
     encodingFailure.serialize = code == ProfilingErrorCode::SerializationFailed;
     encodingFailure.bytes = code == ProfilingErrorCode::ProfileBytesUnavailable;
-    EXPECT_FALSE(exporter.Export(true));
+    EXPECT_TRUE(exporter.Export(true));
     ASSERT_EQ(results.size(), 3u);
     ASSERT_TRUE(std::holds_alternative<ProfilingError>(results.back()));
     const auto& finalError = std::get<ProfilingError>(results.back());
@@ -444,7 +458,7 @@ TEST_F(ProfilingDataCallbackTests, FinalEncodingErrorRetainsCallbackReportingSta
     ProfileExporter exporter(
         Profiler::GetConfiguration(), types, nullptr, callback, api
     );
-    ASSERT_TRUE(exporter.Initialize());
+    ASSERT_FALSE(exporter.Initialize());
     SamplesCollector collector(Profiler::GetConfiguration(), &exporter);
     collector.Start();
     const auto error = collector.Stop();
@@ -469,14 +483,46 @@ TEST_F(ProfilingDataCallbackTests, CallbackExceptionTakesPrecedenceOverEncodingE
   };
   std::vector<SampleValueType> types{{"cpu-time", "nanoseconds"}};
   ProfileExporter exporter(Profiler::GetConfiguration(), types, nullptr, callback, api);
-  ASSERT_TRUE(exporter.Initialize());
-  EXPECT_FALSE(exporter.Export(true));
-  const auto error = exporter.GetLastDiagnostic();
+  ASSERT_FALSE(exporter.Initialize());
+  const auto error = exporter.Export(true);
   exporter.Cleanup();
   ASSERT_TRUE(error);
   EXPECT_EQ(error->severity, ProfilingSeverity::Fatal);
   EXPECT_EQ(error->code, ProfilingErrorCode::CallbackFailed);
   EXPECT_FALSE(error->reportedToCallback);
+}
+
+TEST_F(
+    ProfilingDataCallbackTests, InternalExportReturnsErrorWithoutChangingLifecycleSlot
+) {
+  ASSERT_FALSE(SetupProfiler(ProfilerConfig{}));
+  const auto* stored = GetLastProfilerError();
+  ASSERT_NE(stored, nullptr);
+  encodingFailure = {};
+  const dd_win_prof::ProfileEncodingApi api{
+      SerializeWithFailure, ReadBytesWithFailure, ResetWithFailure
+  };
+  std::vector<SampleValueType> types{{"cpu-time", "nanoseconds"}};
+  ProfileExporter exporter(Profiler::GetConfiguration(), types, nullptr, {}, api);
+
+  auto error = exporter.Export();
+  ASSERT_TRUE(error);
+  EXPECT_EQ(error->code, ProfilingErrorCode::InitializationFailed);
+  EXPECT_EQ(encodingFailure.serializeCalls, 0);
+  EXPECT_EQ(encodingFailure.resetCalls, 0);
+  EXPECT_EQ(GetLastProfilerError(), stored);
+
+  ASSERT_FALSE(exporter.Initialize());
+  encodingFailure.serialize = true;
+  error = exporter.Export(true);
+  ASSERT_TRUE(error);
+  EXPECT_EQ(error->code, ProfilingErrorCode::SerializationFailed);
+  EXPECT_FALSE(error->reportedToCallback);
+  EXPECT_EQ(encodingFailure.bytesCalls, 0);
+  EXPECT_EQ(encodingFailure.resetCalls, 1);
+  EXPECT_EQ(GetLastProfilerError(), stored);
+  EXPECT_EQ(stored->code, ProfilingErrorCode::UnsupportedConfigSize);
+  exporter.Cleanup();
 }
 
 TEST_F(ProfilingDataCallbackTests, CanReconfigureAndReplaceCallbackAfterStop) {
@@ -490,21 +536,21 @@ TEST_F(ProfilingDataCallbackTests, CanReconfigureAndReplaceCallbackAfterStop) {
   config.noEnvVars = true;
   config.uploadIntervalSeconds = 3600;
 
-  ASSERT_EQ(SetupProfiler(config), ProfilingSeverity::Success);
-  ASSERT_EQ(StartProfiler(), ProfilingSeverity::Success);
+  ASSERT_TRUE(SetupProfiler(config));
+  ASSERT_TRUE(StartProfiler());
   StopProfiler();
   EXPECT_EQ(firstCalls, 1);
   StopProfiler();
   EXPECT_EQ(firstCalls, 1);
 
-  ASSERT_EQ(SetupProfiler(config), ProfilingSeverity::Success);
-  ASSERT_EQ(StartProfiler(), ProfilingSeverity::Success);
+  ASSERT_TRUE(SetupProfiler(config));
+  ASSERT_TRUE(StartProfiler());
   StopProfiler();
   EXPECT_EQ(firstCalls, 2);
 
   ASSERT_FALSE(SetupProfilingDataCallback(second).has_value());
-  ASSERT_EQ(SetupProfiler(config), ProfilingSeverity::Success);
-  ASSERT_EQ(StartProfiler(), ProfilingSeverity::Success);
+  ASSERT_TRUE(SetupProfiler(config));
+  ASSERT_TRUE(StartProfiler());
   StopProfiler();
   EXPECT_EQ(firstCalls, 2);
   EXPECT_EQ(secondCalls, 1);
@@ -532,8 +578,8 @@ TEST_F(
   config.size = sizeof(config);
   config.noEnvVars = true;
   config.uploadIntervalSeconds = 1;
-  ASSERT_EQ(SetupProfiler(config), ProfilingSeverity::Success);
-  ASSERT_EQ(StartProfiler(), ProfilingSeverity::Success);
+  ASSERT_TRUE(SetupProfiler(config));
+  ASSERT_TRUE(StartProfiler());
 
   const auto status = entered.wait_for(std::chrono::seconds(5));
   EXPECT_EQ(status, std::future_status::ready);
@@ -571,14 +617,14 @@ TEST(ProfilingDataExportTests, CallbackBypassesHttpAndOwnsBytes) {
   ProfilingDataCallback callback = [&](ProfilingDataResult result) {
     results.push_back(std::move(result));
   };
-  ASSERT_TRUE(config.ValidateTransportConfig(ProfileDeliveryMode::Callback));
+  ASSERT_FALSE(config.ValidateTransportConfig(ProfileDeliveryMode::Callback));
   EXPECT_FALSE(config.IsExportEnabled(ProfileDeliveryMode::Callback));
   std::vector<SampleValueType> types{{"cpu-time", "nanoseconds"}};
   {
     ProfileExporter exporter(&config, types, nullptr, callback);
-    ASSERT_TRUE(exporter.Initialize()) << exporter.GetLastErrorMessage();
-    ASSERT_TRUE(exporter.Export());
-    ASSERT_TRUE(exporter.Export(true));
+    ASSERT_FALSE(exporter.Initialize());
+    ASSERT_FALSE(exporter.Export());
+    ASSERT_FALSE(exporter.Export(true));
     exporter.Cleanup();
   }
   ASSERT_EQ(results.size(), 2u);
@@ -609,9 +655,10 @@ TEST(ProfilingDataExportTests, ResetErrorIsDeliveredAndNextExportRecovers) {
     api.reset = ResetWithFailure;
     std::vector<SampleValueType> types{{"cpu-time", "nanoseconds"}};
     ProfileExporter exporter(&config, types, nullptr, callback, api);
-    ASSERT_TRUE(exporter.Initialize()) << exporter.GetLastErrorMessage();
+    ASSERT_FALSE(exporter.Initialize());
 
-    EXPECT_FALSE(exporter.Export(lastCall));
+    const auto exportError = exporter.Export(lastCall);
+    ASSERT_TRUE(exportError);
     ASSERT_EQ(results.size(), 2u);
     ASSERT_TRUE(std::holds_alternative<ProfilingData>(results.front()));
     EXPECT_EQ(std::get<ProfilingData>(results.front()).isLast, lastCall);
@@ -622,13 +669,14 @@ TEST(ProfilingDataExportTests, ResetErrorIsDeliveredAndNextExportRecovers) {
     EXPECT_EQ(error.code, ProfilingErrorCode::ProfileResetFailed);
     ASSERT_FALSE(encodingFailure.message.empty());
     EXPECT_NE(error.message.find(encodingFailure.message), std::string::npos);
-    EXPECT_EQ(exporter.GetLastErrorMessage(), error.message);
+    EXPECT_EQ(exportError->code, error.code);
+    EXPECT_EQ(exportError->message, error.message);
+    EXPECT_TRUE(exportError->reportedToCallback);
 
-    EXPECT_TRUE(exporter.Export(true));
+    EXPECT_FALSE(exporter.Export(true));
     ASSERT_EQ(results.size(), 3u);
     ASSERT_TRUE(std::holds_alternative<ProfilingData>(results.back()));
     EXPECT_FALSE(std::get<ProfilingData>(results.back()).pprof.empty());
-    EXPECT_TRUE(exporter.GetLastErrorMessage().empty());
     exporter.Cleanup();
   }
 }
@@ -647,15 +695,16 @@ TEST(ProfilingDataExportTests, ThrowingCallbackDoesNotPreventNextExport) {
   };
   std::vector<SampleValueType> types{{"cpu-time", "nanoseconds"}};
   ProfileExporter exporter(&config, types, nullptr, callback);
-  ASSERT_TRUE(exporter.Initialize());
-  EXPECT_FALSE(exporter.Export());
-  EXPECT_NE(
-      exporter.GetLastErrorMessage().find("queue unavailable"), std::string::npos
-  );
-  EXPECT_FALSE(exporter.Export());
-  EXPECT_NE(exporter.GetLastErrorMessage().find("non-standard"), std::string::npos);
-  EXPECT_TRUE(exporter.Export(true));
-  EXPECT_TRUE(exporter.GetLastErrorMessage().empty());
+  ASSERT_FALSE(exporter.Initialize());
+  auto error = exporter.Export();
+  ASSERT_TRUE(error);
+  EXPECT_EQ(error->code, ProfilingErrorCode::CallbackFailed);
+  EXPECT_NE(error->message.find("queue unavailable"), std::string::npos);
+  error = exporter.Export();
+  ASSERT_TRUE(error);
+  EXPECT_EQ(error->severity, ProfilingSeverity::Fatal);
+  EXPECT_NE(error->message.find("non-standard"), std::string::npos);
+  EXPECT_FALSE(exporter.Export(true));
   EXPECT_EQ(calls, 3);
   exporter.Cleanup();
 }

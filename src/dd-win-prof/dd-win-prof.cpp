@@ -7,24 +7,24 @@
 #include "pch.h"
 
 namespace {
-thread_local std::optional<ProfilingError> lastError;
-thread_local bool exceptionMessageUnavailable = false;
+thread_local ProfilingResult lastError;
 
-ProfilingSeverity UnexpectedException(const char* message) noexcept {
+bool UnexpectedException(const char* message) noexcept {
   try {
     lastError = ProfilingError{
         ProfilingSeverity::Fatal, ProfilingErrorCode::UnexpectedException, message
     };
   } catch (...) {
-    exceptionMessageUnavailable = true;
+    lastError = ProfilingError{
+        ProfilingSeverity::Fatal, ProfilingErrorCode::UnexpectedException, {}
+    };
   }
-  return ProfilingSeverity::Fatal;
+  return false;
 }
 
 template <typename Action>
-ProfilingSeverity RunLifecycle(Action action) noexcept {
+bool RunLifecycle(Action action) noexcept {
   lastError.reset();
-  exceptionMessageUnavailable = false;
   try {
     auto profiler = Profiler::GetInstance();
     if (profiler == nullptr) {
@@ -36,7 +36,7 @@ ProfilingSeverity RunLifecycle(Action action) noexcept {
     } else {
       lastError = action(*profiler);
     }
-    return lastError ? lastError->severity : ProfilingSeverity::Success;
+    return !lastError;
   } catch (const std::exception& error) {
     return UnexpectedException(error.what());
   } catch (...) {
@@ -47,9 +47,8 @@ ProfilingSeverity RunLifecycle(Action action) noexcept {
 }
 }  // namespace
 
-DD_WIN_PROF_API std::optional<ProfilingError> SetupProfilingDataCallback(
-    const ProfilingDataCallback& callback
-) {
+DD_WIN_PROF_API ProfilingResult
+SetupProfilingDataCallback(const ProfilingDataCallback& callback) {
   auto profiler = Profiler::GetInstance();
   if (profiler == nullptr) {
     return ProfilingError{
@@ -61,30 +60,20 @@ DD_WIN_PROF_API std::optional<ProfilingError> SetupProfilingDataCallback(
   return profiler->SetProfilingDataCallback(callback);
 }
 
-DD_WIN_PROF_API ProfilingSeverity SetupProfiler(const ProfilerConfig& settings
-) noexcept {
+DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig& settings) noexcept {
   return RunLifecycle([&](Profiler& profiler) { return profiler.Configure(settings); });
 }
 
-DD_WIN_PROF_API ProfilingSeverity StartProfiler() noexcept {
+DD_WIN_PROF_API bool StartProfiler() noexcept {
   return RunLifecycle([](Profiler& profiler) { return profiler.StartProfiling(); });
 }
 
-DD_WIN_PROF_API ProfilingSeverity StopProfiler() noexcept {
-  return RunLifecycle([](Profiler& profiler) { return profiler.StopProfiling(); });
+DD_WIN_PROF_API void StopProfiler() noexcept {
+  RunLifecycle([](Profiler& profiler) { return profiler.StopProfiling(); });
 }
 
-DD_WIN_PROF_API ProfilingDiagnostic GetLastProfilerDiagnostic() noexcept {
-  if (exceptionMessageUnavailable) {
-    return {
-        ProfilingSeverity::Fatal,
-        ProfilingErrorCode::UnexpectedException,
-        "Unexpected exception; diagnostic message unavailable"
-    };
-  }
-  return lastError
-      ? ProfilingDiagnostic{lastError->severity, lastError->code, lastError->message.c_str()}
-      : ProfilingDiagnostic{};
+DD_WIN_PROF_API const ProfilingError* GetLastProfilerError() noexcept {
+  return lastError ? &*lastError : nullptr;
 }
 
 DD_WIN_PROF_API bool EnterView(const char* viewName) {

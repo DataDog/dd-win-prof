@@ -27,8 +27,7 @@ class PprofAggregatorTest : public ::testing::Test {
   void SetUp() override {
     // Common setup for all tests
     config = std::make_unique<Configuration>();
-    config->SetExportEnabled(
-        false
+    config->SetExportEnabled(false
     );  // Disable export for all tests to prevent network calls
   }
 
@@ -394,7 +393,7 @@ TEST_F(PprofAggregatorTest, IntegrationWithProfileExporterAndDebugFileWriting) {
   auto sampleValueTypeDefs = CreateMinimalSampleValueTypeDefinitions();
   Sample::SetValuesCount(sampleValueTypeDefs.size());
   ProfileExporter exporter(config.get(), sampleValueTypeDefs);
-  ASSERT_TRUE(exporter.Initialize())
+  ASSERT_FALSE(exporter.Initialize())
       << "ProfileExporter should initialize successfully";
 
   // Configure debug file writing (OFF by default when no output directory is
@@ -449,9 +448,8 @@ TEST_F(PprofAggregatorTest, IntegrationWithProfileExporterAndDebugFileWriting) {
   // Test ProfileExporter export functionality with debug file writing
   // This will serialize the profile (with the samples we just added) and write debug
   // files if enabled
-  bool exportResult = exporter.Export();
-  EXPECT_TRUE(
-      exportResult
+  const auto error = exporter.Export();
+  EXPECT_FALSE(error
   ) << "Export should succeed (debug file writing failure is non-fatal)";
 
   // Disable debug file writing and test again
