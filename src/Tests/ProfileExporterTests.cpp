@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <thread>
 #include <vector>
 
 #include "../dd-win-prof/Configuration.h"
@@ -50,6 +51,22 @@ TEST_F(ProfileExporterExportTests, InitializationWithExportEnabled) {
   ASSERT_TRUE(exporter->Initialize());
   EXPECT_TRUE(exporter->IsInitialized());
   EXPECT_TRUE(exporter->GetLastError().empty());
+}
+
+TEST_F(ProfileExporterExportTests, ApplicationIdCanBeSetWhilePreparingTags) {
+  ASSERT_TRUE(exporter->Initialize());
+
+  std::thread writer([&] {
+    for (int i = 0; i < 1000; ++i) {
+      exporter->SetRumApplicationId(std::string(i % 2 == 0 ? 64 : 1024, 'a'));
+    }
+  });
+  for (uint32_t i = 0; i < 1000; ++i) {
+    auto tags = ddog_Vec_Tag_new();
+    EXPECT_TRUE(exporter->PrepareAdditionalTags(tags, i));
+    ddog_Vec_Tag_drop(tags);
+  }
+  writer.join();
 }
 
 TEST_F(ProfileExporterExportTests, ExportWithoutSamples) {

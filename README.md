@@ -188,6 +188,10 @@ The supported API behavior is:
   start or after the session is already stopped emits a warning and otherwise
   has no effect.
 
+Call `StopProfiler()` before process exit to export the final profile. During
+process termination, the DLL skips profiler cleanup because Windows may already
+have terminated threads holding its locks.
+
 **NOTE:** Method names are obfuscated by default. Add `DD_PROFILING_INTERNAL_SYMBOLIZE_CALLSTACKS=1` to enable symbolization.
 
 

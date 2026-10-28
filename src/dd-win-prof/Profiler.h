@@ -68,6 +68,8 @@ class Profiler : public IRumViewContextProvider,
   }
 
  private:
+  friend class ProfilerLifecycleTest;
+
   static Profiler* _this;
 
   // configuration
