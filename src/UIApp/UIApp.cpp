@@ -643,8 +643,13 @@ std::string ToUtf8(const wchar_t* wide) {
     return std::string();
   }
 
-  std::string result(static_cast<size_t>(needed - 1), '\0');
-  WideCharToMultiByte(CP_UTF8, 0, wide, -1, result.data(), needed, nullptr, nullptr);
+  std::string result(static_cast<size_t>(needed), '\0');
+  if (WideCharToMultiByte(
+          CP_UTF8, 0, wide, -1, result.data(), needed, nullptr, nullptr
+      ) == 0) {
+    return std::string();
+  }
+  result.pop_back();  // Remove the terminating NUL written by the Windows API.
   return result;
 }
 
