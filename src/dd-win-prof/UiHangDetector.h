@@ -14,6 +14,9 @@ class UiHangDetector {
  public:
   // needed by the global Windows Hook callback
   static UiHangDetector* _this;
+  // used to protect against deleting the detector while the hook is still in position to be called
+  static std::mutex _instanceMutex;
+
 
   UiHangDetector(
       UINT hangProbeMessageId,
