@@ -45,14 +45,15 @@ LRESULT CALLBACK GetMsgProc(int code, WPARAM wParam, LPARAM lParam) {
     return ::CallNextHookEx(nullptr, code, wParam, lParam);
   }
 
-  // don't keep the lock when calling CallNextHookEx that could trigger a reentrency issue
+  // don't keep the lock when calling CallNextHookEx that could trigger a reentrency
+  // issue
   {
-      std::lock_guard<std::mutex> lock(UiHangDetector::_instanceMutex);
+    std::lock_guard<std::mutex> lock(UiHangDetector::_instanceMutex);
 
-      // forward to the current instance of UiHangDetector
-      if (UiHangDetector::_this != nullptr) {
-        UiHangDetector::_this->ProcessHook(code, wParam, lParam);
-      }
+    // forward to the current instance of UiHangDetector
+    if (UiHangDetector::_this != nullptr) {
+      UiHangDetector::_this->ProcessHook(code, wParam, lParam);
+    }
   }
 
   return ::CallNextHookEx(nullptr, code, wParam, lParam);
