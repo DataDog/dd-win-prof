@@ -68,6 +68,12 @@ class Profiler : public IRumViewContextProvider,
   }
 
  private:
+  friend class ProfilerShutdownTest;
+
+  // configuration
+  inline static constexpr std::chrono::seconds UploadInterval =
+      std::chrono::seconds(10);
+
   static Profiler* _this;
 
   // configuration

@@ -32,6 +32,8 @@ class ThreadList {
   void UpdateIterators(uint32_t pos);
 
  private:
+  friend class ProfilerShutdownTest;
+
   static const std::uint32_t DefaultThreadListSize;
 
   std::recursive_mutex _mutex;
