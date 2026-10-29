@@ -474,6 +474,80 @@ TEST_F(ConfigurationTest, InitConfig_NoEnvVars_False_EnvVarsPreserved) {
   EXPECT_EQ(config.GetServiceName(), "api-svc") << "API override should apply";
 }
 
+TEST_F(ConfigurationTest, InitConfig_RepeatedSetup_DiscardsPreviousOverrides) {
+  SetTestEnvVar(EnvironmentVariables::ServiceName, "env-service");
+  SetTestEnvVar(EnvironmentVariables::Environment, "env-env");
+  SetTestEnvVar(EnvironmentVariables::ApiKey, "env-key");
+  SetTestEnvVar(EnvironmentVariables::Site, "datadoghq.eu");
+  UnsetTestEnvVar(EnvironmentVariables::AgentUrl);
+
+  for (const char* version : {"env-version", static_cast<const char*>(nullptr)}) {
+    SetTestEnvVar(EnvironmentVariables::Version, version);
+    const Configuration baseline;
+
+    for (bool noEnvVars : {false, true}) {
+      SCOPED_TRACE(noEnvVars);
+      SCOPED_TRACE(baseline.GetVersion());
+      Configuration config;
+      auto first = MakeProfilerConfig();
+      first.noEnvVars = noEnvVars;
+      first.url = "datadoghq.com";
+      first.apiKey = "first-key";
+      first.serviceName = "first-service";
+      first.serviceEnvironment = "first-env";
+      first.serviceVersion = "1.2.3";
+      first.cpuWallTimeSamplingPeriodNs = 10'000'000;
+      first.walltimeThreadsThreshold = 10;
+      first.cpuThreadsThreshold = 32;
+      first.uploadIntervalSeconds = 45;
+      first.tags = "team:first";
+      first.pprofOutputDirectory = "C:\\temp\\first";
+      first.symbolizeCallstacks = true;
+      ASSERT_TRUE(InitializeConfiguration(&config, &first));
+      ASSERT_EQ(config.GetVersion(), "1.2.3");
+
+      auto second = MakeProfilerConfig();
+      second.serviceName = "second-service";
+      ASSERT_TRUE(InitializeConfiguration(&config, &second));
+
+      EXPECT_EQ(config.GetServiceName(), "second-service");
+      EXPECT_EQ(config.GetVersion(), baseline.GetVersion());
+      EXPECT_EQ(config.GetEnvironment(), baseline.GetEnvironment());
+      EXPECT_EQ(config.GetSite(), baseline.GetSite());
+      EXPECT_EQ(config.GetApiKey(), baseline.GetApiKey());
+      EXPECT_EQ(config.GetAgentUrl(), baseline.GetAgentUrl());
+      EXPECT_EQ(config.GetAgentHost(), baseline.GetAgentHost());
+      EXPECT_EQ(config.GetAgentPort(), baseline.GetAgentPort());
+      EXPECT_EQ(config.GetNamedPipeName(), baseline.GetNamedPipeName());
+      EXPECT_EQ(
+          config.CpuWallTimeSamplingPeriod(), baseline.CpuWallTimeSamplingPeriod()
+      );
+      EXPECT_EQ(config.WalltimeThreadsThreshold(), baseline.WalltimeThreadsThreshold());
+      EXPECT_EQ(config.CpuThreadsThreshold(), baseline.CpuThreadsThreshold());
+      EXPECT_EQ(config.GetUploadInterval(), baseline.GetUploadInterval());
+      EXPECT_EQ(config.GetUserTags(), baseline.GetUserTags());
+      EXPECT_EQ(
+          config.GetProfilesOutputDirectory(), baseline.GetProfilesOutputDirectory()
+      );
+      EXPECT_EQ(config.AreCallstacksSymbolized(), baseline.AreCallstacksSymbolized());
+    }
+  }
+}
+
+TEST_F(ConfigurationTest, InitConfig_RepeatedSetup_ReloadsEnvironment) {
+  UnsetTestEnvVar(EnvironmentVariables::AgentUrl);
+  SetTestEnvVar(EnvironmentVariables::ApiKey, "env-key");
+  SetTestEnvVar(EnvironmentVariables::Version, "first-env-version");
+  Configuration config;
+  auto cfg = MakeProfilerConfig();
+  ASSERT_TRUE(InitializeConfiguration(&config, &cfg));
+  EXPECT_EQ(config.GetVersion(), "first-env-version");
+
+  SetTestEnvVar(EnvironmentVariables::Version, "second-env-version");
+  ASSERT_TRUE(InitializeConfiguration(&config, &cfg));
+  EXPECT_EQ(config.GetVersion(), "second-env-version");
+}
+
 // ===========================================================================
 // Agentless mode: derived from DD_API_KEY presence
 // ===========================================================================

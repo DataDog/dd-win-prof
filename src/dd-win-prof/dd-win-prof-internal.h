@@ -7,8 +7,8 @@
 #include "Configuration.h"
 #include "dd-win-prof.h"
 
-// Applies ProfilerConfig fields to a Configuration object.
-// When pSettings->noEnvVars is true, resets to defaults first so that
-// only the explicit struct fields take effect.
-// Returns false if mandatory fields are missing (url, apiKey when noEnvVars).
+// Rebuilds configuration from defaults and, unless noEnvVars is set, the current
+// environment, then applies ProfilerConfig fields. Previous API overrides are
+// discarded. Returns false if mandatory fields are missing (url, apiKey when
+// noEnvVars).
 bool InitializeConfiguration(Configuration* pConfig, const ProfilerConfig* pSettings);
