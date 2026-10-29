@@ -55,6 +55,8 @@ typedef struct _ProfilerConfig {
 } ProfilerConfig;
 
 extern "C" {
+// Replaces previous settings with defaults, current environment variables (unless
+// noEnvVars is true), and the supplied overrides. Must be called while stopped.
 DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig* pSettings);
 
 // Start profiling manually (returns false if already started or explicitly disabled)

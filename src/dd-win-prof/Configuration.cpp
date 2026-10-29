@@ -461,10 +461,11 @@ T Configuration::GetEnvironmentValue(char const* name, T const& defaultValue) {
 }
 
 bool InitializeConfiguration(Configuration* pConfig, const ProfilerConfig* pSettings) {
-  // if noEnvVars is set, we ignore all environment variables and use only the values
-  // provided in the ProfilerConfig struct (or defaults if not set in the struct)
+  // Each setup replaces previous API overrides with defaults and, if allowed, env vars.
   if (pSettings->noEnvVars) {
     pConfig->ResetToDefaults();
+  } else {
+    *pConfig = Configuration();
   }
 
   if (pSettings->url != nullptr) {
