@@ -28,69 +28,47 @@ Profiler::~Profiler() {
   _isStarted = false;
 }
 
-ProfilingResult Profiler::SetProfilingDataCallback(const ProfilingDataCallback& callback
-) {
+bool Profiler::SetProfilingDataCallback(const ProfilingDataCallback& callback) {
   if (IsStarted()) {
-    return ProfilingError{
-        ProfilingSeverity::Error,
-        ProfilingErrorCode::ProfilerAlreadyRunning,
-        "Cannot change the profiling callback while the profiler is running"
-    };
+    Log::Error("Cannot change the profiling callback while the profiler is running");
+    return false;
   }
   try {
     _profilingDataCallback = callback;
-    return std::nullopt;
+    return true;
   } catch (const std::exception& error) {
-    return ProfilingError{
-        ProfilingSeverity::Fatal,
-        ProfilingErrorCode::CallbackCopyFailed,
-        "Failed to copy profiling data callback: " + std::string(error.what())
-    };
+    Log::Error("Failed to copy profiling data callback: ", error.what());
+    return false;
   } catch (...) {
-    return ProfilingError{
-        ProfilingSeverity::Fatal,
-        ProfilingErrorCode::CallbackCopyFailed,
-        "Failed to copy profiling data callback: non-standard exception"
-    };
+    Log::Error("Failed to copy profiling data callback: non-standard exception");
+    return false;
   }
 }
 
-ProfilingResult Profiler::Configure(const ProfilerConfig& settings) {
+bool Profiler::Configure(const ProfilerConfig& settings) {
   if (settings.size != sizeof(ProfilerConfig)) {
-    return ProfilingError{
-        ProfilingSeverity::Error,
-        ProfilingErrorCode::UnsupportedConfigSize,
-        "Invalid profiler configuration structure size"
-    };
+    Log::Error("Invalid profiler configuration structure size");
+    return false;
   }
   if (IsStarted()) {
-    return ProfilingError{
-        ProfilingSeverity::Error,
-        ProfilingErrorCode::ProfilerAlreadyRunning,
-        "SetupProfiler must be called while stopped"
-    };
+    Log::Error("SetupProfiler must be called while stopped");
+    return false;
   }
   return InitializeConfiguration(_pConfiguration.get(), &settings, GetDeliveryMode());
 }
 
-ProfilingResult Profiler::StartProfiling() {
+bool Profiler::StartProfiling() {
   if (IsStarted()) {
-    return ProfilingError{
-        ProfilingSeverity::Error,
-        ProfilingErrorCode::ProfilerAlreadyRunning,
-        "Profiler is already running"
-    };
+    Log::Error("Profiler is already running");
+    return false;
   }
   if (_pConfiguration->IsProfilerExplicitlyDisabled()) {
-    return ProfilingError{
-        ProfilingSeverity::Info,
-        ProfilingErrorCode::ExplicitlyDisabled,
-        "Profiler is explicitly disabled by DD_PROFILING_ENABLED"
-    };
+    Log::Info("Profiler is explicitly disabled by DD_PROFILING_ENABLED");
+    return false;
   }
 
-  if (auto error = _pConfiguration->ValidateTransportConfig(GetDeliveryMode())) {
-    return error;
+  if (!_pConfiguration->ValidateTransportConfig(GetDeliveryMode())) {
+    return false;
   }
 
   try {
@@ -121,10 +99,10 @@ ProfilingResult Profiler::StartProfiling() {
     );
 
     // Initialize the ProfileExporter
-    if (auto error = _pProfileExporter->Initialize()) {
+    if (!_pProfileExporter->Initialize()) {
       _pProfileExporter->Cleanup();
       _pProfileExporter.reset();
-      return error;
+      return false;
     }
 
     // Flush buffered RUM application ID to the exporter
@@ -154,7 +132,7 @@ ProfilingResult Profiler::StartProfiling() {
     _pStackSamplerLoop->Start();
 
     _isStarted = true;
-    return std::nullopt;
+    return true;
   } catch (...) {
     // No final export on a partially initialized run.
     if (_pStackSamplerLoop) {
@@ -170,14 +148,14 @@ ProfilingResult Profiler::StartProfiling() {
   }
 }
 
-ProfilingResult Profiler::StopProfiling(bool shutdownOngoing) {
+bool Profiler::StopProfiling(bool shutdownOngoing) {
   // avoid being stopped multiple times
   if (!_isStarted) {
-    return std::nullopt;
+    return true;
   }
 
   Log::Info("Stopping profiler...");
-  ProfilingResult error;
+  bool success = true;
 
   // Signal SamplesCollector if we're in shutdown mode to stop exports immediately
   if (shutdownOngoing) {
@@ -189,7 +167,7 @@ ProfilingResult Profiler::StopProfiling(bool shutdownOngoing) {
   }
 
   if (_pSamplesCollector != nullptr) {
-    error = _pSamplesCollector->Stop(shutdownOngoing);
+    success = _pSamplesCollector->Stop(shutdownOngoing);
   }
 
   // Explicitly clean up ProfileExporter with shutdown detection
@@ -199,7 +177,7 @@ ProfilingResult Profiler::StopProfiling(bool shutdownOngoing) {
   }
   _isStarted = false;
   Log::Info("Profiler stopped...");
-  return error;
+  return success;
 }
 
 bool Profiler::AddCurrentThread() {

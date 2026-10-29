@@ -2,12 +2,11 @@
 // the Apache 2 License. This product includes software developed at Datadog
 // (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
 
-#include <fstream>
 #include <future>
+#include <optional>
 #include <stdexcept>
 
 #include "EnvironmentVariables.h"
-#include "Log.h"
 #include "Profiler.h"
 #include "internal/dd-win-rum-private.h"
 #include "pch.h"
@@ -32,23 +31,6 @@ class ScopedEnvironment {
   const char* _name;
   std::string _previous;
 };
-
-fs::path CurrentLogFile() {
-  const auto logger = spdlog::get("DD-InprocProfiler");
-  if (!logger || logger->sinks().empty()) {
-    return {};
-  }
-  const auto sink = std::dynamic_pointer_cast<spdlog::sinks::rotating_file_sink_mt>(
-      logger->sinks().front()
-  );
-  return sink ? fs::path(sink->filename()) : fs::path{};
-}
-
-std::string ReadLogSince(const fs::path& path, uintmax_t offset) {
-  std::ifstream stream(path, std::ios::binary);
-  stream.seekg(static_cast<std::streamoff>(offset));
-  return {std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
-}
 }  // namespace
 
 class LifecycleDiagnosticTests : public ::testing::Test {
@@ -57,8 +39,7 @@ class LifecycleDiagnosticTests : public ::testing::Test {
     previous = *Profiler::GetConfiguration();
     Profiler::GetConfiguration()->ResetToDefaults();
     profiler = std::make_unique<Profiler>();
-    StopProfiler();
-    ASSERT_EQ(GetLastProfilerError(), nullptr);
+    ASSERT_TRUE(StopProfiler());
   }
 
   void TearDown() override {
@@ -69,8 +50,8 @@ class LifecycleDiagnosticTests : public ::testing::Test {
     *Profiler::GetConfiguration() = std::move(*previous);
   }
 
-  void ConfigureCallback(ProfilingDataCallback callback = [](ProfilingDataResult) {}) {
-    ASSERT_FALSE(SetupProfilingDataCallback(callback));
+  void ConfigureCallback(ProfilingDataCallback callback = [](ProfilingData) {}) {
+    ASSERT_TRUE(SetupProfilingDataCallback(callback));
     ProfilerConfig config{};
     config.size = sizeof(config);
     config.noEnvVars = true;
@@ -82,166 +63,71 @@ class LifecycleDiagnosticTests : public ::testing::Test {
   std::unique_ptr<Profiler> profiler;
 };
 
-TEST_F(LifecycleDiagnosticTests, InvalidConfigurationHasRichError) {
+TEST_F(LifecycleDiagnosticTests, InvalidConfigurationReturnsFalse) {
   ProfilerConfig config{};
   EXPECT_FALSE(SetupProfiler(config));
-  const auto* error = GetLastProfilerError();
-  ASSERT_NE(error, nullptr);
-  EXPECT_EQ(error->severity, ProfilingSeverity::Error);
-  EXPECT_EQ(error->code, ProfilingErrorCode::UnsupportedConfigSize);
-  EXPECT_EQ(error->message, "Invalid profiler configuration structure size");
-
   config.size = sizeof(config);
   config.noEnvVars = true;
   EXPECT_FALSE(SetupProfiler(config));
-  error = GetLastProfilerError();
-  ASSERT_NE(error, nullptr);
-  EXPECT_EQ(error->code, ProfilingErrorCode::InvalidConfiguration);
-  EXPECT_NE(error->message.find("Url"), std::string::npos);
-}
-
-TEST_F(LifecycleDiagnosticTests, ExplicitDisableReturnsInformationalError) {
-  ScopedEnvironment disabled(EnvironmentVariables::ProfilerEnabled, "0");
-  *Profiler::GetConfiguration() = Configuration();
-  EXPECT_FALSE(StartProfiler());
-  const auto* error = GetLastProfilerError();
-  ASSERT_NE(error, nullptr);
-  EXPECT_EQ(error->severity, ProfilingSeverity::Info);
-  EXPECT_EQ(error->code, ProfilingErrorCode::ExplicitlyDisabled);
   EXPECT_FALSE(profiler->IsStarted());
 }
 
-TEST_F(LifecycleDiagnosticTests, ConflictingTransportHasConfigurationError) {
+TEST_F(LifecycleDiagnosticTests, ExplicitDisableReturnsFalse) {
+  ScopedEnvironment disabled(EnvironmentVariables::ProfilerEnabled, "0");
+  *Profiler::GetConfiguration() = Configuration();
+  EXPECT_FALSE(StartProfiler());
+  EXPECT_FALSE(profiler->IsStarted());
+}
+
+TEST_F(LifecycleDiagnosticTests, ConflictingTransportReturnsFalse) {
   ScopedEnvironment key("DD_API_KEY", "test-key");
   ScopedEnvironment endpoint("DD_TRACE_AGENT_URL", "http://127.0.0.1:1");
   *Profiler::GetConfiguration() = Configuration();
   EXPECT_FALSE(StartProfiler());
-  const auto* error = GetLastProfilerError();
-  ASSERT_NE(error, nullptr);
-  EXPECT_EQ(error->code, ProfilingErrorCode::InvalidConfiguration);
-  EXPECT_NE(error->message.find("Conflicting"), std::string::npos);
   EXPECT_FALSE(profiler->IsStarted());
 }
 
-TEST_F(LifecycleDiagnosticTests, MissingProfilerIsReportedByAllOperations) {
+TEST_F(LifecycleDiagnosticTests, MissingProfilerRejectsAllOperations) {
   profiler.reset();
   EXPECT_FALSE(StartProfiler());
-  ASSERT_NE(GetLastProfilerError(), nullptr);
-  EXPECT_EQ(GetLastProfilerError()->code, ProfilingErrorCode::ProfilerUnavailable);
-  StopProfiler();
-  ASSERT_NE(GetLastProfilerError(), nullptr);
-  EXPECT_EQ(GetLastProfilerError()->code, ProfilingErrorCode::ProfilerUnavailable);
+  EXPECT_FALSE(StopProfiler());
   ProfilerConfig config{};
   config.size = sizeof(config);
   EXPECT_FALSE(SetupProfiler(config));
-  ASSERT_NE(GetLastProfilerError(), nullptr);
-  EXPECT_EQ(GetLastProfilerError()->code, ProfilingErrorCode::ProfilerUnavailable);
+  EXPECT_FALSE(SetupProfilingDataCallback({}));
   profiler = std::make_unique<Profiler>();
-}
-
-TEST_F(LifecycleDiagnosticTests, GetterBorrowsWithoutConsumingAndSuccessClears) {
-  EXPECT_FALSE(SetupProfiler(ProfilerConfig{}));
-  const auto* error = GetLastProfilerError();
-  ASSERT_NE(error, nullptr);
-  const ProfilingError saved = *error;
-  EXPECT_EQ(GetLastProfilerError(), error);
-  EXPECT_EQ(GetLastProfilerError()->message.data(), error->message.data());
-  EXPECT_EQ(error->message, saved.message);
-  StopProfiler();
-  EXPECT_EQ(GetLastProfilerError(), nullptr);
-  EXPECT_EQ(saved.code, ProfilingErrorCode::UnsupportedConfigSize);
-  EXPECT_EQ(saved.message, "Invalid profiler configuration structure size");
-}
-
-TEST_F(LifecycleDiagnosticTests, ErrorIsLocalToCallingThread) {
-  EXPECT_FALSE(SetupProfiler(ProfilerConfig{}));
-  const auto* error = GetLastProfilerError();
-  ASSERT_NE(error, nullptr);
-  const std::string saved = error->message;
-  const auto other = std::async(std::launch::async, [] {
-                       EXPECT_EQ(GetLastProfilerError(), nullptr);
-                       ProfilerConfig config{};
-                       config.size = sizeof(config);
-                       config.noEnvVars = true;
-                       EXPECT_FALSE(SetupProfiler(config));
-                       const auto* error = GetLastProfilerError();
-                       EXPECT_NE(error, nullptr);
-                       return error ? std::optional{error->code} : std::nullopt;
-                     }).get();
-  EXPECT_EQ(other, ProfilingErrorCode::InvalidConfiguration);
-  EXPECT_EQ(GetLastProfilerError(), error);
-  EXPECT_EQ(error->code, ProfilingErrorCode::UnsupportedConfigSize);
-  EXPECT_EQ(error->message, saved);
 }
 
 TEST_F(LifecycleDiagnosticTests, LifecycleCanRestartAndRejectsSetupWhileRunning) {
   int calls = 0;
-  ConfigureCallback([&](ProfilingDataResult result) {
-    EXPECT_TRUE(std::get<ProfilingData>(result).isLast);
+  ConfigureCallback([&](ProfilingData data) {
+    EXPECT_EQ(data.result, 0u);
+    EXPECT_TRUE(data.isLast);
     ++calls;
   });
   for (int cycle = 0; cycle < 2; ++cycle) {
     ASSERT_TRUE(StartProfiler());
     EXPECT_FALSE(StartProfiler());
-    ASSERT_NE(GetLastProfilerError(), nullptr);
-    EXPECT_EQ(GetLastProfilerError()->code, ProfilingErrorCode::ProfilerAlreadyRunning);
     ProfilerConfig config{};
     config.size = sizeof(config);
     EXPECT_FALSE(SetupProfiler(config));
-    ASSERT_NE(GetLastProfilerError(), nullptr);
-    EXPECT_EQ(GetLastProfilerError()->code, ProfilingErrorCode::ProfilerAlreadyRunning);
-    StopProfiler();
-    EXPECT_EQ(GetLastProfilerError(), nullptr);
+    EXPECT_TRUE(StopProfiler());
     EXPECT_FALSE(profiler->IsStarted());
-    StopProfiler();
-    EXPECT_EQ(GetLastProfilerError(), nullptr);
+    EXPECT_TRUE(StopProfiler());
   }
   EXPECT_EQ(calls, 2);
 }
 
-TEST_F(LifecycleDiagnosticTests, PrivateCallsRetainRichResultsWithoutChangingSlot) {
-  EXPECT_FALSE(SetupProfiler(ProfilerConfig{}));
-  const auto* stored = GetLastProfilerError();
-  ASSERT_NE(stored, nullptr);
+TEST_F(LifecycleDiagnosticTests, PrivateConfigurationUsesBooleanResults) {
   ProfilerConfig config{};
   config.size = sizeof(config);
   config.noEnvVars = true;
-  const auto error = profiler->Configure(config);
-  ASSERT_TRUE(error);
-  EXPECT_EQ(error->severity, ProfilingSeverity::Error);
-  EXPECT_EQ(error->code, ProfilingErrorCode::InvalidConfiguration);
-  EXPECT_EQ(GetLastProfilerError(), stored);
-  EXPECT_EQ(stored->code, ProfilingErrorCode::UnsupportedConfigSize);
-  ASSERT_FALSE(SetupProfilingDataCallback({}));
-  EXPECT_EQ(GetLastProfilerError(), stored);
+  EXPECT_FALSE(profiler->Configure(config));
+  ASSERT_TRUE(SetupProfilingDataCallback([](ProfilingData) {}));
+  EXPECT_TRUE(profiler->Configure(config));
 }
 
-TEST_F(LifecycleDiagnosticTests, SynchronousFailuresAreNotAlsoLogged) {
-  const auto path = CurrentLogFile();
-  if (path.empty()) {
-    GTEST_SKIP() << "File logging is unavailable";
-  }
-  const auto offset = fs::file_size(path);
-  EXPECT_FALSE(SetupProfiler(ProfilerConfig{}));
-  ConfigureCallback([](ProfilingDataResult) {
-    throw std::runtime_error("synchronous-callback-marker");
-  });
-  ASSERT_TRUE(StartProfiler());
-  StopProfiler();
-  ASSERT_NE(GetLastProfilerError(), nullptr);
-  EXPECT_EQ(GetLastProfilerError()->severity, ProfilingSeverity::Fatal);
-  const auto log = ReadLogSince(path, offset);
-  EXPECT_EQ(
-      log.find("Invalid profiler configuration structure size"), std::string::npos
-  );
-  EXPECT_EQ(log.find("synchronous-callback-marker"), std::string::npos);
-}
-
-TEST_F(LifecycleDiagnosticTests, DebugFileWarningRemainsVisibleDuringStop) {
-  const auto path = CurrentLogFile();
-  if (path.empty()) {
-    GTEST_SKIP() << "File logging is unavailable";
-  }
+TEST_F(LifecycleDiagnosticTests, DebugFileFailureDoesNotFailStop) {
   ConfigureCallback();
   const auto output =
       fs::temp_directory_path() /
@@ -250,65 +136,24 @@ TEST_F(LifecycleDiagnosticTests, DebugFileWarningRemainsVisibleDuringStop) {
   Profiler::GetConfiguration()->SetProfilesOutputDirectory(output);
   ASSERT_TRUE(StartProfiler());
   fs::remove(output);
-  const auto offset = fs::file_size(path);
-  StopProfiler();
-  EXPECT_NE(
-      ReadLogSince(path, offset).find("Failed to write debug pprof file"),
-      std::string::npos
-  );
-  EXPECT_EQ(GetLastProfilerError(), nullptr);
-}
-
-TEST_F(LifecycleDiagnosticTests, CallbackExceptionIsFatalButStopCompletes) {
-  ConfigureCallback([](ProfilingDataResult) {
-    throw std::runtime_error("final callback failed");
-  });
-  ASSERT_TRUE(StartProfiler());
-  StopProfiler();
-  const auto* error = GetLastProfilerError();
-  ASSERT_NE(error, nullptr);
-  EXPECT_EQ(error->severity, ProfilingSeverity::Fatal);
-  EXPECT_EQ(error->code, ProfilingErrorCode::CallbackFailed);
-  EXPECT_NE(error->message.find("final callback failed"), std::string::npos);
+  EXPECT_TRUE(StopProfiler());
   EXPECT_FALSE(profiler->IsStarted());
-  StopProfiler();
-  EXPECT_EQ(GetLastProfilerError(), nullptr);
 }
 
-TEST_F(LifecycleDiagnosticTests, NativeExceptionTextIsNotEncodingNormalized) {
-  ConfigureCallback([](ProfilingDataResult) {
-    throw std::runtime_error("native byte: \xe9");
-  });
+TEST_F(LifecycleDiagnosticTests, CallbackExceptionMakesStopFailButCleanupCompletes) {
+  ConfigureCallback([](ProfilingData) { throw std::runtime_error("callback failed"); });
   ASSERT_TRUE(StartProfiler());
-  StopProfiler();
-  const auto* error = GetLastProfilerError();
-  ASSERT_NE(error, nullptr);
-  EXPECT_EQ(error->code, ProfilingErrorCode::CallbackFailed);
-  EXPECT_NE(error->message.find("native byte: \xe9"), std::string::npos);
-}
-
-TEST_F(LifecycleDiagnosticTests, LongErrorIsNotTruncated) {
-  const std::string message(8192, 'x');
-  ConfigureCallback([&](ProfilingDataResult) { throw std::runtime_error(message); });
-  ASSERT_TRUE(StartProfiler());
-  StopProfiler();
-  const auto* error = GetLastProfilerError();
-  ASSERT_NE(error, nullptr);
-  EXPECT_EQ(error->severity, ProfilingSeverity::Fatal);
-  const std::string saved = error->message;
-  EXPECT_EQ(saved, "Profiling data callback threw: " + message);
-  StopProfiler();
-  EXPECT_EQ(saved, "Profiling data callback threw: " + message);
-}
-
-TEST_F(LifecycleDiagnosticTests, NonStandardCallbackExceptionIsReported) {
-  ConfigureCallback([](ProfilingDataResult) { throw 42; });
-  ASSERT_TRUE(StartProfiler());
-  StopProfiler();
-  const auto* error = GetLastProfilerError();
-  ASSERT_NE(error, nullptr);
-  EXPECT_EQ(error->code, ProfilingErrorCode::CallbackFailed);
+  EXPECT_FALSE(StopProfiler());
   EXPECT_FALSE(profiler->IsStarted());
+  EXPECT_TRUE(StopProfiler());
+}
+
+TEST_F(LifecycleDiagnosticTests, NonStandardCallbackExceptionMakesStopFail) {
+  ConfigureCallback([](ProfilingData) { throw 42; });
+  ASSERT_TRUE(StartProfiler());
+  EXPECT_FALSE(StopProfiler());
+  EXPECT_FALSE(profiler->IsStarted());
+  EXPECT_TRUE(StopProfiler());
 }
 
 TEST_F(LifecycleDiagnosticTests, ConstructorCopyFailureLeavesStoppedAndCanRetry) {
@@ -320,35 +165,25 @@ TEST_F(LifecycleDiagnosticTests, ConstructorCopyFailureLeavesStoppedAndCanRetry)
         throw std::runtime_error("exporter callback copy failed");
       }
     }
-    void operator()(ProfilingDataResult) const {}
+    void operator()(ProfilingData) const {}
   };
   bool fail = false;
   ConfigureCallback(ThrowOnCopy(&fail));
   fail = true;
   EXPECT_FALSE(StartProfiler());
-  const auto* error = GetLastProfilerError();
-  ASSERT_NE(error, nullptr);
-  EXPECT_EQ(error->severity, ProfilingSeverity::Fatal);
-  EXPECT_EQ(error->code, ProfilingErrorCode::UnexpectedException);
-  EXPECT_NE(error->message.find("exporter callback copy failed"), std::string::npos);
   EXPECT_FALSE(profiler->IsStarted());
   fail = false;
   EXPECT_TRUE(StartProfiler());
-  StopProfiler();
-  EXPECT_EQ(GetLastProfilerError(), nullptr);
+  EXPECT_TRUE(StopProfiler());
 }
 
-TEST_F(LifecycleDiagnosticTests, FirstHttpSendFailureIsReportedAtStop) {
+TEST_F(LifecycleDiagnosticTests, FirstHttpSendFailureMakesStopReturnFalse) {
   ScopedEnvironment key("DD_API_KEY", nullptr);
   ScopedEnvironment endpoint("DD_TRACE_AGENT_URL", "http://127.0.0.1:1");
   ScopedEnvironment enabled("DD_INTERNAL_PROFILING_EXPORT_ENABLED", "1");
   *Profiler::GetConfiguration() = Configuration();
   ASSERT_TRUE(StartProfiler());
-  StopProfiler();
-  const auto* error = GetLastProfilerError();
-  ASSERT_NE(error, nullptr);
-  EXPECT_EQ(error->code, ProfilingErrorCode::ExportFailed);
-  EXPECT_NE(error->message.find("Failed to send profile"), std::string::npos);
+  EXPECT_FALSE(StopProfiler());
   EXPECT_FALSE(profiler->IsStarted());
 }
 
@@ -358,11 +193,38 @@ TEST(LifecycleFinalExportTests, HttpStatusAlwaysDescribesDeliveryOutcome) {
   ProfileExporter exporter(&config, types);
   for (const uint16_t status :
        {200, 202, 204, 301, 400, 403, 404, 429, 500, 503, 504}) {
-    const auto error = exporter.CheckExportResponse(status);
-    EXPECT_EQ(error.has_value(), status < 200 || status >= 300);
-    if (error) {
-      EXPECT_EQ(error->code, ProfilingErrorCode::ExportFailed);
-      EXPECT_NE(error->message.find(std::to_string(status)), std::string::npos);
-    }
+    EXPECT_EQ(exporter.CheckExportResponse(status), status >= 200 && status < 300);
   }
+}
+
+TEST(ProfilingErrorMessageTests, KnownCallbackCodesHaveStaticMessages) {
+  for (const auto code :
+       {ProfilingErrorCode::None,
+        ProfilingErrorCode::SerializationFailed,
+        ProfilingErrorCode::ProfileBytesUnavailable,
+        ProfilingErrorCode::ProfileResetFailed,
+        ProfilingErrorCode::SampleLabelsUnavailable}) {
+    SCOPED_TRACE(static_cast<uint32_t>(code));
+    const auto result = static_cast<uint32_t>(code);
+    const char* message = GetProfilingErrorMessage(result);
+    ASSERT_NE(message, nullptr);
+    EXPECT_STRNE(message, "");
+    EXPECT_STRNE(message, "Unknown profiling error");
+    EXPECT_EQ(message, GetProfilingErrorMessage(result));
+  }
+}
+
+TEST(ProfilingErrorMessageTests, UnknownCodesHaveFallbackMessage) {
+  EXPECT_STREQ(GetProfilingErrorMessage(5), "Unknown profiling error");
+  EXPECT_STREQ(GetProfilingErrorMessage(UINT32_MAX), "Unknown profiling error");
+}
+
+TEST(ProfilingErrorMessageTests, LookupDoesNotInvalidateEarlierMessages) {
+  const char* message = GetProfilingErrorMessage(1);
+  const std::string saved = message;
+  GetProfilingErrorMessage(3);
+  GetProfilingErrorMessage(UINT32_MAX);
+  std::async(std::launch::async, [] { GetProfilingErrorMessage(2); }).get();
+  EXPECT_STREQ(message, saved.c_str());
+  EXPECT_EQ(message, GetProfilingErrorMessage(1));
 }

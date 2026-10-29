@@ -54,8 +54,8 @@ struct ProfilerConfig {
 };
 
 // C++ API, not a versioned ABI. Consumers need matching headers and toolchains.
-// Setup/start return false on failure. SDK-private callers can retrieve the error.
-// The caller owns synchronous diagnostic reporting. Serialize lifecycle/registration
+// Setup/start/stop return false on failure; details are logged internally.
+// Serialize lifecycle/registration
 // calls and do not invoke them from profiling callbacks.
 // Configure while stopped, including after stop. Preserves callback registration.
 DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig& settings) noexcept;
@@ -69,7 +69,7 @@ DD_WIN_PROF_API bool StartProfiler() noexcept;
 // timeout is imposed. Succeeds if already stopped.
 // After return, no callbacks run until the next start; setup/registration may run
 // again. Do not overlap lifecycle calls or call them from an SDK callback.
-DD_WIN_PROF_API void StopProfiler() noexcept;
+DD_WIN_PROF_API bool StopProfiler() noexcept;
 
 // Enter a named view. Generates a unique view_id internally.
 // Updates per-sample pprof labels: rum.view_id and trace endpoint (viewName).

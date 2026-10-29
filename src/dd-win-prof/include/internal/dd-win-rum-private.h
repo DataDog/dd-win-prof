@@ -6,9 +6,6 @@
 
 #include <cstdint>
 #include <functional>
-#include <optional>
-#include <string>
-#include <variant>
 #include <vector>
 
 #include "dd-win-prof.h"
@@ -18,27 +15,29 @@
 // a dependency, with compatible compiler, standard library and CRT settings.
 // No API or ABI compatibility is guaranteed across versions or independent builds.
 struct ProfilingData {
+  // Zero on success; otherwise a ProfilingErrorCode with no pprof bytes.
+  uint32_t result = 0;
   // Owned LZ4-compressed pprof bytes, safe to move to an SDK upload queue.
   std::vector<uint8_t> pprof;
   // Wall-clock milliseconds since Unix epoch, not monotonic timestamps.
   int64_t startUnixTimeMs = 0;
   int64_t endUnixTimeMs = 0;
-  // True for the final profile from an explicit StopProfiler().
+  // True for the final export from an explicit StopProfiler(), including errors.
   bool isLast = false;
 };
 
-using ProfilingDataResult = std::variant<ProfilingData, ProfilingError>;
-// Receives an owned result. Periodic invocations run on the exporter thread;
+// GetProfilingErrorMessage(result) explains nonzero result codes with static text.
+// Receives owned data. Periodic invocations run on the exporter thread;
 // the final invocation runs inside StopProfiler() on its calling thread.
 // Do not perform blocking I/O, wait for upload completion, or call profiler
 // setup/start/stop/registration APIs here. Callback execution delays export and stop.
-// Encoding and next-profile preparation failures have Error severity and do not
-// stop profiling. A preparation error can follow a successfully delivered profile.
-// StopProfiler() still completes if the final export fails. Setup/start failures
-// are reported synchronously, not through this callback.
-// Callback exceptions become Fatal diagnostics; failed results are not retried.
-// Active-run Fatal diagnostics do not yet trigger automatic shutdown.
-using ProfilingDataCallback = std::function<void(ProfilingDataResult)>;
+// Encoding and next-profile preparation failures do not stop profiling.
+// A preparation error can follow a successfully delivered profile.
+// StopProfiler() still cleans up if final export fails, but returns false.
+// Setup/start failures return false without invoking this callback.
+// Callback exceptions are logged; failed results are not retried.
+// Errors do not trigger automatic shutdown.
+using ProfilingDataCallback = std::function<void(ProfilingData)>;
 
 typedef struct _RumSessionContext {
   const char* application_id;  // UUID string, set once per process lifetime
@@ -58,16 +57,11 @@ typedef struct _RumViewValues {
 // run. Registration persists across StopProfiler() and SetupProfiler(). Stop, then
 // unregister before unloading callback code. Captured references must remain valid
 // through the last callback.
-// Returns no error on success. Failures are returned synchronously, never through
-// the callback, and leave registration unchanged. Copy exceptions are Fatal;
-// the profiler is already stopped when copying is attempted.
-[[nodiscard]] DD_WIN_PROF_API ProfilingResult
-SetupProfilingDataCallback(const ProfilingDataCallback& callback);
-
-// Borrows the calling thread's last lifecycle error; nullptr after success.
-// Getter calls, background errors and callback registration do not change it.
-// Valid until the next lifecycle call on this thread, thread exit, or DLL unload.
-DD_WIN_PROF_API const ProfilingError* GetLastProfilerError() noexcept;
+// Returns false on failure and leaves registration unchanged. Failures are logged,
+// not sent through the callback.
+[[nodiscard]] DD_WIN_PROF_API bool SetupProfilingDataCallback(
+    const ProfilingDataCallback& callback
+) noexcept;
 
 // Set stable RUM session context. Safe to call from any thread.
 // application_id: write-once per process. First non-empty value is stored

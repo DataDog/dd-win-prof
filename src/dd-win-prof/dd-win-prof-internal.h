@@ -11,7 +11,7 @@
 // When pSettings->noEnvVars is true, resets to defaults first so that
 // only the explicit struct fields take effect.
 // HTTP mode requires url and apiKey when noEnvVars is set; callback mode does not.
-ProfilingResult InitializeConfiguration(
+bool InitializeConfiguration(
     Configuration* pConfig,
     const ProfilerConfig* pSettings,
     ProfileDeliveryMode mode = ProfileDeliveryMode::Http

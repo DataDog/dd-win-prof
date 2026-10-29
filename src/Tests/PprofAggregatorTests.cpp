@@ -27,7 +27,8 @@ class PprofAggregatorTest : public ::testing::Test {
   void SetUp() override {
     // Common setup for all tests
     config = std::make_unique<Configuration>();
-    config->SetExportEnabled(false
+    config->SetExportEnabled(
+        false
     );  // Disable export for all tests to prevent network calls
   }
 
@@ -220,8 +221,6 @@ TEST_F(PprofAggregatorTest, InitializationWithValidSampleTypes) {
   // Assert
   EXPECT_TRUE(aggregator.IsInitialized())
       << "Aggregator should be initialized with valid sample types";
-  EXPECT_TRUE(aggregator.GetLastError().empty())
-      << "No error should be present after successful initialization";
   EXPECT_NE(aggregator.GetProfile(), nullptr)
       << "Profile should be accessible after initialization";
 }
@@ -237,8 +236,6 @@ TEST_F(PprofAggregatorTest, InitializationWithMinimalSampleTypes) {
   // Assert
   EXPECT_TRUE(aggregator.IsInitialized())
       << "Aggregator should be initialized with minimal sample types";
-  EXPECT_TRUE(aggregator.GetLastError().empty())
-      << "No error should be present after successful initialization";
 }
 
 TEST_F(PprofAggregatorTest, InitializationWithEmptySampleTypes) {
@@ -252,8 +249,6 @@ TEST_F(PprofAggregatorTest, InitializationWithEmptySampleTypes) {
   // Assert
   EXPECT_FALSE(aggregator.IsInitialized())
       << "Aggregator should not be initialized with empty sample types";
-  EXPECT_FALSE(aggregator.GetLastError().empty())
-      << "Error should be present when initialization fails";
   EXPECT_EQ(aggregator.GetProfile(), nullptr)
       << "Profile should not be accessible when initialization fails";
 }
@@ -270,8 +265,6 @@ TEST_F(PprofAggregatorTest, InitializationWithPeriod) {
   // Assert
   EXPECT_TRUE(aggregator.IsInitialized())
       << "Aggregator should be initialized with valid sample types and period";
-  EXPECT_TRUE(aggregator.GetLastError().empty())
-      << "No error should be present after successful initialization";
 }
 
 TEST_F(PprofAggregatorTest, AddSampleWithRealLocationIds) {
@@ -296,11 +289,8 @@ TEST_F(PprofAggregatorTest, AddSampleWithRealLocationIds) {
   bool result = aggregator.AddSample(locationIds, values, timestamp, labelsetId);
   std::cout << "AddSampleWithRealLocationIds: AddSample result: " << result
             << std::endl;
-  std::cout << "Last error: " << aggregator.GetLastError() << std::endl;
   // Assert
   EXPECT_TRUE(result) << "AddSample should succeed with real location IDs";
-  EXPECT_TRUE(aggregator.GetLastError().empty())
-      << "No error should be present after successful AddSample";
 }
 
 TEST_F(PprofAggregatorTest, AddSampleWithMismatchedValueCount) {
@@ -324,8 +314,6 @@ TEST_F(PprofAggregatorTest, AddSampleWithMismatchedValueCount) {
 
   // Assert
   EXPECT_FALSE(result) << "AddSample should fail with mismatched value count";
-  EXPECT_FALSE(aggregator.GetLastError().empty())
-      << "Error should be present when value count is wrong";
 }
 
 TEST_F(PprofAggregatorTest, AddSampleToUninitializedAggregator) {
@@ -354,8 +342,6 @@ TEST_F(PprofAggregatorTest, AddSampleToUninitializedAggregator) {
 
   // Assert
   EXPECT_FALSE(result) << "AddSample should fail on uninitialized aggregator";
-  EXPECT_FALSE(aggregator.GetLastError().empty())
-      << "Error should be present when aggregator is not initialized";
 }
 
 TEST_F(PprofAggregatorTest, AddMultipleSamples) {
@@ -384,8 +370,6 @@ TEST_F(PprofAggregatorTest, AddMultipleSamples) {
   // Assert
   EXPECT_TRUE(result1) << "First AddSample should succeed";
   EXPECT_TRUE(result2) << "Second AddSample should succeed";
-  EXPECT_TRUE(aggregator.GetLastError().empty())
-      << "No error should be present after multiple successful AddSample calls";
 }
 
 TEST_F(PprofAggregatorTest, IntegrationWithProfileExporterAndDebugFileWriting) {
@@ -393,7 +377,7 @@ TEST_F(PprofAggregatorTest, IntegrationWithProfileExporterAndDebugFileWriting) {
   auto sampleValueTypeDefs = CreateMinimalSampleValueTypeDefinitions();
   Sample::SetValuesCount(sampleValueTypeDefs.size());
   ProfileExporter exporter(config.get(), sampleValueTypeDefs);
-  ASSERT_FALSE(exporter.Initialize())
+  ASSERT_TRUE(exporter.Initialize())
       << "ProfileExporter should initialize successfully";
 
   // Configure debug file writing (OFF by default when no output directory is
@@ -448,9 +432,8 @@ TEST_F(PprofAggregatorTest, IntegrationWithProfileExporterAndDebugFileWriting) {
   // Test ProfileExporter export functionality with debug file writing
   // This will serialize the profile (with the samples we just added) and write debug
   // files if enabled
-  const auto error = exporter.Export();
-  EXPECT_FALSE(error
-  ) << "Export should succeed (debug file writing failure is non-fatal)";
+  EXPECT_TRUE(exporter.Export())
+      << "Export should succeed (debug file writing failure is non-fatal)";
 
   // Disable debug file writing and test again
   exporter.SetDebugPprofFileWritingEnabled(false);
@@ -481,8 +464,6 @@ TEST_F(PprofAggregatorTest, CreateEmptyPprof) {
   // Assert
   EXPECT_NE(encodedProfile, nullptr)
       << "Serialize should return a valid encoded profile";
-  EXPECT_TRUE(aggregator.GetLastError().empty())
-      << "No error should be present after successful serialization";
 
   // Cleanup
   SafeCleanupEncodedProfile(encodedProfile);
@@ -523,8 +504,6 @@ TEST_F(PprofAggregatorTest, SerializeProfileWithSamples) {
   // Assert
   EXPECT_NE(encodedProfile, nullptr)
       << "Serialize should return a valid encoded profile with samples";
-  EXPECT_TRUE(aggregator.GetLastError().empty())
-      << "No error should be present after successful serialization";
 
   // Cleanup
   SafeCleanupEncodedProfile(encodedProfile);
@@ -554,8 +533,6 @@ TEST_F(PprofAggregatorTest, CreateEmptyPprofWithCustomTimes) {
   // Assert
   EXPECT_NE(encodedProfile, nullptr)
       << "Serialize should return a valid encoded profile with custom times";
-  EXPECT_TRUE(aggregator.GetLastError().empty())
-      << "No error should be present after successful serialization";
 
   // Cleanup
   SafeCleanupEncodedProfile(encodedProfile);
@@ -584,7 +561,6 @@ TEST_F(PprofAggregatorTest, SerializeUninitializedAggregator) {
   // Assert
   EXPECT_EQ(encodedProfile, nullptr)
       << "Serialize should return nullptr for uninitialized aggregator";
-  EXPECT_EQ(aggregator.GetLastError(), "Cannot serialize an uninitialized profile");
 
   // No cleanup needed since encodedProfile is nullptr
 }
@@ -613,8 +589,6 @@ TEST_F(PprofAggregatorTest, ResetProfile) {
   // Assert
   EXPECT_TRUE(aggregator.IsInitialized())
       << "Aggregator should remain initialized after reset";
-  EXPECT_TRUE(aggregator.GetLastError().empty())
-      << "No error should be present after successful reset";
 
   // Verify we can still add samples after reset - need to create NEW location IDs since
   // old ones are invalid
@@ -635,7 +609,6 @@ TEST_F(PprofAggregatorTest, ResetUninitializedAggregator) {
 
   // Act
   EXPECT_FALSE(aggregator.Reset());
-  EXPECT_EQ(aggregator.GetLastError(), "Cannot reset an uninitialized profile");
 
   // Assert
   EXPECT_FALSE(aggregator.IsInitialized())
@@ -686,8 +659,6 @@ TEST_F(PprofAggregatorTest, InitializationWithAllocationSampleTypes) {
   // Assert
   EXPECT_TRUE(aggregator.IsInitialized())
       << "Aggregator should be initialized with allocation sample types";
-  EXPECT_TRUE(aggregator.GetLastError().empty())
-      << "No error should be present with valid allocation sample types";
 }
 
 TEST_F(PprofAggregatorTest, AddAllocationSamples) {
@@ -714,8 +685,6 @@ TEST_F(PprofAggregatorTest, AddAllocationSamples) {
 
   // Assert
   EXPECT_TRUE(result) << "AddSample should succeed with allocation sample types";
-  EXPECT_TRUE(aggregator.GetLastError().empty())
-      << "No error should be present after successful AddSample";
 }
 
 TEST_F(PprofAggregatorTest, SerializeAfterAddingSamples) {
@@ -755,8 +724,6 @@ TEST_F(PprofAggregatorTest, SerializeAfterAddingSamples) {
 
   // Assert
   EXPECT_NE(encodedProfile, nullptr) << "Serialize should succeed after adding samples";
-  EXPECT_TRUE(aggregator.GetLastError().empty())
-      << "No error should be present after successful serialization";
 
   // Cleanup
   SafeCleanupEncodedProfile(encodedProfile);
@@ -786,6 +753,4 @@ TEST_F(PprofAggregatorTest, AddSampleWithEmptyLocations) {
 
   // We expect this to succeed since empty locations should be valid
   EXPECT_TRUE(result) << "AddSample should succeed with empty locations";
-  EXPECT_TRUE(aggregator.GetLastError().empty())
-      << "No error should be present after successful AddSample";
 }

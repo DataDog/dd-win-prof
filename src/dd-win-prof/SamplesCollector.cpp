@@ -50,7 +50,7 @@ void SamplesCollector::StopThreads() {
   }
 }
 
-ProfilingResult SamplesCollector::Stop(bool shutdownOngoing) {
+bool SamplesCollector::Stop(bool shutdownOngoing) {
   StopThreads();
 
   if (shutdownOngoing) {
@@ -64,7 +64,7 @@ ProfilingResult SamplesCollector::Stop(bool shutdownOngoing) {
     CollectSamples(_samplesProviders);
     return Export(true);
   }
-  return std::nullopt;
+  return true;
 }
 
 void SamplesCollector::SamplesWork() {
@@ -82,14 +82,11 @@ void SamplesCollector::ExportWork() {
   // we check it in case the periodic thread calls us at the same time as the shutdown.
   while (!IsShutdownReceived() &&
          future.wait_for(_uploadInterval) == std::future_status::timeout) {
-    const auto error = Export();
-    if (error && !error->reportedToCallback) {
-      Log::Error(error->message);
-    }
+    Export();
   }
 }
 
-ProfilingResult SamplesCollector::Export(bool lastCall) {
+bool SamplesCollector::Export(bool lastCall) {
   try {
     std::lock_guard lock(_exportLock);
 
@@ -102,15 +99,11 @@ ProfilingResult SamplesCollector::Export(bool lastCall) {
 
     return _exporter->Export(lastCall);
   } catch (std::exception const& ex) {
-    return ProfilingError{
-        ProfilingSeverity::Fatal, ProfilingErrorCode::UnexpectedException, ex.what()
-    };
+    Log::Error("An exception occurred during export: ", ex.what());
+    return false;
   } catch (...) {
-    return ProfilingError{
-        ProfilingSeverity::Fatal,
-        ProfilingErrorCode::UnexpectedException,
-        "A non-standard exception occurred during export"
-    };
+    Log::Error("A non-standard exception occurred during export");
+    return false;
   }
 }
 

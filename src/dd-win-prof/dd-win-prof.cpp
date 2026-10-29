@@ -2,62 +2,44 @@
 // the Apache 2 License. This product includes software developed at Datadog
 // (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
 
+#include "Log.h"
 #include "Profiler.h"
 #include "internal/dd-win-rum-private.h"
 #include "pch.h"
 
 namespace {
-thread_local ProfilingResult lastError;
-
-bool UnexpectedException(const char* message) noexcept {
+void LogLifecycleException(const char* message) noexcept {
   try {
-    lastError = ProfilingError{
-        ProfilingSeverity::Fatal, ProfilingErrorCode::UnexpectedException, message
-    };
+    Log::Error("Profiler lifecycle operation failed: ", message);
   } catch (...) {
-    lastError = ProfilingError{
-        ProfilingSeverity::Fatal, ProfilingErrorCode::UnexpectedException, {}
-    };
+    // Logging must not let exceptions escape the public API.
   }
-  return false;
 }
 
 template <typename Action>
 bool RunLifecycle(Action action) noexcept {
-  lastError.reset();
   try {
     auto profiler = Profiler::GetInstance();
     if (profiler == nullptr) {
-      lastError = ProfilingError{
-          ProfilingSeverity::Error,
-          ProfilingErrorCode::ProfilerUnavailable,
-          "Profiler instance is unavailable"
-      };
-    } else {
-      lastError = action(*profiler);
+      Log::Error("Profiler instance is unavailable");
+      return false;
     }
-    return !lastError;
+    return action(*profiler);
   } catch (const std::exception& error) {
-    return UnexpectedException(error.what());
+    LogLifecycleException(error.what());
   } catch (...) {
-    return UnexpectedException(
-        "Non-standard exception during profiler lifecycle operation"
-    );
+    LogLifecycleException("Non-standard exception");
   }
+  return false;
 }
 }  // namespace
 
-DD_WIN_PROF_API ProfilingResult
-SetupProfilingDataCallback(const ProfilingDataCallback& callback) {
-  auto profiler = Profiler::GetInstance();
-  if (profiler == nullptr) {
-    return ProfilingError{
-        ProfilingSeverity::Error,
-        ProfilingErrorCode::ProfilerUnavailable,
-        "Profiler instance is unavailable; callback was not registered"
-    };
-  }
-  return profiler->SetProfilingDataCallback(callback);
+DD_WIN_PROF_API bool SetupProfilingDataCallback(
+    const ProfilingDataCallback& callback
+) noexcept {
+  return RunLifecycle([&](Profiler& profiler) {
+    return profiler.SetProfilingDataCallback(callback);
+  });
 }
 
 DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig& settings) noexcept {
@@ -68,12 +50,25 @@ DD_WIN_PROF_API bool StartProfiler() noexcept {
   return RunLifecycle([](Profiler& profiler) { return profiler.StartProfiling(); });
 }
 
-DD_WIN_PROF_API void StopProfiler() noexcept {
-  RunLifecycle([](Profiler& profiler) { return profiler.StopProfiling(); });
+DD_WIN_PROF_API bool StopProfiler() noexcept {
+  return RunLifecycle([](Profiler& profiler) { return profiler.StopProfiling(); });
 }
 
-DD_WIN_PROF_API const ProfilingError* GetLastProfilerError() noexcept {
-  return lastError ? &*lastError : nullptr;
+DD_WIN_PROF_API const char* GetProfilingErrorMessage(uint32_t result) noexcept {
+  switch (static_cast<ProfilingErrorCode>(result)) {
+    case ProfilingErrorCode::None:
+      return "Success";
+    case ProfilingErrorCode::SerializationFailed:
+      return "Profile serialization failed";
+    case ProfilingErrorCode::ProfileBytesUnavailable:
+      return "Encoded profile bytes are unavailable";
+    case ProfilingErrorCode::ProfileResetFailed:
+      return "Profile reset failed";
+    case ProfilingErrorCode::SampleLabelsUnavailable:
+      return "Sample labels are unavailable";
+    default:
+      return "Unknown profiling error";
+  }
 }
 
 DD_WIN_PROF_API bool EnterView(const char* viewName) {

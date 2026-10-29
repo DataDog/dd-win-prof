@@ -30,9 +30,9 @@ class ProfileExporter {
       dd_win_prof::ProfileEncodingApi encodingApi = {}
   );
   ~ProfileExporter();
-  ProfilingResult Initialize();
+  bool Initialize();
   bool Add(std::shared_ptr<Sample> const& sample);
-  ProfilingResult Export(bool lastCall = false);
+  bool Export(bool lastCall = false);
   void Cleanup(
       bool skipExporterCleanup = false
   );  // Explicit cleanup with option to skip exporter cleanup
@@ -78,22 +78,20 @@ class ProfileExporter {
   const std::string& GetDebugPprofPrefix() const { return _debugPprofPrefix; }
 
   // Export tags (stable metadata set at export time)
-  ProfilingResult PrepareStableTags(ddog_Vec_Tag& tags);
-  ProfilingResult AddSingleTag(
-      ddog_Vec_Tag& tags, std::string_view key, std::string_view value
-  );
+  bool PrepareStableTags(ddog_Vec_Tag& tags);
+  bool AddSingleTag(ddog_Vec_Tag& tags, std::string_view key, std::string_view value);
 
   // Export functionality
-  ProfilingResult InitializeExporter();
-  ProfilingResult CreateExporterEndpoint(ddog_prof_Endpoint& endpoint);
+  bool InitializeExporter();
+  bool CreateExporterEndpoint(ddog_prof_Endpoint& endpoint);
   void BuildExportUrl();
-  ProfilingResult ExportProfile(
+  bool ExportProfile(
       const ddog_prof_EncodedProfile* encodedProfile,
       uint32_t profileSeq,
       const std::string& rumRecordsJson = {}
   );
-  ProfilingResult PrepareAdditionalTags(ddog_Vec_Tag& tags, uint32_t profileSeq);
-  ProfilingResult CheckExportResponse(uint16_t responseCode);
+  bool PrepareAdditionalTags(ddog_Vec_Tag& tags, uint32_t profileSeq);
+  bool CheckExportResponse(uint16_t responseCode);
   void CleanupExporter();
 
  private:
@@ -103,7 +101,7 @@ class ProfileExporter {
   using EncodedProfilePtr =
       std::unique_ptr<ddog_prof_EncodedProfile, EncodedProfileDeleter>;
 
-  ProfilingResult ExportCurrentProfile(
+  bool ExportCurrentProfile(
       bool lastCall, int64_t startUnixTimeMs, int64_t endUnixTimeMs
   );
   std::string CollectRumRecordsJson();
@@ -113,16 +111,16 @@ class ProfileExporter {
       const std::string& rumRecordsJson,
       int64_t endUnixTimeMs
   );
-  ProfilingResult DeliverProfileToCallback(
+  bool DeliverProfileToCallback(
       const ddog_ByteSlice& bytes,
       int64_t startUnixTimeMs,
       int64_t endUnixTimeMs,
       bool lastCall
   );
-  ProfilingResult DeliverProfilingData(ProfilingDataResult result);
-  ProfilingResult ReportError(ProfilingErrorCode code, std::string message);
+  bool DeliverProfilingData(ProfilingData data);
+  bool ReportError(ProfilingErrorCode code, bool lastCall);
   void LogExport(bool lastCall, int64_t durationMs, size_t profileSize) const;
-  ProfilingResult FinishExport(std::chrono::system_clock::time_point end);
+  bool FinishExport(std::chrono::system_clock::time_point end, bool lastCall);
 
   // Helper methods for location/function/mapping management
   std::optional<ddog_prof_LocationId> InternLocation(uint64_t address);
@@ -144,7 +142,7 @@ class ProfileExporter {
     ddog_prof_StringId traceEndpointKeyId;  // String ID for "trace endpoint" key
   };
 
-  ProfilingResult InternSampleLabels(SampleLabels& labels);
+  bool InternSampleLabels(SampleLabels& labels);
   ddog_prof_LabelSetId CreateLabelSet(
       const SampleLabels& labels,
       std::shared_ptr<ThreadInfo> threadInfo,

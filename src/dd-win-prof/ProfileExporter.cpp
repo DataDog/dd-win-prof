@@ -129,18 +129,15 @@ void ProfileExporter::Cleanup(bool skipExporterCleanup) {
   Log::Debug("Exporter cleanup completed");
 }
 
-ProfilingResult ProfileExporter::Initialize() {
+bool ProfileExporter::Initialize() {
   try {
     _processId = GetCurrentProcessId();
 
     // Initialize libdatadog's managed string storage
     auto storageResult = ddog_prof_ManagedStringStorage_new();
     if (storageResult.tag != DDOG_PROF_MANAGED_STRING_STORAGE_NEW_RESULT_OK) {
-      return ProfilingError{
-          ProfilingSeverity::Error,
-          ProfilingErrorCode::InitializationFailed,
-          "Failed to create libdatadog ManagedStringStorage"
-      };
+      Log::Error("Failed to create libdatadog ManagedStringStorage");
+      return false;
     }
     _stringStorage = storageResult.ok;
 
@@ -149,11 +146,8 @@ ProfilingResult ProfileExporter::Initialize() {
     if (!_symbolication->Initialize(
             _stringStorage, _pConfiguration->AreCallstacksSymbolized()
         )) {
-      return ProfilingError{
-          ProfilingSeverity::Error,
-          ProfilingErrorCode::InitializationFailed,
-          "Failed to initialize symbolication engine"
-      };
+      Log::Error("Failed to initialize symbolication engine");
+      return false;
     }
 
     // Initialize PprofAggregator directly with SampleValueType (no enum conversion
@@ -163,16 +157,12 @@ ProfilingResult ProfileExporter::Initialize() {
     );
 
     if (!_aggregator->IsInitialized()) {
-      return ProfilingError{
-          ProfilingSeverity::Error,
-          ProfilingErrorCode::InitializationFailed,
-          "Failed to initialize PprofAggregator: " + _aggregator->GetLastError()
-      };
+      return false;
     }
 
     // Intern sample labels that will be reused across samples
-    if (auto error = InternSampleLabels(_sampleLabels)) {
-      return error;
+    if (!InternSampleLabels(_sampleLabels)) {
+      return false;
     }
 
     // Set the profile start time
@@ -185,8 +175,8 @@ ProfilingResult ProfileExporter::Initialize() {
 
     // Initialize exporter if export is enabled
     if (_exportEnabled) {
-      if (auto error = InitializeExporter()) {
-        return error;
+      if (!InitializeExporter()) {
+        return false;
       }
       Log::Info(
           "Profiles export enabled, mode: ",
@@ -199,13 +189,10 @@ ProfilingResult ProfileExporter::Initialize() {
     }
 
     _initialized = true;
-    return std::nullopt;
+    return true;
   } catch (const std::exception& ex) {
-    return ProfilingError{
-        ProfilingSeverity::Fatal,
-        ProfilingErrorCode::UnexpectedException,
-        "Exception during initialization: " + std::string(ex.what())
-    };
+    Log::Error("Exception during initialization: ", ex.what());
+    return false;
   }
 }
 
@@ -253,34 +240,23 @@ bool ProfileExporter::Add(std::shared_ptr<Sample> const& sample) {
   ddog_prof_LabelSetId labelsetId = CreateLabelSet(_sampleLabels, threadInfo, rumView);
 
   // Add sample to aggregator with labels
-  if (!_aggregator->AddSample(locationIds, sampleValues, timestampNs, labelsetId)) {
-    LogOnce(Error, "Failed to add sample to aggregator: ", _aggregator->GetLastError());
-    return false;
-  }
-
-  return true;
+  return _aggregator->AddSample(locationIds, sampleValues, timestampNs, labelsetId);
 }
 
-ProfilingResult ProfileExporter::Export(bool lastCall) {
+bool ProfileExporter::Export(bool lastCall) {
   if (!_initialized) {
-    return ProfilingError{
-        ProfilingSeverity::Error,
-        ProfilingErrorCode::InitializationFailed,
-        "ProfileExporter::Export() called but not initialized"
-    };
+    Log::Error("ProfileExporter::Export() called but not initialized");
+    return false;
   }
 
   OnExportStart();
   const auto end = std::chrono::system_clock::now();
-  auto error = ExportCurrentProfile(
+  const bool exported = ExportCurrentProfile(
       lastCall, ToUnixTimeMs(_profileStartTime), ToUnixTimeMs(end)
   );
   // Reset even after failed delivery so the next export can recover.
-  auto resetError = FinishExport(end);
-  if (resetError && (!error || resetError->severity > error->severity)) {
-    return resetError;
-  }
-  return error;
+  const bool prepared = FinishExport(end, lastCall);
+  return exported && prepared;
 }
 
 void ProfileExporter::EncodedProfileDeleter::operator()(
@@ -295,7 +271,7 @@ void ProfileExporter::EncodedProfileDeleter::operator()(
   delete profile;
 }
 
-ProfilingResult ProfileExporter::ExportCurrentProfile(
+bool ProfileExporter::ExportCurrentProfile(
     bool lastCall, int64_t startUnixTimeMs, int64_t endUnixTimeMs
 ) {
   if (_profilingDataCallback) {
@@ -303,9 +279,7 @@ ProfilingResult ProfileExporter::ExportCurrentProfile(
   }
   EncodedProfilePtr profile(_aggregator->Serialize(startUnixTimeMs, endUnixTimeMs));
   if (!profile) {
-    return ReportError(
-        ProfilingErrorCode::SerializationFailed, _aggregator->GetLastError()
-    );
+    return ReportError(ProfilingErrorCode::SerializationFailed, lastCall);
   }
 
   auto rumRecordsJson =
@@ -320,7 +294,8 @@ ProfilingResult ProfileExporter::ExportCurrentProfile(
         reinterpret_cast<const char*>(bytes.err.message.ptr), bytes.err.message.len
     );
     ddog_Error_drop(&bytes.err);
-    return ReportError(ProfilingErrorCode::ProfileBytesUnavailable, std::move(message));
+    Log::Error(message);
+    return ReportError(ProfilingErrorCode::ProfileBytesUnavailable, lastCall);
   }
 
   LogExport(lastCall, endUnixTimeMs - startUnixTimeMs, bytes.ok.len);
@@ -330,7 +305,7 @@ ProfilingResult ProfileExporter::ExportCurrentProfile(
   if (_exportEnabled) {
     return ExportProfile(profile.get(), _currentExportId, rumRecordsJson);
   }
-  return std::nullopt;
+  return true;
 }
 
 std::string ProfileExporter::CollectRumRecordsJson() {
@@ -378,7 +353,7 @@ void ProfileExporter::WriteDebugFiles(
   }
 }
 
-ProfilingResult ProfileExporter::DeliverProfileToCallback(
+bool ProfileExporter::DeliverProfileToCallback(
     const ddog_ByteSlice& bytes,
     int64_t startUnixTimeMs,
     int64_t endUnixTimeMs,
@@ -394,8 +369,9 @@ ProfilingResult ProfileExporter::DeliverProfileToCallback(
   return DeliverProfilingData(std::move(data));
 }
 
-void ProfileExporter::LogExport(bool lastCall, int64_t durationMs, size_t profileSize)
-    const {
+void ProfileExporter::LogExport(
+    bool lastCall, int64_t durationMs, size_t profileSize
+) const {
   Log::Info(
       lastCall ? "Export last profile #" : "Export profile #",
       _currentExportId,
@@ -414,43 +390,36 @@ void ProfileExporter::LogExport(bool lastCall, int64_t durationMs, size_t profil
   );
 }
 
-ProfilingResult ProfileExporter::DeliverProfilingData(ProfilingDataResult result) {
-  std::string message;
+bool ProfileExporter::DeliverProfilingData(ProfilingData data) {
   try {
-    _profilingDataCallback(std::move(result));
-    return std::nullopt;
+    _profilingDataCallback(std::move(data));
+    return true;
   } catch (const std::exception& error) {
-    message = "Profiling data callback threw: " + std::string(error.what());
+    Log::Error("Profiling data callback threw: ", error.what());
   } catch (...) {
-    message = "Profiling data callback threw a non-standard exception";
+    Log::Error("Profiling data callback threw a non-standard exception");
   }
-  return ProfilingError{
-      ProfilingSeverity::Fatal, ProfilingErrorCode::CallbackFailed, std::move(message)
-  };
+  return false;
 }
 
-ProfilingResult ProfileExporter::ReportError(
-    ProfilingErrorCode code, std::string message
-) {
-  ProfilingError error{ProfilingSeverity::Error, code, std::move(message)};
+bool ProfileExporter::ReportError(ProfilingErrorCode code, bool lastCall) {
   if (_profilingDataCallback) {
-    if (auto callbackError = DeliverProfilingData(error)) {
-      return callbackError;
-    }
-    error.reportedToCallback = true;
+    ProfilingData data;
+    data.result = static_cast<uint32_t>(code);
+    data.isLast = lastCall;
+    DeliverProfilingData(std::move(data));
   }
-  return error;
+  return false;
 }
 
-ProfilingResult ProfileExporter::FinishExport(std::chrono::system_clock::time_point end
+bool ProfileExporter::FinishExport(
+    std::chrono::system_clock::time_point end, bool lastCall
 ) {
-  ProfilingResult error;
+  bool success = true;
   if (!_aggregator->Reset()) {
-    error = ReportError(
-        ProfilingErrorCode::ProfileResetFailed, _aggregator->GetLastError()
-    );
-  } else if (auto labelError = InternSampleLabels(_sampleLabels)) {
-    error = ReportError(labelError->code, std::move(labelError->message));
+    success = ReportError(ProfilingErrorCode::ProfileResetFailed, lastCall);
+  } else if (!InternSampleLabels(_sampleLabels)) {
+    success = ReportError(ProfilingErrorCode::SampleLabelsUnavailable, lastCall);
   }
 
   // Reset the profile start time for the next collection cycle
@@ -463,7 +432,7 @@ ProfilingResult ProfileExporter::FinishExport(std::chrono::system_clock::time_po
   if (_currentExportId % CACHE_CLEANUP_THRESHOLD == 0) {
     CleanupUnusedCacheEntries(_currentExportId);
   }
-  return error;
+  return success;
 }
 
 std::string ProfileExporter::ComputeRuntimeId() {
@@ -750,7 +719,7 @@ void ProfileExporter::CleanupUnusedCacheEntries(uint32_t currentExportId) {
   }
 }
 
-ProfilingResult ProfileExporter::AddSingleTag(
+bool ProfileExporter::AddSingleTag(
     ddog_Vec_Tag& tags, std::string_view key, std::string_view value
 ) {
   ddog_CharSlice keySlice = to_CharSlice(key);
@@ -760,59 +729,55 @@ ProfilingResult ProfileExporter::AddSingleTag(
   if (pushResult.tag == DDOG_VEC_TAG_PUSH_RESULT_ERR) {
     std::string message = "Failed to add tag: " + std::string(key);
     ddog_Error_drop(&pushResult.err);
-    return ProfilingError{
-        ProfilingSeverity::Error,
-        ProfilingErrorCode::InvalidConfiguration,
-        std::move(message)
-    };
+    Log::Error(message);
+    return false;
   }
 
-  return std::nullopt;
+  return true;
 }
 
-ProfilingResult ProfileExporter::PrepareStableTags(ddog_Vec_Tag& tags) {
+bool ProfileExporter::PrepareStableTags(ddog_Vec_Tag& tags) {
   // Add runtime-id tag (stable across exports)
-  if (auto error = AddSingleTag(tags, TAG_RUNTIME_ID, _runtimeId)) {
-    return error;
+  if (!AddSingleTag(tags, TAG_RUNTIME_ID, _runtimeId)) {
+    return false;
   }
 
-  if (auto error = AddSingleTag(tags, "profiler_version", _kProfilerVersion)) {
-    return error;
+  if (!AddSingleTag(tags, "profiler_version", _kProfilerVersion)) {
+    return false;
   }
 
   // add CPU related tags
   int physicalCores;
   int logicalCores;
   if (GetCpuCores(logicalCores, physicalCores)) {
-    if (auto error =
-            AddSingleTag(tags, TAG_CPU_CORES_COUNT, std::to_string(physicalCores))) {
-      return error;
+    if (!AddSingleTag(tags, TAG_CPU_CORES_COUNT, std::to_string(physicalCores))) {
+      return false;
     }
-    if (auto error = AddSingleTag(
+    if (!AddSingleTag(
             tags, TAG_CPU_LOGICAL_CORES_COUNT, std::to_string(logicalCores)
         )) {
-      return error;
+      return false;
     }
   }
 
   std::string cpuVendor = GetCpuVendor();
   if (!cpuVendor.empty()) {
-    if (auto error = AddSingleTag(tags, TAG_CPU_VENDOR, cpuVendor)) {
-      return error;
+    if (!AddSingleTag(tags, TAG_CPU_VENDOR, cpuVendor)) {
+      return false;
     }
   }
 
   std::string cpuModel = GetCpuModel();
   if (!cpuModel.empty()) {
-    if (auto error = AddSingleTag(tags, TAG_CPU_DESC, cpuModel)) {
-      return error;
+    if (!AddSingleTag(tags, TAG_CPU_DESC, cpuModel)) {
+      return false;
     }
   }
 
   std::string cpuArch = GetCpuArchitecture();
   if (!cpuArch.empty()) {
-    if (auto error = AddSingleTag(tags, TAG_CPU_ARCH, cpuArch)) {
-      return error;
+    if (!AddSingleTag(tags, TAG_CPU_ARCH, cpuArch)) {
+      return false;
     }
   }
 
@@ -841,51 +806,51 @@ ProfilingResult ProfileExporter::PrepareStableTags(ddog_Vec_Tag& tags) {
 
     driverDescTag = TAG_GPU_DRIVER_DESC_PREFIX + std::to_string(device);
     if (!driverDesc.empty()) {
-      if (auto error = AddSingleTag(tags, driverDescTag, driverDesc)) {
-        return error;
+      if (!AddSingleTag(tags, driverDescTag, driverDesc)) {
+        return false;
       }
     }
 
     driverVersionTag = TAG_GPU_DRIVER_VERSION_PREFIX + std::to_string(device);
     if (!driverVersion.empty()) {
-      if (auto error = AddSingleTag(tags, driverVersionTag, driverVersion)) {
-        return error;
+      if (!AddSingleTag(tags, driverVersionTag, driverVersion)) {
+        return false;
       }
     }
 
     driverDateTag = TAG_GPU_DRIVER_DATE_PREFIX + std::to_string(device);
     if (!driverDate.empty()) {
-      if (auto error = AddSingleTag(tags, driverDateTag, driverDate)) {
-        return error;
+      if (!AddSingleTag(tags, driverDateTag, driverDate)) {
+        return false;
       }
     }
 
     gpuNameTag = TAG_GPU_NAME_PREFIX + std::to_string(device);
     if (!gpuName.empty()) {
-      if (auto error = AddSingleTag(tags, gpuNameTag, gpuName)) {
-        return error;
+      if (!AddSingleTag(tags, gpuNameTag, gpuName)) {
+        return false;
       }
     }
 
     gpuChipTag = TAG_GPU_CHIP_PREFIX + std::to_string(device);
     if (!gpuChip.empty()) {
-      if (auto error = AddSingleTag(tags, gpuChipTag, gpuChip)) {
-        return error;
+      if (!AddSingleTag(tags, gpuChipTag, gpuChip)) {
+        return false;
       }
     }
 
     gpuRamTag = TAG_GPU_RAM_PREFIX + std::to_string(device);
     if (gpuRam > 0) {
-      if (auto error = AddSingleTag(tags, gpuRamTag, std::to_string(gpuRam))) {
-        return error;
+      if (!AddSingleTag(tags, gpuRamTag, std::to_string(gpuRam))) {
+        return false;
       }
     }
 
     device++;
   }
 
-  if (auto error = AddSingleTag(tags, TAG_GPU_COUNT, std::to_string(device))) {
-    return error;
+  if (!AddSingleTag(tags, TAG_GPU_COUNT, std::to_string(device))) {
+    return false;
   }
 
   // add memory related tags
@@ -893,38 +858,34 @@ ProfilingResult ProfileExporter::PrepareStableTags(ddog_Vec_Tag& tags) {
   uint64_t availPhys;
   uint32_t memoryLoad;
   if (GetMemoryInfo(totalPhys, availPhys, memoryLoad)) {
-    if (auto error = AddSingleTag(tags, TAG_RAM_SIZE, std::to_string(totalPhys))) {
-      return error;
+    if (!AddSingleTag(tags, TAG_RAM_SIZE, std::to_string(totalPhys))) {
+      return false;
     }
   }
 
   // Add remote_symbols tag to indicate symbolication support
-  if (auto error = AddSingleTag(tags, TAG_REMOTE_SYMBOLS, "yes")) {
-    return error;
+  if (!AddSingleTag(tags, TAG_REMOTE_SYMBOLS, "yes")) {
+    return false;
   }
 
   // Add runtime_os tag to indicate the operating system
-  if (auto error = AddSingleTag(tags, TAG_RUNTIME_OS, "windows")) {
-    return error;
+  if (!AddSingleTag(tags, TAG_RUNTIME_OS, "windows")) {
+    return false;
   }
 
-  return std::nullopt;
+  return true;
 }
 
-ProfilingResult ProfileExporter::InternSampleLabels(SampleLabels& labels) {
-  const auto fail = [](ddog_Error& error, const char* message) -> ProfilingResult {
+bool ProfileExporter::InternSampleLabels(SampleLabels& labels) {
+  const auto fail = [](ddog_Error& error, const char* message) {
     ddog_Error_drop(&error);
-    return ProfilingError{
-        ProfilingSeverity::Error, ProfilingErrorCode::SampleLabelsUnavailable, message
-    };
+    Log::Error(message);
+    return false;
   };
   ddog_prof_Profile* profile = _aggregator->GetProfile();
   if (profile == nullptr) {
-    return ProfilingError{
-        ProfilingSeverity::Error,
-        ProfilingErrorCode::SampleLabelsUnavailable,
-        "Profile unavailable while interning sample labels"
-    };
+    Log::Error("Profile unavailable while interning sample labels");
+    return false;
   }
 
   // Intern the process_id label key
@@ -995,7 +956,7 @@ ProfilingResult ProfileExporter::InternSampleLabels(SampleLabels& labels) {
   }
   labels.traceEndpointKeyId = traceEndpointKeyResult.ok;
 
-  return std::nullopt;
+  return true;
 }
 
 ddog_prof_LabelSetId ProfileExporter::CreateLabelSet(
@@ -1332,28 +1293,28 @@ std::string ProfileExporter::SerializeRumRecordsToJson(
 
 // Export functionality implementation
 
-ProfilingResult ProfileExporter::InitializeExporter() {
+bool ProfileExporter::InitializeExporter() {
   BuildExportUrl();
 
   // Create endpoint
   ddog_prof_Endpoint endpoint;
-  if (auto error = CreateExporterEndpoint(endpoint)) {
-    return error;
+  if (!CreateExporterEndpoint(endpoint)) {
+    return false;
   }
 
   // Prepare stable tags for exporter creation
   ddog_Vec_Tag stableTags = ddog_Vec_Tag_new();
 
   // Add language tag (required)
-  if (auto error = AddSingleTag(stableTags, "language", "native")) {
+  if (!AddSingleTag(stableTags, "language", "native")) {
     ddog_Vec_Tag_drop(stableTags);
-    return error;
+    return false;
   }
 
   // Add runtime and hardware details
-  if (auto error = PrepareStableTags(stableTags)) {
+  if (!PrepareStableTags(stableTags)) {
     ddog_Vec_Tag_drop(stableTags);
-    return error;
+    return false;
   }
 
   // Add service information from configuration if available
@@ -1364,36 +1325,36 @@ ProfilingResult ProfileExporter::InitializeExporter() {
     auto hostname = _pConfiguration->GetHostname();
 
     if (!service.empty()) {
-      if (auto error = AddSingleTag(stableTags, "service", service)) {
+      if (!AddSingleTag(stableTags, "service", service)) {
         ddog_Vec_Tag_drop(stableTags);
-        return error;
+        return false;
       }
     }
     if (!environment.empty()) {
-      if (auto error = AddSingleTag(stableTags, "env", environment)) {
+      if (!AddSingleTag(stableTags, "env", environment)) {
         ddog_Vec_Tag_drop(stableTags);
-        return error;
+        return false;
       }
     }
     if (!version.empty()) {
-      if (auto error = AddSingleTag(stableTags, "version", version)) {
+      if (!AddSingleTag(stableTags, "version", version)) {
         ddog_Vec_Tag_drop(stableTags);
-        return error;
+        return false;
       }
     }
     if (!hostname.empty()) {
-      if (auto error = AddSingleTag(stableTags, "host", hostname)) {
+      if (!AddSingleTag(stableTags, "host", hostname)) {
         ddog_Vec_Tag_drop(stableTags);
-        return error;
+        return false;
       }
     }
 
     // Add user-defined tags from configuration
     const auto& userTags = _pConfiguration->GetUserTags();
     for (const auto& tag : userTags) {
-      if (auto error = AddSingleTag(stableTags, tag.first, tag.second)) {
+      if (!AddSingleTag(stableTags, tag.first, tag.second)) {
         ddog_Vec_Tag_drop(stableTags);
-        return error;
+        return false;
       }
     }
   }
@@ -1424,11 +1385,8 @@ ProfilingResult ProfileExporter::InitializeExporter() {
     } else {
       message += " with unknown error tag: " + std::to_string(exporterResult.tag);
     }
-    return ProfilingError{
-        ProfilingSeverity::Error,
-        ProfilingErrorCode::InitializationFailed,
-        std::move(message)
-    };
+    Log::Error(message);
+    return false;
   }
 
   _exporter = exporterResult.ok;
@@ -1444,14 +1402,11 @@ ProfilingResult ProfileExporter::InitializeExporter() {
     message += ": " + errorMessage;
     ddog_Error_drop(&timeoutResult.err);
     CleanupExporter();
-    return ProfilingError{
-        ProfilingSeverity::Error,
-        ProfilingErrorCode::InitializationFailed,
-        std::move(message)
-    };
+    Log::Error(message);
+    return false;
   }
 
-  return std::nullopt;
+  return true;
 }
 
 void ProfileExporter::BuildExportUrl() {
@@ -1487,44 +1442,38 @@ void ProfileExporter::BuildExportUrl() {
   );
 }
 
-ProfilingResult ProfileExporter::CreateExporterEndpoint(ddog_prof_Endpoint& endpoint) {
+bool ProfileExporter::CreateExporterEndpoint(ddog_prof_Endpoint& endpoint) {
   ddog_CharSlice urlSlice = to_CharSlice(_exportUrl);
 
   if (_agentMode) {
     endpoint = ddog_prof_Endpoint_agent(urlSlice);
   } else {
     if (_apiKey.empty()) {
-      return ProfilingError{
-          ProfilingSeverity::Error,
-          ProfilingErrorCode::InvalidConfiguration,
-          "Missing API key for agentless mode"
-      };
+      Log::Error("Missing API key for agentless mode");
+      return false;
     }
     ddog_CharSlice apiKeySlice = to_CharSlice(_apiKey);
     endpoint = ddog_prof_Endpoint_agentless(urlSlice, apiKeySlice);
   }
 
-  return std::nullopt;
+  return true;
 }
 
-ProfilingResult ProfileExporter::ExportProfile(
+bool ProfileExporter::ExportProfile(
     const ddog_prof_EncodedProfile* encodedProfile,
     uint32_t profileSeq,
     const std::string& rumRecordsJson
 ) {
   if (!_exporter.inner || !encodedProfile) {
-    return ProfilingError{
-        ProfilingSeverity::Error,
-        ProfilingErrorCode::ExportFailed,
-        "Exporter not initialized or invalid profile"
-    };
+    Log::Error("Exporter not initialized or invalid profile");
+    return false;
   }
 
   // Prepare additional tags (per-export metadata)
   ddog_Vec_Tag additionalTags = ddog_Vec_Tag_new();
-  if (auto error = PrepareAdditionalTags(additionalTags, profileSeq)) {
+  if (!PrepareAdditionalTags(additionalTags, profileSeq)) {
     ddog_Vec_Tag_drop(additionalTags);
-    return error;
+    return false;
   }
 
   // Get profile bytes for file creation
@@ -1534,11 +1483,8 @@ ProfilingResult ProfileExporter::ExportProfile(
   if (bytesResult.tag != DDOG_PROF_RESULT_BYTE_SLICE_OK_BYTE_SLICE) {
     ddog_Error_drop(&bytesResult.err);
     ddog_Vec_Tag_drop(additionalTags);
-    return ProfilingError{
-        ProfilingSeverity::Error,
-        ProfilingErrorCode::ProfileBytesUnavailable,
-        "Failed to get profile bytes"
-    };
+    Log::Error("Failed to get profile bytes");
+    return false;
   }
 
   // Pass the RUM records JSON through optional_internal_metadata_json.
@@ -1577,9 +1523,8 @@ ProfilingResult ProfileExporter::ExportProfile(
     } else {
       message += " with unknown error tag: " + std::to_string(requestResult.tag);
     }
-    return ProfilingError{
-        ProfilingSeverity::Error, ProfilingErrorCode::ExportFailed, std::move(message)
-    };
+    Log::Error(message);
+    return false;
   }
 
   ddog_prof_Request request = requestResult.ok;
@@ -1597,15 +1542,14 @@ ProfilingResult ProfileExporter::ExportProfile(
     );
     message += ": " + errorMessage;
     ddog_Error_drop(&sendResult.err);
-    return ProfilingError{
-        ProfilingSeverity::Error, ProfilingErrorCode::ExportFailed, std::move(message)
-    };
+    Log::Error(message);
+    return false;
   }
 
   // Check HTTP response code
   uint16_t responseCode = sendResult.ok.code;
-  if (auto error = CheckExportResponse(responseCode)) {
-    return error;
+  if (!CheckExportResponse(responseCode)) {
+    return false;
   }
 
   if (responseCode >= 200 && responseCode < 300) {
@@ -1618,26 +1562,24 @@ ProfilingResult ProfileExporter::ExportProfile(
     );
   }
 
-  return std::nullopt;
+  return true;
 }
 
-ProfilingResult ProfileExporter::PrepareAdditionalTags(
-    ddog_Vec_Tag& tags, uint32_t profileSeq
-) {
+bool ProfileExporter::PrepareAdditionalTags(ddog_Vec_Tag& tags, uint32_t profileSeq) {
   // Add profile sequence number
-  if (auto error = AddSingleTag(tags, TAG_PROFILE_SEQ, std::to_string(profileSeq))) {
-    return error;
+  if (!AddSingleTag(tags, TAG_PROFILE_SEQ, std::to_string(profileSeq))) {
+    return false;
   }
 
   // Add process ID as additional tag
-  if (auto error = AddSingleTag(tags, "pid", std::to_string(_processId))) {
-    return error;
+  if (!AddSingleTag(tags, "pid", std::to_string(_processId))) {
+    return false;
   }
 
   // Add RUM application ID tag (set once via SetRumApplicationId)
   if (!_rumApplicationId.empty()) {
-    if (auto error = AddSingleTag(tags, TAG_RUM_APPLICATION_ID, _rumApplicationId)) {
-      return error;
+    if (!AddSingleTag(tags, TAG_RUM_APPLICATION_ID, _rumApplicationId)) {
+      return false;
     }
   }
 
@@ -1645,18 +1587,15 @@ ProfilingResult ProfileExporter::PrepareAdditionalTags(
   // embedded in the optional_internal_metadata_json payload under
   // "rum_session_ids", alongside the per-view vitals.
 
-  return std::nullopt;
+  return true;
 }
 
-ProfilingResult ProfileExporter::CheckExportResponse(uint16_t responseCode) {
+bool ProfileExporter::CheckExportResponse(uint16_t responseCode) {
   if (responseCode >= 200 && responseCode < 300) {
-    return std::nullopt;
+    return true;
   }
-  return ProfilingError{
-      ProfilingSeverity::Error,
-      ProfilingErrorCode::ExportFailed,
-      "Profile upload rejected with HTTP " + std::to_string(responseCode)
-  };
+  Log::Error("Profile upload rejected with HTTP ", responseCode);
+  return false;
 }
 
 void ProfileExporter::CleanupExporter() {

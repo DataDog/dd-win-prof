@@ -3,7 +3,7 @@
 // (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
 
 #include <cstdio>
-#include <string>
+#include <cstring>
 #include <thread>
 #include <type_traits>
 
@@ -11,8 +11,8 @@
 
 static_assert(std::is_same_v<decltype(StartProfiler()), bool>);
 static_assert(std::is_same_v<decltype(SetupProfiler(ProfilerConfig{})), bool>);
-static_assert(std::is_same_v<decltype(StopProfiler()), void>);
-static_assert(std::is_same_v<decltype(GetLastProfilerError()), const ProfilingError*>);
+static_assert(std::is_same_v<decltype(StopProfiler()), bool>);
+static_assert(std::is_same_v<decltype(GetProfilingErrorMessage(0)), const char*>);
 
 namespace {
 int failures = 0;
@@ -26,36 +26,28 @@ void Check(bool condition, const char* description) {
 
 int main() {
   Check(!SetupProfiler(ProfilerConfig{}), "invalid setup returns false");
-  const auto* error = GetLastProfilerError();
-  Check(error != nullptr, "getter returns a rich error");
-  if (!error) {
-    return 1;
-  }
-  Check(error->severity == ProfilingSeverity::Error, "getter returns severity");
+  const char* message = GetProfilingErrorMessage(1);
   Check(
-      error->code == ProfilingErrorCode::UnsupportedConfigSize,
-      "getter returns typed code"
+      std::strcmp(message, "Profile serialization failed") == 0,
+      "known callback code has a static message"
   );
-  const std::string saved = error->message;
-  Check(!saved.empty(), "getter borrows error text");
-  Check(GetLastProfilerError() == error, "getter does not consume or copy the error");
+  Check(
+      std::strcmp(GetProfilingErrorMessage(UINT32_MAX), "Unknown profiling error") == 0,
+      "unknown callback code has a fallback message"
+  );
 
-  bool initiallyEmpty = false;
-  std::thread other([&] {
-    initiallyEmpty = GetLastProfilerError() == nullptr;
-    SetupProfiler(ProfilerConfig{});
-    StopProfiler();
-  });
+  const char* otherMessage = nullptr;
+  std::thread other([&] { otherMessage = GetProfilingErrorMessage(3); });
   other.join();
-  Check(initiallyEmpty, "new thread has no error");
-  Check(GetLastProfilerError() == error, "other thread did not clear caller error");
-  Check(error->message == saved, "other thread exit did not invalidate borrowed text");
-  StopProfiler();
-  Check(GetLastProfilerError() == nullptr, "successful stop clears the error");
   Check(
-      saved == "Invalid profiler configuration structure size",
-      "caller-owned copy survives next operation"
+      otherMessage != nullptr && std::strcmp(otherMessage, "Profile reset failed") == 0,
+      "message can be read after the requesting thread exits"
   );
+  Check(
+      std::strcmp(message, "Profile serialization failed") == 0,
+      "another lookup does not invalidate earlier messages"
+  );
+  Check(StopProfiler(), "stop succeeds when already stopped");
 
   ProfilerConfig config{};
   config.size = sizeof(config);
@@ -64,11 +56,13 @@ int main() {
     Check(SetupProfiler(config), "setup succeeds");
     Check(StartProfiler(), "start succeeds");
     Check(!StartProfiler(), "repeated start returns false");
-    StopProfiler();
-    Check(GetLastProfilerError() == nullptr, "stop succeeds");
-    StopProfiler();
-    Check(GetLastProfilerError() == nullptr, "repeated stop succeeds");
+    Check(StopProfiler(), "stop succeeds");
+    Check(StopProfiler(), "repeated stop succeeds");
   }
+  Check(
+      message == GetProfilingErrorMessage(1),
+      "message remains valid after lifecycle calls"
+  );
   std::printf("Lifecycle DLL checks: %d failures\n", failures);
   return failures == 0 ? 0 : 1;
 }

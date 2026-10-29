@@ -4,42 +4,18 @@
 
 #pragma once
 
-#include <optional>
-#include <string>
+#include <cstdint>
 
-enum class ProfilingSeverity {
-  Success = 0,
-  Info = 1,
-  Warning = 2,
-  Error = 3,
-  Fatal = 4,
-};
+#include "dd-win-prof.h"
 
-enum class ProfilingErrorCode {
+enum class ProfilingErrorCode : uint32_t {
   None = 0,
   SerializationFailed = 1,
   ProfileBytesUnavailable = 2,
   ProfileResetFailed = 3,
   SampleLabelsUnavailable = 4,
-  ProfilerUnavailable = 5,
-  ProfilerAlreadyRunning = 6,
-  CallbackCopyFailed = 7,
-  UnsupportedConfigSize = 9,
-  ExplicitlyDisabled = 10,
-  InvalidConfiguration = 11,
-  InitializationFailed = 12,
-  ExportFailed = 13,
-  UnexpectedException = 15,
-  CallbackFailed = 16,
 };
 
-struct ProfilingError {
-  ProfilingSeverity severity;
-  ProfilingErrorCode code;
-  std::string message;
-  // Private adapters can avoid reporting a final-export error twice.
-  bool reportedToCallback = false;
-};
-
-// No error means success.
-using ProfilingResult = std::optional<ProfilingError>;
+// Returns static text for a callback result; unknown codes have a fallback message.
+// The caller must not free the returned string. No error state is stored.
+DD_WIN_PROF_API const char* GetProfilingErrorMessage(uint32_t result) noexcept;

@@ -99,7 +99,7 @@ include(CTest)
 add_test(NAME Tests COMMAND Tests)
 set_tests_properties(Tests PROPERTIES TIMEOUT 180)
 
-# Check borrowed diagnostics with independently selected consumer CRTs.
+# Check lifecycle results and static messages with independently selected CRTs.
 foreach(_crt IN ITEMS MT MD)
     set(_consumer "LifecycleDll${_crt}")
     add_executable(${_consumer} LifecycleDllTests.cpp)

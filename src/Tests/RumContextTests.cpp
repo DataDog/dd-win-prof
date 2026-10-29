@@ -401,48 +401,48 @@ class ProfileExporterRumTests : public ::testing::Test {
 };
 
 TEST_F(ProfileExporterRumTests, SetRumApplicationId) {
-  ASSERT_FALSE(exporter->Initialize());
+  ASSERT_TRUE(exporter->Initialize());
 
   exporter->SetRumApplicationId("app-id-123");
 
   EXPECT_TRUE(exporter->Add(CreateTestSample()));
-  EXPECT_FALSE(exporter->Export());
+  EXPECT_TRUE(exporter->Export());
 }
 
 TEST_F(ProfileExporterRumTests, AddSampleWithRumViewLabels) {
-  ASSERT_FALSE(exporter->Initialize());
+  ASSERT_TRUE(exporter->Initialize());
 
   auto sample = CreateTestSample("view-id-1", "HomePage");
   EXPECT_TRUE(exporter->Add(sample));
-  EXPECT_FALSE(exporter->Export());
+  EXPECT_TRUE(exporter->Export());
 }
 
 TEST_F(ProfileExporterRumTests, AddSampleWithoutRumViewLabels) {
-  ASSERT_FALSE(exporter->Initialize());
+  ASSERT_TRUE(exporter->Initialize());
 
   auto sample = CreateTestSample();
   EXPECT_TRUE(exporter->Add(sample));
-  EXPECT_FALSE(exporter->Export());
+  EXPECT_TRUE(exporter->Export());
 }
 
 TEST_F(ProfileExporterRumTests, MixedSamplesWithAndWithoutRum) {
-  ASSERT_FALSE(exporter->Initialize());
+  ASSERT_TRUE(exporter->Initialize());
 
   EXPECT_TRUE(exporter->Add(CreateTestSample("view-1", "Page1")));
   EXPECT_TRUE(exporter->Add(CreateTestSample()));
   EXPECT_TRUE(exporter->Add(CreateTestSample("view-2", "Page2")));
-  EXPECT_FALSE(exporter->Export());
+  EXPECT_TRUE(exporter->Export());
 }
 
 TEST_F(ProfileExporterRumTests, MultipleExportsWithRumTags) {
-  ASSERT_FALSE(exporter->Initialize());
+  ASSERT_TRUE(exporter->Initialize());
   exporter->SetRumApplicationId("app-id");
 
   for (int i = 0; i < 3; i++) {
     std::string viewId = "view-" + std::to_string(i);
     std::string viewName = "Page" + std::to_string(i);
     EXPECT_TRUE(exporter->Add(CreateTestSample(viewId.c_str(), viewName.c_str())));
-    EXPECT_FALSE(exporter->Export());
+    EXPECT_TRUE(exporter->Export());
   }
 }
 

@@ -297,7 +297,8 @@ TEST_F(ConfigurationTest, SetProfilesOutputDirectory_Works) {
 
 TEST_F(ConfigurationTest, ProfilerConfig_ZeroInitialized_NoEnvVarsIsFalse) {
   auto cfg = MakeProfilerConfig();
-  EXPECT_FALSE(cfg.noEnvVars
+  EXPECT_FALSE(
+      cfg.noEnvVars
   ) << "noEnvVars must default to false for backward compatibility";
 }
 
@@ -333,7 +334,7 @@ TEST_F(ConfigurationTest, InitConfig_ZeroInitDefault_DoesNotResetEnvVars) {
 
   auto cfg = MakeProfilerConfig();
   // noEnvVars is false by zero-init -- env vars must survive
-  ASSERT_FALSE(InitializeConfiguration(&config, &cfg));
+  ASSERT_TRUE(InitializeConfiguration(&config, &cfg));
   EXPECT_EQ(config.GetVersion(), "env-version")
       << "Zero-initialized ProfilerConfig should not reset env vars";
 }
@@ -350,11 +351,7 @@ TEST_F(ConfigurationTest, InitConfig_NoEnvVars_MissingUrl_ReturnsError) {
   cfg.url = nullptr;
   cfg.serviceName = "must-not-be-applied";
 
-  const auto error = InitializeConfiguration(&config, &cfg);
-  ASSERT_TRUE(error);
-  EXPECT_EQ(error->severity, ProfilingSeverity::Error);
-  EXPECT_EQ(error->code, ProfilingErrorCode::InvalidConfiguration);
-  EXPECT_EQ(error->message, "Url endpoint must be set.");
+  ASSERT_FALSE(InitializeConfiguration(&config, &cfg));
   EXPECT_NE(config.GetServiceName(), cfg.serviceName);
 }
 
@@ -365,10 +362,7 @@ TEST_F(ConfigurationTest, InitConfig_NoEnvVars_MissingApiKey_ReturnsError) {
   cfg.url = "http://intake.datadoghq.com";
   cfg.apiKey = nullptr;
 
-  const auto error = InitializeConfiguration(&config, &cfg);
-  ASSERT_TRUE(error);
-  EXPECT_EQ(error->code, ProfilingErrorCode::InvalidConfiguration);
-  EXPECT_EQ(error->message, "Datadog API Key must be set.");
+  ASSERT_FALSE(InitializeConfiguration(&config, &cfg));
 }
 
 TEST_F(ConfigurationTest, InitConfig_NoEnvVars_MandatoryFieldsSet_ReturnsNoError) {
@@ -378,7 +372,7 @@ TEST_F(ConfigurationTest, InitConfig_NoEnvVars_MandatoryFieldsSet_ReturnsNoError
   cfg.url = "http://intake.datadoghq.com";
   cfg.apiKey = "my-api-key";
 
-  EXPECT_FALSE(InitializeConfiguration(&config, &cfg));
+  EXPECT_TRUE(InitializeConfiguration(&config, &cfg));
   EXPECT_EQ(config.GetSite(), "http://intake.datadoghq.com");
   EXPECT_EQ(config.GetApiKey(), "my-api-key");
   EXPECT_TRUE(config.IsAgentless());
@@ -405,7 +399,7 @@ TEST_F(ConfigurationTest, InitConfig_NoEnvVars_AllFieldsApplied) {
   cfg.symbolizeCallstacks = true;
   cfg.pprofOutputDirectory = "C:\\temp\\dd-pprof";
 
-  ASSERT_FALSE(InitializeConfiguration(&config, &cfg));
+  ASSERT_TRUE(InitializeConfiguration(&config, &cfg));
 
   EXPECT_EQ(config.GetSite(), "https://intake.datadoghq.com");
   EXPECT_EQ(config.GetApiKey(), "dd-api-key-123");
@@ -440,7 +434,7 @@ TEST_F(ConfigurationTest, InitConfig_NoEnvVars_PartialFields_DefaultsPreserved) 
   cfg.apiKey = "key";
   cfg.serviceName = "partial-svc";
 
-  ASSERT_FALSE(InitializeConfiguration(&config, &cfg));
+  ASSERT_TRUE(InitializeConfiguration(&config, &cfg));
 
   EXPECT_EQ(config.GetServiceName(), "partial-svc");
 
@@ -473,7 +467,7 @@ TEST_F(ConfigurationTest, InitConfig_NoEnvVars_False_EnvVarsPreserved) {
   cfg.noEnvVars = false;
   cfg.serviceName = "api-svc";
 
-  ASSERT_FALSE(InitializeConfiguration(&config, &cfg));
+  ASSERT_TRUE(InitializeConfiguration(&config, &cfg));
 
   EXPECT_EQ(config.GetVersion(), "env-ver")
       << "Env var value should survive when noEnvVars=false";
@@ -518,12 +512,9 @@ TEST_F(ConfigurationTest, TransportValidationAndExportUseExplicitDeliveryMode) {
 
   Configuration config;
   config.SetExportEnabled(true);
-  EXPECT_FALSE(config.ValidateTransportConfig(ProfileDeliveryMode::Callback));
+  EXPECT_TRUE(config.ValidateTransportConfig(ProfileDeliveryMode::Callback));
   EXPECT_FALSE(config.IsExportEnabled(ProfileDeliveryMode::Callback));
-  const auto error = config.ValidateTransportConfig(ProfileDeliveryMode::Http);
-  ASSERT_TRUE(error);
-  EXPECT_EQ(error->code, ProfilingErrorCode::InvalidConfiguration);
-  EXPECT_NE(error->message.find("Conflicting"), std::string::npos);
+  ASSERT_FALSE(config.ValidateTransportConfig(ProfileDeliveryMode::Http));
   EXPECT_TRUE(config.IsExportEnabled(ProfileDeliveryMode::Http));
 }
 
@@ -535,5 +526,5 @@ TEST_F(ConfigurationTest, InitConfig_ConflictingTransportConfig_Fails) {
   ProfilerConfig cfg{};
   cfg.size = sizeof(ProfilerConfig);
 
-  EXPECT_TRUE(InitializeConfiguration(&config, &cfg));
+  EXPECT_FALSE(InitializeConfiguration(&config, &cfg));
 }

@@ -483,18 +483,13 @@ int main(int argc, char* argv[]) {
   config.pprofOutputDirectory = opts.pprofDir.empty() ? nullptr : opts.pprofDir.c_str();
   config.symbolizeCallstacks = opts.symbolize;
 
-  const auto reportDiagnostic = [] {
-    if (const auto* error = GetLastProfilerError()) {
-      std::cerr << error->message << std::endl;
-    }
-  };
   if (!SetupProfiler(config)) {
-    reportDiagnostic();
+    std::cerr << "Failed to configure the profiler; see native logs\n";
     return -2;
   }
 
   if (!StartProfiler()) {
-    reportDiagnostic();
+    std::cerr << "Failed to start the profiler; see native logs\n";
     return -1;
   }
 
@@ -525,9 +520,8 @@ int main(int argc, char* argv[]) {
     }
   }
 
-  StopProfiler();
-  if (GetLastProfilerError()) {
-    reportDiagnostic();
+  if (!StopProfiler()) {
+    std::cerr << "Failed to stop or export the final profile; see native logs\n";
     return -3;
   }
 
