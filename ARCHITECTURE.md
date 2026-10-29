@@ -22,6 +22,8 @@ This is a Windows native profiler that performs CPU sampling and exports profile
 
 **`dd-win-prof.cpp/.h`** - Public external API for applications to control profiling
 - Exports `SetupProfiler()`, `StartProfiler()` and `StopProfiler()` functions for controlling the profiler
+- Supports multiple sequential profiling sessions in one process (`Start` → optional UI-hang monitoring → `Stop` → `Start` again)
+- Rejects repeated starts, monitoring outside a running session, multiple monitored windows in one session, and stops without a running session
 - Exports `EnterView()` and `LeaveCurrentView()` for RUM view navigation
 
 **`dd-win-rum-private.h`** - SDK-level RUM context API (exported but not public)
@@ -31,6 +33,9 @@ This is a Windows native profiler that performs CPU sampling and exports profile
 ### Core Profiler Management
 
 **`Profiler.cpp/.h`** - Central coordinator and singleton
+- The singleton is process-scoped; each start/stop pair creates and destroys a separate profiling session
+- Serializes lifecycle operations and resets process-scoped thread sampling state between sessions
+- UI-hang registration is session-scoped and must be repeated after a restart
 - Manages the overall profiler lifecycle and orchestrates all components
 - Creates and configures:
   - `ThreadList` for tracking active threads

@@ -60,6 +60,23 @@ jobs:
       run: pwsh src/integration-tests/test_rum_scenario.ps1 -Config Release
       shell: pwsh
 
+    - name: Run UI-hang integration tests
+      if: matrix.configuration == 'Release'
+      shell: pwsh
+      timeout-minutes: 5
+      run: |
+        pwsh src/integration-tests/test_ui_hangs.ps1 `
+          -Config Release `
+          -OutputRoot "${{ runner.temp }}/ui-hangs" `
+          -KeepArtifacts
+
+    - name: Upload UI-hang diagnostics on failure
+      if: failure() && matrix.configuration == 'Release'
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: ui-hang-diagnostics
+        path: ${{ runner.temp }}/ui-hangs
+
     - name: Set up Go (for prof-analyze)
       if: matrix.configuration == 'Release'
       uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
@@ -125,6 +142,8 @@ jobs:
           build/src/ProfilerInjector/${{ matrix.configuration }}/ProfilerInjector.pdb
           build/src/Runner/${{ matrix.configuration }}/Runner.exe
           build/src/Runner/${{ matrix.configuration }}/Runner.pdb
+          build/src/UIApp/${{ matrix.configuration }}/UIApp.exe
+          build/src/UIApp/${{ matrix.configuration }}/UIApp.pdb
           build/src/Tests/${{ matrix.configuration }}/Tests.exe
         retention-days: 7
 

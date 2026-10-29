@@ -111,13 +111,16 @@ class ProfileExporter {
     ddog_prof_StringId threadNameKeyId;  // String ID for thread_name key
     ddog_prof_StringId rumViewIdKeyId;   // String ID for "rum.view_id" key
     ddog_prof_StringId traceEndpointKeyId;  // String ID for "trace endpoint" key
+    ddog_prof_LabelId uiHangTrueLabelId;    // Complete "UIHang=true" label
+    ddog_prof_LabelId uiHangFalseLabelId;   // Complete "UIHang=false" label
   };
 
   bool InternSampleLabels(SampleLabels& labels);
   ddog_prof_LabelSetId CreateLabelSet(
       const SampleLabels& labels,
       std::shared_ptr<ThreadInfo> threadInfo,
-      const RumViewContext& rumView
+      const RumViewContext& rumView,
+      UiHangSampleKind uiHangKind
   );
 
   // Debug file writing methods
@@ -164,6 +167,9 @@ class ProfileExporter {
   static constexpr const char* LABEL_THREAD_NAME = "thread_name";
   static constexpr const char* LABEL_RUM_VIEW_ID = "rum.view_id";
   static constexpr const char* LABEL_TRACE_ENDPOINT = "trace endpoint";
+  static constexpr const char* LABEL_UI_HANG = "UIHang";
+  static constexpr const char* LABEL_UI_HANG_TRUE_VALUE = "true";
+  static constexpr const char* LABEL_UI_HANG_FALSE_VALUE = "false";
 
   // Cache management
   void ClearCaches();

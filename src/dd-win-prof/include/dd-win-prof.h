@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <Windows.h>
 #include <stdint.h>
 
 #ifdef DD_WIN_PROF_STATIC_LINK
@@ -55,12 +56,28 @@ typedef struct _ProfilerConfig {
 } ProfilerConfig;
 
 extern "C" {
+// The DLL owns one process-wide profiler instance. StartProfiler()/StopProfiler()
+// delimit restartable profiling sessions:
+//   SetupProfiler() -> StartProfiler() -> [MonitorWindowHangs()] -> StopProfiler()
+//   StartProfiler() -> [MonitorWindowHangs()] -> StopProfiler()  // next session
+//
+// Invalid operations are rejected with a warning. Bool-returning functions return
+// false; StopProfiler() has no effect when no session is running. UI-hang monitoring
+// is session-scoped and must be registered again after every successful start.
+
+// Configure the next profiling session. Call only while profiling is stopped.
 DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig* pSettings);
 
-// Start profiling manually (returns false if already started or explicitly disabled)
+// Start profiling manually. A new session may be started after StopProfiler().
+// Returns false if the profiler is already running or explicitly disabled.
 DD_WIN_PROF_API bool StartProfiler();
 
-// Stop profiling manually (safe to call even if not started)
+// Start automatic detection of UI hangs for the current profiling session.
+// Returns false unless the profiler is running, or if a window is already monitored.
+DD_WIN_PROF_API bool MonitorWindowHangs(HWND hWnd);
+
+// Stop the current profiling session. Calls made while stopped are ignored with a
+// warning.
 DD_WIN_PROF_API void StopProfiler();
 
 // Enter a named view. Generates a unique view_id internally.
