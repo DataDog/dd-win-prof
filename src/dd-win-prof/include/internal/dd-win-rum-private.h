@@ -11,13 +11,10 @@
 #include "dd-win-prof.h"
 #include "error.h"
 
-// SDK-private C++ callback API. Use only when building dd-win-prof from source as
-// a dependency, with compatible compiler, standard library and CRT settings.
-// No API or ABI compatibility is guaranteed across versions or independent builds.
 struct ProfilingData {
   // Zero on success; otherwise a ProfilingErrorCode with no pprof bytes.
   uint32_t result = 0;
-  // Owned LZ4-compressed pprof bytes, safe to move to an SDK upload queue.
+  // LZ4-compressed pprof.
   std::vector<uint8_t> pprof;
   // Wall-clock milliseconds since Unix epoch, not monotonic timestamps.
   int64_t startUnixTimeMs = 0;
@@ -26,17 +23,10 @@ struct ProfilingData {
   bool isLast = false;
 };
 
-// GetProfilingErrorMessage(result) explains nonzero result codes with static text.
-// Receives owned data. Periodic invocations run on the exporter thread;
-// the final invocation runs inside StopProfiler() on its calling thread.
-// Do not perform blocking I/O, wait for upload completion, or call profiler
-// setup/start/stop/registration APIs here. Callback execution delays export and stop.
-// Encoding and next-profile preparation failures do not stop profiling.
-// A preparation error can follow a successfully delivered profile.
-// StopProfiler() still cleans up if final export fails, but returns false.
-// Setup/start failures return false without invoking this callback.
-// Callback exceptions are logged; failed results are not retried.
-// Errors do not trigger automatic shutdown.
+// Periodic calls run on the exporter thread; final export runs on the stopping thread.
+// Do not block or call lifecycle/registration APIs from this callback.
+// Preparation errors can follow a delivered profile. Failed deliveries are not retried.
+// Errors do not stop profiling.
 using ProfilingDataCallback = std::function<void(ProfilingData)>;
 
 typedef struct _RumSessionContext {
@@ -49,16 +39,12 @@ typedef struct _RumViewValues {
   const char* view_name;  // human-readable name, e.g. "HomePage"
 } RumViewValues;
 
-// SDK-private. Register or replace while stopped, including after StopProfiler()
-// returns. Do not overlap this call with another registration or setup/start/stop.
-// Register before SetupProfiler() to omit HTTP credentials in noEnvVars mode.
-// Callback mode discards RUM view/session records; per-sample labels remain in pprof.
-// Copies callback; an empty callable unregisters and selects HTTP upload for the next
-// run. Registration persists across StopProfiler() and SetupProfiler(). Stop, then
-// unregister before unloading callback code. Captured references must remain valid
-// through the last callback.
-// Returns false on failure and leaves registration unchanged. Failures are logged,
-// not sent through the callback.
+// Register while stopped; serialize with lifecycle calls.
+// Copies callback; an empty callable selects HTTP delivery for the next run.
+// Registration survives setup and stop/start. Failure preserves the previous callback.
+// Register before setup to omit HTTP credentials in noEnvVars mode.
+// Callback mode discards RUM records; per-sample labels remain in pprof.
+// Stop and unregister before unloading callback code or releasing captured state.
 [[nodiscard]] DD_WIN_PROF_API bool SetupProfilingDataCallback(
     const ProfilingDataCallback& callback
 ) noexcept;

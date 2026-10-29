@@ -53,22 +53,15 @@ struct ProfilerConfig {
                                      // (default: empty = disabled)
 };
 
-// C++ API, not a versioned ABI. Consumers need matching headers and toolchains.
-// Setup/start/stop return false on failure; details are logged internally.
-// Serialize lifecycle/registration
-// calls and do not invoke them from profiling callbacks.
-// Configure while stopped, including after stop. Preserves callback registration.
+// Serialize lifecycle/registration calls; do not call them from profiling callbacks.
+// Configure while stopped. Preserves callback registration.
 DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig& settings) noexcept;
 
-// May be called again after stop. Returns false if already running or disabled.
+// Can be restarted after StopProfiler().
 DD_WIN_PROF_API bool StartProfiler() noexcept;
 
-// Stops collection, waits for the current export and attempts a final export.
-// Does not wait for the upload interval. The final SDK callback runs on this thread.
-// Blocks until callbacks finish, not until SDK work they queued finishes. No overall
-// timeout is imposed. Succeeds if already stopped.
-// After return, no callbacks run until the next start; setup/registration may run
-// again. Do not overlap lifecycle calls or call them from an SDK callback.
+// Final export runs on this thread. Waits for callbacks, not queued SDK work.
+// No callbacks run after return until the next start. Safe to call when stopped.
 DD_WIN_PROF_API bool StopProfiler() noexcept;
 
 // Enter a named view. Generates a unique view_id internally.

@@ -180,6 +180,8 @@ Configuration is managed in `Configuration.cpp`. Values come from two sources, w
 
 2. **`SetupProfiler(const ProfilerConfig&)`** (`dd-win-prof.cpp`): Callers pass a `ProfilerConfig` struct; `InitializeConfiguration()` applies its fields to the shared `Configuration` instance.
 
+**Compatibility**: The public API uses C++ linkage, not a versioned ABI; consumers need matching headers and toolchains. The SDK-private callback is supported only as a source-build dependency with compatible compiler, standard library and CRT settings. No callback API/ABI compatibility is guaranteed across versions or independent builds.
+
 **SDK callback registration**: `Profiler` owns the callback registered through `SetupProfilingDataCallback()`. The function returns `bool`; failure is logged without invoking the callback or replacing the previous registration. Registration survives configuration resets and stop/start cycles. Each `ProfileExporter` receives a copy for its run. Configuration validation receives the delivery mode explicitly and does not own the callable.
 
 **Errors**: setup/start/stop/registration and internal fallible operations return `bool`; native details are logged at the failure site. There is no last-error storage, severity or reporting flag. Only the callback boundary carries a numeric code: `ProfilingData.result` is zero for an owned profile, otherwise a `ProfilingErrorCode` with empty pprof bytes. `GetProfilingErrorMessage(uint32_t)` returns static explanatory text, including a fallback for unknown codes. It needs no allocation, copying, cleanup or error state. Errors do not currently trigger automatic shutdown.

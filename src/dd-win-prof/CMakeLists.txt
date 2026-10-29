@@ -52,6 +52,7 @@ add_library(dd-win-prof SHARED
     StackSamplerLoop.h
     Symbolication.h
     TagsHelper.h
+    ThreadFactory.h
     ThreadInfo.h
     ThreadList.h
     Uuid.h

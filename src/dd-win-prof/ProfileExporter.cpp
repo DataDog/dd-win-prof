@@ -92,13 +92,7 @@ ProfileExporter::ProfileExporter(
   }
 }
 
-ProfileExporter::~ProfileExporter() {
-  // Just call cleanup - by this point, explicit cleanup should have been called
-  // If not, we'll do basic cleanup but may skip exporter cleanup to avoid deadlocks
-  if (_initialized || _stringStorage.inner != nullptr || _exporter.inner != nullptr) {
-    Cleanup(true);  // Skip exporter cleanup in destructor to avoid deadlocks
-  }
-}
+ProfileExporter::~ProfileExporter() { Cleanup(true); }
 
 void ProfileExporter::Cleanup(bool skipExporterCleanup) {
   if (!_initialized && _stringStorage.inner == nullptr && _exporter.inner == nullptr) {
@@ -120,7 +114,7 @@ void ProfileExporter::Cleanup(bool skipExporterCleanup) {
 
   // Clean up libdatadog's managed string storage
   if (_stringStorage.inner != nullptr) {
-    ddog_prof_ManagedStringStorage_drop(_stringStorage);
+    _encodingApi.dropStringStorage(_stringStorage);
     _stringStorage = {};
   }
 
@@ -418,7 +412,8 @@ bool ProfileExporter::FinishExport(
   bool success = true;
   if (!_aggregator->Reset()) {
     success = ReportError(ProfilingErrorCode::ProfileResetFailed, lastCall);
-  } else if (!InternSampleLabels(_sampleLabels)) {
+  }
+  if (!InternSampleLabels(_sampleLabels)) {
     success = ReportError(ProfilingErrorCode::SampleLabelsUnavailable, lastCall);
   }
 

@@ -23,13 +23,13 @@ void SamplesCollector::Register(ISamplesProvider* samplesProvider) {
   _samplesProviders.push_front(std::make_pair(samplesProvider, 0));
 }
 
-void SamplesCollector::Start() {
+void SamplesCollector::Start(dd_win_prof::ThreadFactory makeThread) {
   try {
-    _workerThread = std::thread([this] {
+    _workerThread = makeThread([this] {
       OpSysTools::SetNativeThreadName(WorkerThreadName);
       SamplesWork();
     });
-    _exporterThread = std::thread([this] {
+    _exporterThread = makeThread([this] {
       OpSysTools::SetNativeThreadName(ExporterThreadName);
       ExportWork();
     });

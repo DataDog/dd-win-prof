@@ -12,13 +12,14 @@
 #include "Configuration.h"
 #include "ISamplesProvider.h"
 #include "ProfileExporter.h"
+#include "ThreadFactory.h"
 #include "pch.h"
 
 class SamplesCollector {
  public:
   SamplesCollector(Configuration* pConfiguration, ProfileExporter* exporter);
   ~SamplesCollector() = default;
-  void Start();
+  void Start(dd_win_prof::ThreadFactory makeThread = dd_win_prof::MakeThread);
   bool Stop(bool shutdownOngoing = false);
   void StopThreads();
   void Register(ISamplesProvider* samplesProvider);

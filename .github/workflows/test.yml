@@ -43,7 +43,7 @@ jobs:
         pwsh e2e-tests/validate-runner-sym.ps1 -SymFile $symFile
 
     - name: Run tests
-      run: build/src/Tests/${{ matrix.configuration }}/Tests.exe
+      run: ctest --test-dir build/src/Tests -C ${{ matrix.configuration }} --output-on-failure --no-tests=error
 
     - name: Setup Python
       if: matrix.configuration == 'Release'
@@ -179,11 +179,11 @@ jobs:
         Write-Host "ASan runtime import found:" -ForegroundColor Green
         $asan | ForEach-Object { Write-Host "  $_" }
 
-    - name: Run unit tests under ASan
+    - name: Run tests under ASan
       env:
         # Make ASan failures fatal and produce useful diagnostics.
         ASAN_OPTIONS: abort_on_error=1:halt_on_error=1:print_stacktrace=1:detect_leaks=0:symbolize=1
-      run: build/src/Tests/Tests.exe
+      run: ctest --test-dir build/src/Tests -C Debug --output-on-failure --no-tests=error
 
     - name: Setup Python
       uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0

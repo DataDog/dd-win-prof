@@ -2,11 +2,14 @@
 // the Apache 2 License. This product includes software developed at Datadog
 // (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
 
+#include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <functional>
 #include <future>
 #include <optional>
 #include <stdexcept>
+#include <system_error>
 #include <thread>
 #include <type_traits>
 #include <utility>
@@ -76,6 +79,51 @@ ddog_prof_Profile_Result ResetWithFailure(ddog_prof_Profile* profile) {
     return result;
   }
   return ddog_prof_Profile_reset(profile);
+}
+
+struct StartupFailureState {
+  int failThreadAt = 0;
+  int threadAttempts = 0;
+  bool failProfileCreation = false;
+  int profileCreations = 0;
+  int storageDrops = 0;
+};
+thread_local StartupFailureState startupFailure;
+std::atomic<int> activeStartupThreads{0};
+
+std::thread MakeThreadWithFailure(std::function<void()> action) {
+  if (++startupFailure.threadAttempts == startupFailure.failThreadAt) {
+    throw std::system_error(
+        std::make_error_code(std::errc::resource_unavailable_try_again)
+    );
+  }
+  return std::thread([action = std::move(action)] {
+    struct ActiveThread {
+      ActiveThread() { ++activeStartupThreads; }
+      ~ActiveThread() { --activeStartupThreads; }
+    } active;
+    action();
+  });
+}
+
+ddog_prof_Profile_NewResult NewProfileWithFailure(
+    ddog_prof_Slice_ValueType sampleTypes,
+    const ddog_prof_Period* period,
+    ddog_prof_ManagedStringStorage storage
+) {
+  ++startupFailure.profileCreations;
+  if (std::exchange(startupFailure.failProfileCreation, false)) {
+    ddog_prof_Profile_NewResult result{};
+    result.tag = DDOG_PROF_PROFILE_NEW_RESULT_ERR;
+    result.err = MakeNativeError();
+    return result;
+  }
+  return ddog_prof_Profile_with_string_storage(sampleTypes, period, storage);
+}
+
+void DropStringStorageWithCounting(ddog_prof_ManagedStringStorage storage) {
+  ++startupFailure.storageDrops;
+  ddog_prof_ManagedStringStorage_drop(storage);
 }
 }  // namespace
 
@@ -572,6 +620,83 @@ TEST_F(ProfilingDataCallbackTests, MissingProfilerRejectsRegistration) {
   profiler = std::make_unique<Profiler>();
 }
 
+TEST_F(ProfilingDataCallbackTests, ThreadCreationFailuresRollBackAndAllowRetry) {
+  for (const int failAt : {1, 2, 3}) {
+    SCOPED_TRACE(failAt);
+    profiler.reset();
+    startupFailure = {};
+    startupFailure.failThreadAt = failAt;
+    ASSERT_EQ(activeStartupThreads.load(), 0);
+    profiler = std::make_unique<Profiler>(MakeThreadWithFailure);
+    int calls = 0;
+    ASSERT_TRUE(SetupProfilingDataCallback([&](ProfilingData data) {
+      EXPECT_EQ(data.result, 0u);
+      EXPECT_TRUE(data.isLast);
+      ++calls;
+    }));
+    ProfilerConfig config{};
+    config.size = sizeof(config);
+    config.noEnvVars = true;
+    config.uploadIntervalSeconds = 3600;
+    ASSERT_TRUE(SetupProfiler(config));
+
+    EXPECT_FALSE(StartProfiler());
+    EXPECT_FALSE(profiler->IsStarted());
+    EXPECT_EQ(startupFailure.threadAttempts, failAt);
+    EXPECT_EQ(activeStartupThreads.load(), 0);
+    EXPECT_EQ(calls, 0);
+    EXPECT_TRUE(StopProfiler());
+    EXPECT_EQ(calls, 0);
+
+    startupFailure.failThreadAt = 0;
+    ASSERT_TRUE(StartProfiler());
+    EXPECT_EQ(startupFailure.threadAttempts, failAt + 3);
+    EXPECT_TRUE(StopProfiler());
+    EXPECT_EQ(activeStartupThreads.load(), 0);
+    EXPECT_EQ(calls, 1);
+    ASSERT_TRUE(SetupProfilingDataCallback({}));
+  }
+}
+
+TEST_F(
+    ProfilingDataCallbackTests, PartialNativeInitializationReleasesStorageAndCanRetry
+) {
+  profiler.reset();
+  startupFailure = {};
+  startupFailure.failProfileCreation = true;
+  dd_win_prof::ProfileEncodingApi api;
+  api.newProfile = NewProfileWithFailure;
+  api.dropStringStorage = DropStringStorageWithCounting;
+  profiler = std::make_unique<Profiler>(MakeThreadWithFailure, api);
+  int calls = 0;
+  ASSERT_TRUE(SetupProfilingDataCallback([&](ProfilingData data) {
+    EXPECT_EQ(data.result, 0u);
+    EXPECT_TRUE(data.isLast);
+    ++calls;
+  }));
+  ProfilerConfig config{};
+  config.size = sizeof(config);
+  config.noEnvVars = true;
+  config.uploadIntervalSeconds = 3600;
+  ASSERT_TRUE(SetupProfiler(config));
+
+  EXPECT_FALSE(StartProfiler());
+  EXPECT_FALSE(profiler->IsStarted());
+  EXPECT_EQ(startupFailure.profileCreations, 1);
+  EXPECT_EQ(startupFailure.storageDrops, 1);
+  EXPECT_EQ(startupFailure.threadAttempts, 0);
+  EXPECT_EQ(calls, 0);
+  EXPECT_TRUE(StopProfiler());
+  EXPECT_EQ(startupFailure.storageDrops, 1);
+
+  ASSERT_TRUE(StartProfiler());
+  EXPECT_EQ(startupFailure.profileCreations, 2);
+  EXPECT_TRUE(StopProfiler());
+  EXPECT_EQ(startupFailure.storageDrops, 2);
+  EXPECT_EQ(activeStartupThreads.load(), 0);
+  EXPECT_EQ(calls, 1);
+}
+
 TEST(ProfilingDataExportTests, ResultIsFirstAggregateFieldAndDefaultsToSuccess) {
   static_assert(std::is_same_v<decltype(ProfilingData::result), uint32_t>);
   ProfilingData success;
@@ -620,6 +745,28 @@ TEST(ProfilingDataExportTests, CallbackBypassesHttpAndOwnsBytes) {
   EXPECT_EQ(first.endUnixTimeMs, second.startUnixTimeMs);
 }
 
+TEST(ProfilingDataExportTests, DestructorReleasesPartiallyInitializedStorage) {
+  startupFailure = {};
+  startupFailure.failProfileCreation = true;
+  Configuration config;
+  config.ResetToDefaults();
+  dd_win_prof::ProfileEncodingApi api;
+  api.newProfile = NewProfileWithFailure;
+  api.dropStringStorage = DropStringStorageWithCounting;
+  std::vector<SampleValueType> types{{"cpu-time", "nanoseconds"}};
+  int calls = 0;
+  {
+    ProfileExporter exporter(
+        &config, types, nullptr, [&](ProfilingData) { ++calls; }, api
+    );
+    EXPECT_FALSE(exporter.Initialize());
+    EXPECT_EQ(startupFailure.profileCreations, 1);
+    EXPECT_EQ(startupFailure.storageDrops, 0);
+  }
+  EXPECT_EQ(startupFailure.storageDrops, 1);
+  EXPECT_EQ(calls, 0);
+}
+
 TEST(ProfilingDataExportTests, ResetErrorIsDeliveredAndNextExportRecovers) {
   for (const bool lastCall : {false, true}) {
     SCOPED_TRACE(lastCall);
@@ -650,6 +797,33 @@ TEST(ProfilingDataExportTests, ResetErrorIsDeliveredAndNextExportRecovers) {
     EXPECT_STREQ(
         GetProfilingErrorMessage(results.back().result), "Profile reset failed"
     );
+
+    Sample::SetValuesCount(types.size());
+    HANDLE thread = nullptr;
+    ASSERT_TRUE(
+        ::DuplicateHandle(
+            ::GetCurrentProcess(),
+            ::GetCurrentThread(),
+            ::GetCurrentProcess(),
+            &thread,
+            0,
+            FALSE,
+            DUPLICATE_SAME_ACCESS
+        )
+    );
+    auto threadInfo = std::make_shared<ThreadInfo>(::GetCurrentThreadId(), thread);
+    uint64_t frames[] = {reinterpret_cast<uint64_t>(&ResetWithFailure)};
+    auto sample = std::make_shared<Sample>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::system_clock::now().time_since_epoch()
+        ),
+        threadInfo,
+        frames,
+        1
+    );
+    sample->AddValue(42, 0);
+    ASSERT_TRUE(exporter.Add(sample));
+
     EXPECT_TRUE(exporter.Export(true));
     ASSERT_EQ(results.size(), 3u);
     EXPECT_EQ(results.back().result, 0u);

@@ -21,6 +21,10 @@ struct ProfileEncodingApi {
   decltype(&ddog_prof_Profile_serialize) serialize = ddog_prof_Profile_serialize;
   decltype(&ddog_prof_EncodedProfile_bytes) bytes = ddog_prof_EncodedProfile_bytes;
   decltype(&ddog_prof_Profile_reset) reset = ddog_prof_Profile_reset;
+  decltype(&ddog_prof_Profile_with_string_storage) newProfile =
+      ddog_prof_Profile_with_string_storage;
+  decltype(&ddog_prof_ManagedStringStorage_drop) dropStringStorage =
+      ddog_prof_ManagedStringStorage_drop;
 };
 
 /// <summary>

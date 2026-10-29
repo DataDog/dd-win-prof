@@ -16,6 +16,5 @@ enum class ProfilingErrorCode : uint32_t {
   SampleLabelsUnavailable = 4,
 };
 
-// Returns static text for a callback result; unknown codes have a fallback message.
-// The caller must not free the returned string. No error state is stored.
+// Always returns non-null static text, valid until DLL unload.
 DD_WIN_PROF_API const char* GetProfilingErrorMessage(uint32_t result) noexcept;

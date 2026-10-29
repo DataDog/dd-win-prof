@@ -16,8 +16,12 @@ Profiler* Profiler::_this = nullptr;
 std::unique_ptr<Configuration> Profiler::_pConfiguration =
     std::make_unique<Configuration>();
 
-Profiler::Profiler()
-    : _isStarted(false),
+Profiler::Profiler(
+    dd_win_prof::ThreadFactory makeThread, dd_win_prof::ProfileEncodingApi encodingApi
+)
+    : _makeThread(makeThread),
+      _encodingApi(encodingApi),
+      _isStarted(false),
       _pThreadList(std::make_unique<ThreadList>()),
       _pStackSamplerLoop(nullptr) {
   _this = this;
@@ -95,7 +99,11 @@ bool Profiler::StartProfiling() {
 
     //... and pass them to the exporter
     _pProfileExporter = std::make_unique<ProfileExporter>(
-        _pConfiguration.get(), sampleTypeDefinitions, this, _profilingDataCallback
+        _pConfiguration.get(),
+        sampleTypeDefinitions,
+        this,
+        _profilingDataCallback,
+        _encodingApi
     );
 
     // Initialize the ProfileExporter
@@ -128,8 +136,8 @@ bool Profiler::StartProfiling() {
     }
 
     // start processing
-    _pSamplesCollector->Start();
-    _pStackSamplerLoop->Start();
+    _pSamplesCollector->Start(_makeThread);
+    _pStackSamplerLoop->Start(_makeThread);
 
     _isStarted = true;
     return true;

@@ -10,6 +10,7 @@
 #include "RumContext.h"
 #include "SamplesCollector.h"
 #include "StackSamplerLoop.h"
+#include "ThreadFactory.h"
 #include "ThreadList.h"
 #include "dd-win-prof.h"
 #include "internal/dd-win-rum-private.h"
@@ -19,7 +20,10 @@ class Profiler : public IRumViewContextProvider,
                  public IRumRecordProvider,
                  public IViewVitalsAccumulator {
  public:
-  Profiler();
+  explicit Profiler(
+      dd_win_prof::ThreadFactory makeThread = dd_win_prof::MakeThread,
+      dd_win_prof::ProfileEncodingApi encodingApi = {}
+  );
   virtual ~Profiler();
 
   bool Configure(const ProfilerConfig& settings);
@@ -82,6 +86,8 @@ class Profiler : public IRumViewContextProvider,
   static Profiler* _this;
   static std::unique_ptr<Configuration> _pConfiguration;
 
+  const dd_win_prof::ThreadFactory _makeThread;
+  const dd_win_prof::ProfileEncodingApi _encodingApi;
   std::atomic<bool> _isStarted;
 
   std::unique_ptr<ThreadList> _pThreadList;
