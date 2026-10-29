@@ -7,10 +7,10 @@
 #include "Configuration.h"
 #include "dd-win-prof.h"
 
-// Applies ProfilerConfig fields to a Configuration object.
-// When pSettings->noEnvVars is true, resets to defaults first so that
-// only the explicit struct fields take effect.
-// HTTP mode requires url and apiKey when noEnvVars is set; callback mode does not.
+// Rebuilds configuration from defaults and, unless noEnvVars is set, the current
+// environment, then applies ProfilerConfig fields. Previous API overrides are
+// discarded. HTTP mode requires url and apiKey when noEnvVars is set;
+// callback mode does not.
 bool InitializeConfiguration(
     Configuration* pConfig,
     const ProfilerConfig* pSettings,
