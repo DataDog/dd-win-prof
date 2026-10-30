@@ -64,6 +64,8 @@ DD_WIN_PROF_API bool StartProfiler() noexcept;
 // No callbacks run after return until the next start. Safe to call when stopped.
 DD_WIN_PROF_API bool StopProfiler() noexcept;
 
+extern "C" {
+
 // Enter a named view. Generates a unique view_id internally.
 // Updates per-sample pprof labels: rum.view_id and trace endpoint (viewName).
 // If a view is already active, it is completed first (record produced).
@@ -74,6 +76,7 @@ DD_WIN_PROF_API bool EnterView(const char* viewName);
 // Completes the active view record. No-op if no view is active.
 // Returns true if a view was active and is now cleared, false if no view was active.
 DD_WIN_PROF_API bool LeaveCurrentView();
+}
 
 // Environment Variables (independent controls):
 // DD_PROFILING_ENABLED: Controls whether profiler CAN be started

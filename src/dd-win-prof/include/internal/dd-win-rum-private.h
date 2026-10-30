@@ -49,6 +49,7 @@ typedef struct _RumViewValues {
     const ProfilingDataCallback& callback
 ) noexcept;
 
+extern "C" {
 // Set stable RUM session context. Safe to call from any thread.
 // application_id: write-once per process. First non-empty value is stored
 // as a profile-level tag; subsequent calls with a different value return false.
@@ -64,3 +65,4 @@ DD_WIN_PROF_API bool SetRumSession(const RumSessionContext* pContext);
 // Pass nullptr/empty view_id to clear the current view (signals "between views").
 // Returns false if no session is active.
 DD_WIN_PROF_API bool SetRumView(const RumViewValues* pContext);
+}
