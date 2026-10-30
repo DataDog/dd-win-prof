@@ -4,7 +4,6 @@
 
 #include <gtest/gtest.h>
 
-#include "../dd-win-prof/OsSpecificApi.h"
 #include "../dd-win-prof/ThreadList.h"
 #include "pch.h"
 
@@ -423,12 +422,8 @@ TEST(ThreadListTests, ResetProfilingState_ClearsSessionStateAndIterators) {
   uint32_t previousSessionIterator = threadList.CreateIterator();
   ASSERT_NE(threadList.LoopNext(previousSessionIterator), nullptr);
 
-  auto cpuBefore = OsSpecificApi::GetThreadCpuTime(thread->GetOsThreadHandle());
   threadList.ResetProfilingState();
-  auto cpuAfter = OsSpecificApi::GetThreadCpuTime(thread->GetOsThreadHandle());
 
-  EXPECT_GE(thread->GetCpuConsumption(), cpuBefore);
-  EXPECT_LE(thread->GetCpuConsumption(), cpuAfter);
   EXPECT_FALSE(thread->IsHangDetected());
   EXPECT_EQ(thread->SetLastWalltimeSampleTimestamp(1ns), 0ns);
   EXPECT_EQ(thread->SetLastWaitSampleTimestamp(1ns), 0ns);

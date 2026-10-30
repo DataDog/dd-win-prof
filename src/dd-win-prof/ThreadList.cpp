@@ -71,7 +71,6 @@ void ThreadList::ResetProfilingState() {
   _iterators.clear();
 
   for (auto& pInfo : _threads) {
-    // IsRunning lazily resolves an API under the loader lock.
     auto cpuConsumption = OsSpecificApi::GetThreadCpuTime(pInfo->GetOsThreadHandle());
     pInfo->ResetProfilingState(cpuConsumption);
   }
