@@ -14,7 +14,6 @@
 #define DD_WIN_PROF_API __declspec(dllimport)
 #endif
 
-// define a struct that will hold configuration parameters
 typedef struct _ProfilerConfig {
   uint32_t size;  // size of this struct, for versioning
 
@@ -55,21 +54,17 @@ typedef struct _ProfilerConfig {
 } ProfilerConfig;
 
 extern "C" {
-// Configure while stopped, including after StopProfiler() returns.
-// Does not clear SDK-private callback registration. Serialize setup/start/stop calls.
+
+// Serialize lifecycle/registration calls; do not call them from profiling callbacks.
+// Configure while stopped. Preserves callback registration.
 DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig* pSettings);
 
-// Start profiling manually (returns false if already started or explicitly disabled).
-// May be called again after StopProfiler() returns.
+// Can be restarted after StopProfiler().
 DD_WIN_PROF_API bool StartProfiler();
 
-// Stops collection, waits for the current export and attempts a final export.
-// Does not wait for the upload interval. The final SDK callback runs on this thread.
-// Blocks until callbacks finish, not until SDK work they queued finishes. No overall
-// timeout is imposed. No-op if already stopped.
-// After return, no callbacks run until the next start; setup/registration may run
-// again. Do not overlap lifecycle calls or call them from an SDK callback.
-DD_WIN_PROF_API void StopProfiler();
+// Final export runs on this thread. Waits for callbacks, not queued SDK work.
+// No callbacks run after return until the next start. Safe to call when stopped.
+DD_WIN_PROF_API bool StopProfiler();
 
 // Enter a named view. Generates a unique view_id internally.
 // Updates per-sample pprof labels: rum.view_id and trace endpoint (viewName).
@@ -81,6 +76,7 @@ DD_WIN_PROF_API bool EnterView(const char* viewName);
 // Completes the active view record. No-op if no view is active.
 // Returns true if a view was active and is now cleared, false if no view was active.
 DD_WIN_PROF_API bool LeaveCurrentView();
+}
 
 // Environment Variables (independent controls):
 // DD_PROFILING_ENABLED: Controls whether profiler CAN be started
@@ -93,4 +89,3 @@ DD_WIN_PROF_API bool LeaveCurrentView();
 //   - true/1: Auto-start when DLL is injected/loaded
 //   - false/0 or not set: Manual control only
 //
-}

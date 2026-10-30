@@ -9,6 +9,8 @@
 #include <iostream>
 #include <utility>
 
+#include "internal/dd-win-prof-private.h"
+
 int TestSdkCallback() {
   std::vector<ProfilingData> results;
   const ProfilingDataCallback callback = [&](ProfilingData data) {
@@ -27,7 +29,7 @@ int TestSdkCallback() {
   config.size = sizeof(config);
   config.noEnvVars = true;
   config.uploadIntervalSeconds = 3600;
-  if (!SetupProfiler(&config) || !StartProfiler()) {
+  if (!dd_win_prof::SetupProfiler(config) || !dd_win_prof::StartProfiler()) {
     std::cerr << "Failed to configure or start the profiler\n";
     if (!SetupProfilingDataCallback({})) {
       std::cerr << "Failed to unregister the profiling callback\n";
@@ -35,10 +37,10 @@ int TestSdkCallback() {
     return 1;
   }
 
-  StopProfiler();
+  const bool stopped = dd_win_prof::StopProfiler();
   const bool unregistered = SetupProfilingDataCallback({});
-  if (!unregistered) {
-    std::cerr << "Failed to unregister the profiling callback\n";
+  if (!stopped || !unregistered) {
+    std::cerr << "Failed to stop or unregister the profiling callback\n";
     return 1;
   }
 

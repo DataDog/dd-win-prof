@@ -29,6 +29,39 @@ using namespace dd_win_prof;
 using namespace OsSpecificApi;
 
 namespace {
+const char* HttpErrorMessage(uint16_t responseCode) noexcept {
+  switch (responseCode) {
+    case 400:
+      return "Bad request; check profile payload and metadata";
+    case 401:
+      return "Unauthorized; check API key";
+    case 403:
+      return "Forbidden; check API key and access permissions";
+    case 404:
+      return "Not found; check profiling endpoint";
+    case 408:
+      return "Request timeout";
+    case 413:
+      return "Profile too large";
+    case 429:
+      return "Rate limited";
+    case 502:
+      return "Bad gateway";
+    case 503:
+      return "Service unavailable";
+    case 504:
+      return "Gateway timeout";
+    default:
+      if (responseCode >= 500 && responseCode < 600) {
+        return "Server error";
+      }
+      if (responseCode >= 300 && responseCode < 400) {
+        return "Unexpected redirect; check upload URL";
+      }
+      return "Unexpected HTTP response";
+  }
+}
+
 int64_t ToUnixTimeMs(std::chrono::system_clock::time_point time) {
   return std::chrono::duration_cast<std::chrono::milliseconds>(time.time_since_epoch())
       .count();
@@ -55,7 +88,6 @@ ProfileExporter::ProfileExporter(
       _profilingDataCallback(std::move(callback)),
       _exporter(nullptr),
       _agentMode(true),
-      _consecutiveErrors(0),
       _encodingApi(encodingApi),
       _pRumRecordProvider(pRumRecordProvider) {
   _runtimeId = ComputeRuntimeId();
@@ -93,17 +125,11 @@ ProfileExporter::ProfileExporter(
   }
 }
 
-ProfileExporter::~ProfileExporter() {
-  // Just call cleanup - by this point, explicit cleanup should have been called
-  // If not, we'll do basic cleanup but may skip exporter cleanup to avoid deadlocks
-  if (_initialized) {
-    Cleanup(true);  // Skip exporter cleanup in destructor to avoid deadlocks
-  }
-}
+ProfileExporter::~ProfileExporter() { Cleanup(true); }
 
 void ProfileExporter::Cleanup(bool skipExporterCleanup) {
-  if (!_initialized) {
-    return;  // Already cleaned up
+  if (!_initialized && _stringStorage.inner == nullptr && _exporter.inner == nullptr) {
+    return;
   }
 
   Log::Debug("Starting exporter cleanup, skipExporterCleanup=", skipExporterCleanup);
@@ -120,7 +146,10 @@ void ProfileExporter::Cleanup(bool skipExporterCleanup) {
   }
 
   // Clean up libdatadog's managed string storage
-  ddog_prof_ManagedStringStorage_drop(_stringStorage);
+  if (_stringStorage.inner != nullptr) {
+    _encodingApi.dropStringStorage(_stringStorage);
+    _stringStorage = {};
+  }
 
   _profilingDataCallback = {};
   _initialized = false;
@@ -300,12 +329,8 @@ bool ProfileExporter::ExportCurrentProfile(
   if (_profilingDataCallback) {
     return DeliverProfileToCallback(bytes.ok, startUnixTimeMs, endUnixTimeMs, lastCall);
   }
-  if (_exportEnabled && _exporter.inner) {
-    const bool success = ExportProfile(profile.get(), _currentExportId, rumRecordsJson);
-    if (!success) {
-      Log::Error("Failed to export profile to backend");
-    }
-    return success;
+  if (_exportEnabled) {
+    return ExportProfile(profile.get(), _currentExportId, rumRecordsJson);
   }
   return true;
 }
@@ -730,7 +755,9 @@ bool ProfileExporter::AddSingleTag(
 
   ddog_Vec_Tag_PushResult pushResult = ddog_Vec_Tag_push(&tags, keySlice, valueSlice);
   if (pushResult.tag == DDOG_VEC_TAG_PUSH_RESULT_ERR) {
-    LogOnce(Error, "Failed to add tag: ", key, "=", value);
+    std::string message = "Failed to add tag: " + std::string(key);
+    ddog_Error_drop(&pushResult.err);
+    Log::Error(message);
     return false;
   }
 
@@ -806,34 +833,45 @@ bool ProfileExporter::PrepareStableTags(ddog_Vec_Tag& tags) {
     }
 
     driverDescTag = TAG_GPU_DRIVER_DESC_PREFIX + std::to_string(device);
-    if (!driverDesc.empty() && !AddSingleTag(tags, driverDescTag, driverDesc)) {
-      return false;
+    if (!driverDesc.empty()) {
+      if (!AddSingleTag(tags, driverDescTag, driverDesc)) {
+        return false;
+      }
     }
 
     driverVersionTag = TAG_GPU_DRIVER_VERSION_PREFIX + std::to_string(device);
-    if (!driverVersion.empty() &&
-        !AddSingleTag(tags, driverVersionTag, driverVersion)) {
-      return false;
+    if (!driverVersion.empty()) {
+      if (!AddSingleTag(tags, driverVersionTag, driverVersion)) {
+        return false;
+      }
     }
 
     driverDateTag = TAG_GPU_DRIVER_DATE_PREFIX + std::to_string(device);
-    if (!driverDate.empty() && !AddSingleTag(tags, driverDateTag, driverDate)) {
-      return false;
+    if (!driverDate.empty()) {
+      if (!AddSingleTag(tags, driverDateTag, driverDate)) {
+        return false;
+      }
     }
 
     gpuNameTag = TAG_GPU_NAME_PREFIX + std::to_string(device);
-    if (!gpuName.empty() && !AddSingleTag(tags, gpuNameTag, gpuName)) {
-      return false;
+    if (!gpuName.empty()) {
+      if (!AddSingleTag(tags, gpuNameTag, gpuName)) {
+        return false;
+      }
     }
 
     gpuChipTag = TAG_GPU_CHIP_PREFIX + std::to_string(device);
-    if (!gpuChip.empty() && !AddSingleTag(tags, gpuChipTag, gpuChip)) {
-      return false;
+    if (!gpuChip.empty()) {
+      if (!AddSingleTag(tags, gpuChipTag, gpuChip)) {
+        return false;
+      }
     }
 
     gpuRamTag = TAG_GPU_RAM_PREFIX + std::to_string(device);
-    if (gpuRam > 0 && !AddSingleTag(tags, gpuRamTag, std::to_string(gpuRam))) {
-      return false;
+    if (gpuRam > 0) {
+      if (!AddSingleTag(tags, gpuRamTag, std::to_string(gpuRam))) {
+        return false;
+      }
     }
 
     device++;
@@ -1284,10 +1322,7 @@ std::string ProfileExporter::SerializeRumRecordsToJson(
 // Export functionality implementation
 
 bool ProfileExporter::InitializeExporter() {
-  // Build export URL
-  if (!BuildExportUrl()) {
-    return false;
-  }
+  BuildExportUrl();
 
   // Create endpoint
   ddog_prof_Endpoint endpoint;
@@ -1317,21 +1352,29 @@ bool ProfileExporter::InitializeExporter() {
     auto version = _pConfiguration->GetVersion();
     auto hostname = _pConfiguration->GetHostname();
 
-    if (!service.empty() && !AddSingleTag(stableTags, "service", service)) {
-      ddog_Vec_Tag_drop(stableTags);
-      return false;
+    if (!service.empty()) {
+      if (!AddSingleTag(stableTags, "service", service)) {
+        ddog_Vec_Tag_drop(stableTags);
+        return false;
+      }
     }
-    if (!environment.empty() && !AddSingleTag(stableTags, "env", environment)) {
-      ddog_Vec_Tag_drop(stableTags);
-      return false;
+    if (!environment.empty()) {
+      if (!AddSingleTag(stableTags, "env", environment)) {
+        ddog_Vec_Tag_drop(stableTags);
+        return false;
+      }
     }
-    if (!version.empty() && !AddSingleTag(stableTags, "version", version)) {
-      ddog_Vec_Tag_drop(stableTags);
-      return false;
+    if (!version.empty()) {
+      if (!AddSingleTag(stableTags, "version", version)) {
+        ddog_Vec_Tag_drop(stableTags);
+        return false;
+      }
     }
-    if (!hostname.empty() && !AddSingleTag(stableTags, "host", hostname)) {
-      ddog_Vec_Tag_drop(stableTags);
-      return false;
+    if (!hostname.empty()) {
+      if (!AddSingleTag(stableTags, "host", hostname)) {
+        ddog_Vec_Tag_drop(stableTags);
+        return false;
+      }
     }
 
     // Add user-defined tags from configuration
@@ -1357,6 +1400,7 @@ bool ProfileExporter::InitializeExporter() {
 
   if (exporterResult.tag !=
       DDOG_PROF_PROFILE_EXPORTER_RESULT_OK_HANDLE_PROFILE_EXPORTER) {
+    std::string message = "Failed to create exporter";
     if (exporterResult.tag ==
         DDOG_PROF_PROFILE_EXPORTER_RESULT_ERR_HANDLE_PROFILE_EXPORTER) {
       // Extract error message
@@ -1364,21 +1408,12 @@ bool ProfileExporter::InitializeExporter() {
       std::string errorMessage = std::string(
           reinterpret_cast<const char*>(error.message.ptr), error.message.len
       );
-      Log::Error(
-          "Failed to create exporter: ",
-          errorMessage,
-          " (URL: ",
-          _exportUrl,
-          ", mode: ",
-          (_agentMode ? "agent" : "agentless"),
-          ")"
-      );
+      message += ": " + errorMessage;
       ddog_Error_drop(&exporterResult.err);
     } else {
-      Log::Error(
-          "Failed to create exporter with unknown error (tag: ", exporterResult.tag, ")"
-      );
+      message += " with unknown error tag: " + std::to_string(exporterResult.tag);
     }
+    Log::Error(message);
     return false;
   }
 
@@ -1387,20 +1422,22 @@ bool ProfileExporter::InitializeExporter() {
   // Set timeout
   auto timeoutResult = ddog_prof_Exporter_set_timeout(&_exporter, EXPORT_TIMEOUT_MS);
   if (timeoutResult.tag == DDOG_VOID_RESULT_ERR) {
+    std::string message = "Failed to set exporter timeout";
     auto& error = timeoutResult.err;
     std::string errorMessage = std::string(
         reinterpret_cast<const char*>(error.message.ptr), error.message.len
     );
-    Log::Error("Failed to set timeout: ", errorMessage);
+    message += ": " + errorMessage;
     ddog_Error_drop(&timeoutResult.err);
     CleanupExporter();
+    Log::Error(message);
     return false;
   }
 
   return true;
 }
 
-bool ProfileExporter::BuildExportUrl() {
+void ProfileExporter::BuildExportUrl() {
   if (_agentMode) {
     // Agent mode - use agent URL/host/port
     if (_pConfiguration) {
@@ -1431,8 +1468,6 @@ bool ProfileExporter::BuildExportUrl() {
   Log::Info(
       "Using URL: ", _exportUrl, " (mode: ", (_agentMode ? "agent" : "agentless"), ")"
   );
-
-  return true;
 }
 
 bool ProfileExporter::CreateExporterEndpoint(ddog_prof_Endpoint& endpoint) {
@@ -1474,8 +1509,9 @@ bool ProfileExporter::ExportProfile(
       const_cast<ddog_prof_EncodedProfile*>(encodedProfile)
   );
   if (bytesResult.tag != DDOG_PROF_RESULT_BYTE_SLICE_OK_BYTE_SLICE) {
-    Log::Error("Failed to get profile bytes");
+    ddog_Error_drop(&bytesResult.err);
     ddog_Vec_Tag_drop(additionalTags);
+    Log::Error("Failed to get profile bytes");
     return false;
   }
 
@@ -1504,21 +1540,18 @@ bool ProfileExporter::ExportProfile(
   ddog_Vec_Tag_drop(additionalTags);
 
   if (requestResult.tag != DDOG_PROF_REQUEST_RESULT_OK_HANDLE_REQUEST) {
+    std::string message = "Failed to build export request";
     if (requestResult.tag == DDOG_PROF_REQUEST_RESULT_ERR_HANDLE_REQUEST) {
       auto& error = requestResult.err;
       std::string errorMessage = std::string(
           reinterpret_cast<const char*>(error.message.ptr), error.message.len
       );
-      Log::Error("Request build failed: ", errorMessage);
-
-      // TODO: check if we need to drop it all the time
-      //       i.e. call it before returning false
+      message += ": " + errorMessage;
       ddog_Error_drop(&requestResult.err);
     } else {
-      Log::Error(
-          "Request build failed with unknown error (tag: ", requestResult.tag, ")"
-      );
+      message += " with unknown error tag: " + std::to_string(requestResult.tag);
     }
+    Log::Error(message);
     return false;
   }
 
@@ -1530,45 +1563,34 @@ bool ProfileExporter::ExportProfile(
   // Request is consumed by send, so we don't need to drop it
 
   if (sendResult.tag == DDOG_PROF_RESULT_HTTP_STATUS_ERR_HTTP_STATUS) {
-    _consecutiveErrors++;
+    std::string message = "Failed to send profile";
     auto& error = sendResult.err;
     std::string errorMessage = std::string(
         reinterpret_cast<const char*>(error.message.ptr), error.message.len
     );
+    message += ": " + errorMessage;
     ddog_Error_drop(&sendResult.err);
-
-    Log::Error(
-        "Send profile failed: ",
-        errorMessage,
-        " (consecutive errors: ",
-        _consecutiveErrors,
-        "/",
-        MAX_CONSECUTIVE_ERRORS,
-        ", URL: ",
-        _exportUrl,
-        ")"
-    );
-
-    // Don't fail completely unless we have too many consecutive errors
-    return _consecutiveErrors < MAX_CONSECUTIVE_ERRORS;
+    Log::Error(message);
+    return false;
   }
-
-  // Success - reset error counter
-  _consecutiveErrors = 0;
 
   // Check HTTP response code
   uint16_t responseCode = sendResult.ok.code;
-  bool responseOk = CheckExportResponse(responseCode);
+  if (!CheckExportResponse(responseCode)) {
+    return false;
+  }
 
-  Log::Info(
-      "Successfully sent profile, HTTP ",
-      responseCode,
-      " (size: ",
-      bytesResult.ok.len,
-      " bytes)"
-  );
+  if (responseCode >= 200 && responseCode < 300) {
+    Log::Info(
+        "Successfully sent profile, HTTP ",
+        responseCode,
+        " (size: ",
+        bytesResult.ok.len,
+        " bytes)"
+    );
+  }
 
-  return responseOk;
+  return true;
 }
 
 bool ProfileExporter::PrepareAdditionalTags(ddog_Vec_Tag& tags, uint32_t profileSeq) {
@@ -1597,42 +1619,16 @@ bool ProfileExporter::PrepareAdditionalTags(ddog_Vec_Tag& tags, uint32_t profile
 }
 
 bool ProfileExporter::CheckExportResponse(uint16_t responseCode) {
-  constexpr uint16_t HTTP_OK = 200;
-  constexpr uint16_t HTTP_ACCEPTED = 202;
-  constexpr uint16_t HTTP_MULTIPLE_CHOICES = 300;
-  constexpr uint16_t HTTP_FORBIDDEN = 403;
-  constexpr uint16_t HTTP_NOT_FOUND = 404;
-  constexpr uint16_t HTTP_GATEWAY_TIMEOUT = 504;
-
-  if (responseCode >= HTTP_OK && responseCode < HTTP_MULTIPLE_CHOICES) {
-    // Success range
-    if (responseCode == HTTP_ACCEPTED) {
-      // HTTP 202 Accepted is normal for profile uploads
-      return true;
-    } else if (responseCode != HTTP_OK) {
-      Log::Warn("Unexpected success code: ", responseCode);
-    }
+  if (responseCode >= 200 && responseCode < 300) {
     return true;
   }
-
-  // Handle specific error codes
-  switch (responseCode) {
-    case HTTP_GATEWAY_TIMEOUT:
-      Log::Warn("Timeout (504), dropping profile");
-      return true;  // Don't treat as failure, just drop this profile
-
-    case HTTP_FORBIDDEN:
-      Log::Error("Forbidden (403), check API key");
-      return false;  // This is a configuration error
-
-    case HTTP_NOT_FOUND:
-      Log::Error("Not found (404), profiles not accepted");
-      return false;  // This is a configuration error
-
-    default:
-      Log::Warn("HTTP error ", responseCode, " (continuing)");
-      return true;  // Continue profiling despite HTTP error
-  }
+  Log::Error(
+      "Profile upload failed with HTTP ",
+      responseCode,
+      ": ",
+      HttpErrorMessage(responseCode)
+  );
+  return false;
 }
 
 void ProfileExporter::CleanupExporter() {

@@ -44,13 +44,14 @@ StackSamplerLoop::StackSamplerLoop(
 
 StackSamplerLoop::~StackSamplerLoop() { Stop(); }
 
-void StackSamplerLoop::Start() {
+void StackSamplerLoop::Start(dd_win_prof::ThreadFactory makeThread) {
   // avoid consuming resources if neither cpu nor walltime profiling is enabled
   if ((_pCpuTimeProvider == nullptr) && (_pWallTimeProvider == nullptr)) {
     return;
   }
 
-  _pLoopThread = std::make_unique<std::thread>([this] {
+  _pLoopThread = std::make_unique<std::thread>();
+  *_pLoopThread = makeThread([this] {
     OpSysTools::SetNativeThreadName(ThreadName);
     MainLoop();
   });
@@ -60,11 +61,10 @@ void StackSamplerLoop::Stop() {
   _shutdownRequested = true;
 
   if (_pLoopThread != nullptr) {
-    try {
+    if (_pLoopThread->joinable()) {
       _pLoopThread->join();
-      _pLoopThread.reset();
-    } catch (const std::exception&) {
     }
+    _pLoopThread.reset();
   }
 }
 

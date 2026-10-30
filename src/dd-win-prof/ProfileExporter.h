@@ -84,7 +84,7 @@ class ProfileExporter {
   // Export functionality
   bool InitializeExporter();
   bool CreateExporterEndpoint(ddog_prof_Endpoint& endpoint);
-  bool BuildExportUrl();
+  void BuildExportUrl();
   bool ExportProfile(
       const ddog_prof_EncodedProfile* encodedProfile,
       uint32_t profileSeq,
@@ -222,13 +222,11 @@ class ProfileExporter {
   std::string _exportUrl;
   std::string _apiKey;
   bool _agentMode;  // true for agent, false for agentless
-  uint32_t _consecutiveErrors;
-  static constexpr uint32_t MAX_CONSECUTIVE_ERRORS = 3;
   static constexpr int EXPORT_TIMEOUT_MS = 10000;
 
   // libdatadog components
   dd_win_prof::ProfileEncodingApi _encodingApi;
-  ddog_prof_ManagedStringStorage _stringStorage;
+  ddog_prof_ManagedStringStorage _stringStorage{};
   std::unique_ptr<Symbolication> _symbolication;
   std::unique_ptr<dd_win_prof::PprofAggregator> _aggregator;
 

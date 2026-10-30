@@ -23,23 +23,35 @@ void SamplesCollector::Register(ISamplesProvider* samplesProvider) {
   _samplesProviders.push_front(std::make_pair(samplesProvider, 0));
 }
 
-void SamplesCollector::Start() {
-  _workerThread = std::thread([this] {
-    OpSysTools::SetNativeThreadName(WorkerThreadName);
-    SamplesWork();
-  });
-  _exporterThread = std::thread([this] {
-    OpSysTools::SetNativeThreadName(ExporterThreadName);
-    ExportWork();
-  });
+void SamplesCollector::Start(dd_win_prof::ThreadFactory makeThread) {
+  try {
+    _workerThread = makeThread([this] {
+      OpSysTools::SetNativeThreadName(WorkerThreadName);
+      SamplesWork();
+    });
+    _exporterThread = makeThread([this] {
+      OpSysTools::SetNativeThreadName(ExporterThreadName);
+      ExportWork();
+    });
+  } catch (...) {
+    StopThreads();
+    throw;
+  }
 }
 
-void SamplesCollector::Stop(bool shutdownOngoing) {
-  _workerThreadPromise.set_value();
-  _workerThread.join();
+void SamplesCollector::StopThreads() {
+  if (_workerThread.joinable()) {
+    _workerThreadPromise.set_value();
+    _workerThread.join();
+  }
+  if (_exporterThread.joinable()) {
+    _exporterThreadPromise.set_value();
+    _exporterThread.join();
+  }
+}
 
-  _exporterThreadPromise.set_value();
-  _exporterThread.join();
+bool SamplesCollector::Stop(bool shutdownOngoing) {
+  StopThreads();
 
   if (shutdownOngoing) {
     Log::Info("SamplesCollector::Stop() - Skipping final export due to shutdown");
@@ -50,8 +62,9 @@ void SamplesCollector::Stop(bool shutdownOngoing) {
   } else {
     // Normal shutdown - collect samples and export
     CollectSamples(_samplesProviders);
-    Export(true);
+    return Export(true);
   }
+  return true;
 }
 
 void SamplesCollector::SamplesWork() {
@@ -73,9 +86,7 @@ void SamplesCollector::ExportWork() {
   }
 }
 
-void SamplesCollector::Export(bool lastCall) {
-  bool success = false;
-
+bool SamplesCollector::Export(bool lastCall) {
   try {
     std::lock_guard lock(_exportLock);
 
@@ -86,9 +97,13 @@ void SamplesCollector::Export(bool lastCall) {
       samplesProvider.second = 0;
     }
 
-    success = _exporter->Export(lastCall);
+    return _exporter->Export(lastCall);
   } catch (std::exception const& ex) {
     Log::Error("An exception occurred during export: ", ex.what());
+    return false;
+  } catch (...) {
+    Log::Error("A non-standard exception occurred during export");
+    return false;
   }
 }
 

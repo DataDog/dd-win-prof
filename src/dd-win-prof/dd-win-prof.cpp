@@ -4,7 +4,7 @@
 
 #include "Log.h"
 #include "Profiler.h"
-#include "dd-win-prof-internal.h"
+#include "internal/dd-win-prof-private.h"
 #include "internal/dd-win-rum-private.h"
 #include "pch.h"
 
@@ -43,6 +43,32 @@ DD_WIN_PROF_API bool SetupProfilingDataCallback(
   });
 }
 
+namespace dd_win_prof {
+DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig& settings) noexcept {
+  return RunLifecycle([&](Profiler& profiler) { return profiler.Configure(settings); });
+}
+
+DD_WIN_PROF_API bool StartProfiler() noexcept {
+  return RunLifecycle([](Profiler& profiler) { return profiler.StartProfiling(); });
+}
+
+DD_WIN_PROF_API bool StopProfiler() noexcept {
+  return RunLifecycle([](Profiler& profiler) { return profiler.StopProfiling(); });
+}
+}  // namespace dd_win_prof
+
+DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig* pSettings) {
+  if (pSettings == nullptr) {
+    LogLifecycleException("Null profiler configuration structure");
+    return false;
+  }
+  return dd_win_prof::SetupProfiler(*pSettings);
+}
+
+DD_WIN_PROF_API bool StartProfiler() { return dd_win_prof::StartProfiler(); }
+
+DD_WIN_PROF_API bool StopProfiler() { return dd_win_prof::StopProfiler(); }
+
 DD_WIN_PROF_API const char* GetProfilingErrorMessage(uint32_t result) noexcept {
   switch (static_cast<ProfilingErrorCode>(result)) {
     case ProfilingErrorCode::None:
@@ -58,71 +84,6 @@ DD_WIN_PROF_API const char* GetProfilingErrorMessage(uint32_t result) noexcept {
     default:
       return "Unknown profiling error";
   }
-}
-
-extern "C" {
-
-DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig* pSettings) {
-  if (pSettings == nullptr) {
-    Log::Warn("Null profiler configuration structure.");
-    return false;
-  }
-
-  if (pSettings->size != sizeof(ProfilerConfig)) {
-    Log::Warn("Invalid profiler configuration structure.");
-    return false;
-  }
-
-  auto profiler = Profiler::GetInstance();
-  if (profiler == nullptr) {
-    Log::Warn(
-        "Profiler instance is not created: missing Process Attach event in DllMain."
-    );
-    return false;
-  }
-
-  if (profiler->IsStarted()) {
-    Log::Warn("SetupProfiler() must be called before StartProfiler().");
-    return false;
-  }
-
-  return InitializeConfiguration(
-      Profiler::GetConfiguration(), pSettings, profiler->GetDeliveryMode()
-  );
-}
-
-DD_WIN_PROF_API bool StartProfiler() {
-  auto profiler = Profiler::GetInstance();
-  if (profiler == nullptr) {
-    Log::Warn(
-        "Profiler instance is not created: missing Process Attach event in DllMain."
-    );
-    return false;
-  }
-
-  if (profiler->IsStarted()) {
-    Log::Warn("Profiler is already running.");
-    return false;
-  }
-
-  return profiler->StartProfiling();
-}
-
-DD_WIN_PROF_API void StopProfiler() {
-  auto profiler = Profiler::GetInstance();
-  if (profiler == nullptr) {
-    Log::Warn(
-        "Profiler instance is not created: missing Process Attach event in DllMain."
-    );
-    return;
-  }
-
-  if (!profiler->IsStarted()) {
-    Log::Warn("Profiler is not running.");
-    return;
-  }
-
-  profiler->StopProfiling();
 }
 
 DD_WIN_PROF_API bool EnterView(const char* viewName) {
@@ -155,5 +116,4 @@ DD_WIN_PROF_API bool SetRumView(const RumViewValues* pContext) {
     return false;
   }
   return profiler->SetRumView(pContext);
-}
 }

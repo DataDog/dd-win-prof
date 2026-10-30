@@ -343,27 +343,29 @@ TEST_F(ConfigurationTest, InitConfig_ZeroInitDefault_DoesNotResetEnvVars) {
 // InitializeConfiguration -- mandatory field enforcement (noEnvVars=true)
 // ===========================================================================
 
-TEST_F(ConfigurationTest, InitConfig_NoEnvVars_MissingUrl_ReturnsFalse) {
+TEST_F(ConfigurationTest, InitConfig_NoEnvVars_MissingUrl_ReturnsError) {
   Configuration config;
   auto cfg = MakeProfilerConfig();
   cfg.noEnvVars = true;
   cfg.apiKey = "some-key";
   cfg.url = nullptr;
+  cfg.serviceName = "must-not-be-applied";
 
-  EXPECT_FALSE(InitializeConfiguration(&config, &cfg));
+  ASSERT_FALSE(InitializeConfiguration(&config, &cfg));
+  EXPECT_NE(config.GetServiceName(), cfg.serviceName);
 }
 
-TEST_F(ConfigurationTest, InitConfig_NoEnvVars_MissingApiKey_ReturnsFalse) {
+TEST_F(ConfigurationTest, InitConfig_NoEnvVars_MissingApiKey_ReturnsError) {
   Configuration config;
   auto cfg = MakeProfilerConfig();
   cfg.noEnvVars = true;
   cfg.url = "http://intake.datadoghq.com";
   cfg.apiKey = nullptr;
 
-  EXPECT_FALSE(InitializeConfiguration(&config, &cfg));
+  ASSERT_FALSE(InitializeConfiguration(&config, &cfg));
 }
 
-TEST_F(ConfigurationTest, InitConfig_NoEnvVars_MandatoryFieldsSet_ReturnsTrue) {
+TEST_F(ConfigurationTest, InitConfig_NoEnvVars_MandatoryFieldsSet_ReturnsNoError) {
   Configuration config;
   auto cfg = MakeProfilerConfig();
   cfg.noEnvVars = true;
@@ -512,7 +514,7 @@ TEST_F(ConfigurationTest, TransportValidationAndExportUseExplicitDeliveryMode) {
   config.SetExportEnabled(true);
   EXPECT_TRUE(config.ValidateTransportConfig(ProfileDeliveryMode::Callback));
   EXPECT_FALSE(config.IsExportEnabled(ProfileDeliveryMode::Callback));
-  EXPECT_FALSE(config.ValidateTransportConfig(ProfileDeliveryMode::Http));
+  ASSERT_FALSE(config.ValidateTransportConfig(ProfileDeliveryMode::Http));
   EXPECT_TRUE(config.IsExportEnabled(ProfileDeliveryMode::Http));
 }
 

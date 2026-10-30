@@ -21,8 +21,13 @@ This is a Windows native profiler that performs CPU sampling and exports profile
 - Manages thread cleanup on thread detach
 
 **`dd-win-prof.cpp/.h`** - Public external API for applications to control profiling
-- Exports `SetupProfiler()`, `StartProfiler()` and `StopProfiler()` functions for controlling the profiler
+- Preserves public C linkage and pointer-based setup: `bool SetupProfiler(const ProfilerConfig*)`, `bool StartProfiler()` and `bool StopProfiler()`
+- Forwards lifecycle calls to the common C++ implementation
 - Exports `EnterView()` and `LeaveCurrentView()` for RUM view navigation
+
+**`include/internal/dd-win-prof-private.h`** - SDK-private C++ lifecycle API
+- Exports `dd_win_prof::SetupProfiler(const ProfilerConfig&)`, `dd_win_prof::StartProfiler()` and `dd_win_prof::StopProfiler()`
+- Returns `bool` and contains exceptions; stop reports final-delivery failure after completing cleanup
 
 **`include/internal/dd-win-rum-private.h`** - SDK-internal API shipped for dependency consumers
 - Exports `SetupProfilingDataCallback()` for SDK-managed profile delivery
@@ -178,13 +183,13 @@ Configuration is managed in `Configuration.cpp`. Values come from two sources, w
 
 1. **Environment variables** (`EnvironmentVariables.h`): sampling period (default 20ms), threads to sample (default 5 for walltime, 64 for CPU), upload period (default 60s), service metadata, API key, agent URL, etc.
 
-2. **`SetupProfiler(const ProfilerConfig*)`** (`dd-win-prof.cpp`): Callers pass a `ProfilerConfig` struct; `InitializeConfiguration()` applies its fields to the shared `Configuration` instance.
+2. **`SetupProfiler(const ProfilerConfig*)`** (`dd-win-prof.cpp`): The public C entry point validates the pointer and forwards to the SDK-private C++ reference interface. Both use `Profiler::Configure()` and `InitializeConfiguration()` to apply fields to the shared `Configuration` instance.
 
-**Compatibility**: The public lifecycle API retains C linkage: `bool SetupProfiler(const ProfilerConfig*)`, `bool StartProfiler()` and `void StopProfiler()`. The SDK-private callback is supported only as a source-build dependency with compatible compiler, standard library and CRT settings. No callback API/ABI compatibility is guaranteed across versions or independent builds.
+**Compatibility**: Use the headers and import library supplied with the DLL. Public C linkage, setup/start signatures, RUM APIs and `ProfilerConfig` layout are unchanged. Public stop now returns `bool`; calls that ignore its result remain valid, but exact `void (*)()` bindings must be updated. The SDK-private C++ lifecycle interface lives in `internal/dd-win-prof-private.h`. The SDK-private callback is supported only as a source-build dependency with compatible compiler, standard library and CRT settings. No callback API/ABI compatibility is guaranteed across versions or independent builds.
 
 **SDK callback registration**: `Profiler` owns the callback registered through `SetupProfilingDataCallback()`. The function returns `bool`; failure is logged without invoking the callback or replacing the previous registration. Registration survives configuration resets and stop/start cycles. Each `ProfileExporter` receives a copy for its run. Configuration validation receives the delivery mode explicitly and does not own the callable.
 
-**Callback errors**: Native details are logged at the failure site, without last-error storage, severity or reporting flags. Only the callback boundary carries a numeric code: `ProfilingData.result` is zero for an owned profile, otherwise a `ProfilingErrorCode` with empty pprof bytes. `GetProfilingErrorMessage(uint32_t)` returns static explanatory text, including a fallback for unknown codes. It needs no allocation, copying, cleanup or error state. Final export errors have `isLast` set, just like final profiles. Errors do not trigger automatic shutdown.
+**Errors**: SDK-private setup/start/stop, callback registration and internal fallible operations return `bool`; native details are logged at the failure site. Public C lifecycle calls return the same boolean results, including final-delivery failure from stop after cleanup. There is no last-error storage, severity or reporting flag. Only the callback boundary carries a numeric code: `ProfilingData.result` is zero for an owned profile, otherwise a `ProfilingErrorCode` with empty pprof bytes. `GetProfilingErrorMessage(uint32_t)` returns static explanatory text, including a fallback for unknown codes. It needs no allocation, copying, cleanup or error state. Errors do not currently trigger automatic shutdown.
 
 **No-env-vars mode** (`ProfilerConfig.noEnvVars == true`): `ResetToDefaults()` is called first, then only explicit struct fields are applied. All environment variables are ignored. For HTTP delivery, `url` and `apiKey` are mandatory; `SetupProfiler` returns `false` if either is missing. Callback delivery does not require them.
 

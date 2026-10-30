@@ -9,6 +9,7 @@
 #include "ProfilingConstants.h"
 #include "RumContext.h"
 #include "StackFrameCollector.h"
+#include "ThreadFactory.h"
 #include "ThreadList.h"
 #include "WalltimeProvider.h"
 #include "pch.h"
@@ -29,7 +30,7 @@ class StackSamplerLoop {
   );
   ~StackSamplerLoop();
 
-  void Start();
+  void Start(dd_win_prof::ThreadFactory makeThread = dd_win_prof::MakeThread);
   void Stop();
 
  private:

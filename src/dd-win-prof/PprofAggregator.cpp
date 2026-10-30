@@ -51,8 +51,7 @@ PprofAggregator::PprofAggregator(
   period.value = static_cast<int64_t>(periodMs) * 1000000;  // Convert ms to ns
 
   // Create the profile with shared string storage
-  auto result =
-      ddog_prof_Profile_with_string_storage(sample_types_slice, &period, stringStorage);
+  auto result = m_encodingApi.newProfile(sample_types_slice, &period, stringStorage);
 
   if (result.tag == DDOG_PROF_PROFILE_NEW_RESULT_OK) {
     m_profile = result.ok;

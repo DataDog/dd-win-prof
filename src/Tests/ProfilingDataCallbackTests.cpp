@@ -2,11 +2,14 @@
 // the Apache 2 License. This product includes software developed at Datadog
 // (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
 
+#include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <functional>
 #include <future>
 #include <optional>
 #include <stdexcept>
+#include <system_error>
 #include <thread>
 #include <type_traits>
 #include <utility>
@@ -16,10 +19,15 @@
 #include "LibDatadogHelper.h"
 #include "ProfileExporter.h"
 #include "Profiler.h"
+#include "internal/dd-win-prof-private.h"
 #include "internal/dd-win-rum-private.h"
 #include "pch.h"
 
 namespace {
+using dd_win_prof::SetupProfiler;
+using dd_win_prof::StartProfiler;
+using dd_win_prof::StopProfiler;
+
 struct EncodingFailureState {
   bool serialize = false;
   bool bytes = false;
@@ -78,7 +86,50 @@ ddog_prof_Profile_Result ResetWithFailure(ddog_prof_Profile* profile) {
   return ddog_prof_Profile_reset(profile);
 }
 
-}  // namespace
+struct StartupFailureState {
+  int failThreadAt = 0;
+  int threadAttempts = 0;
+  bool failProfileCreation = false;
+  int profileCreations = 0;
+  int storageDrops = 0;
+};
+thread_local StartupFailureState startupFailure;
+std::atomic<int> activeStartupThreads{0};
+
+std::thread MakeThreadWithFailure(std::function<void()> action) {
+  if (++startupFailure.threadAttempts == startupFailure.failThreadAt) {
+    throw std::system_error(
+        std::make_error_code(std::errc::resource_unavailable_try_again)
+    );
+  }
+  return std::thread([action = std::move(action)] {
+    struct ActiveThread {
+      ActiveThread() { ++activeStartupThreads; }
+      ~ActiveThread() { --activeStartupThreads; }
+    } active;
+    action();
+  });
+}
+
+ddog_prof_Profile_NewResult NewProfileWithFailure(
+    ddog_prof_Slice_ValueType sampleTypes,
+    const ddog_prof_Period* period,
+    ddog_prof_ManagedStringStorage storage
+) {
+  ++startupFailure.profileCreations;
+  if (std::exchange(startupFailure.failProfileCreation, false)) {
+    ddog_prof_Profile_NewResult result{};
+    result.tag = DDOG_PROF_PROFILE_NEW_RESULT_ERR;
+    result.err = MakeNativeError();
+    return result;
+  }
+  return ddog_prof_Profile_with_string_storage(sampleTypes, period, storage);
+}
+
+void DropStringStorageWithCounting(ddog_prof_ManagedStringStorage storage) {
+  ++startupFailure.storageDrops;
+  ddog_prof_ManagedStringStorage_drop(storage);
+}
 
 class ProfilingDataCallbackTests : public ::testing::Test {
  protected:
@@ -178,7 +229,7 @@ TEST_F(ProfilingDataCallbackTests, NoHttpSettingsNeededWithNoEnvVars) {
   config.size = sizeof(config);
   config.noEnvVars = true;
   config.uploadIntervalSeconds = 17;
-  ASSERT_TRUE(SetupProfiler(&config));
+  ASSERT_TRUE(SetupProfiler(config));
   EXPECT_EQ(
       Profiler::GetConfiguration()->GetUploadInterval(), std::chrono::seconds(17)
   );
@@ -194,11 +245,11 @@ TEST_F(ProfilingDataCallbackTests, FailedSetupDoesNotInvokeCallback) {
   ASSERT_TRUE(SetupProfilingDataCallback([&](ProfilingData) { ++calls; }));
   ProfilerConfig config{};
   config.size = sizeof(config) - 1;
-  EXPECT_FALSE(SetupProfiler(&config));
+  EXPECT_FALSE(SetupProfiler(config));
   EXPECT_FALSE(profiler->IsStarted());
   EXPECT_TRUE(profiler->GetProfilingDataCallback());
   EXPECT_EQ(calls, 0);
-  StopProfiler();
+  EXPECT_TRUE(StopProfiler());
   EXPECT_EQ(calls, 0);
 }
 
@@ -225,12 +276,12 @@ TEST_F(ProfilingDataCallbackTests, FailedStartDoesNotInvokeCallback) {
   ASSERT_TRUE(SetupProfilingDataCallback([&](ProfilingData) { ++calls; }));
   ProfilerConfig config{};
   config.size = sizeof(config);
-  ASSERT_TRUE(SetupProfiler(&config));
+  ASSERT_TRUE(SetupProfiler(config));
   EXPECT_FALSE(StartProfiler());
   EXPECT_FALSE(profiler->IsStarted());
   EXPECT_TRUE(profiler->GetProfilingDataCallback());
   EXPECT_EQ(calls, 0);
-  StopProfiler();
+  EXPECT_TRUE(StopProfiler());
   EXPECT_EQ(calls, 0);
 }
 
@@ -240,7 +291,7 @@ TEST_F(ProfilingDataCallbackTests, UnregisterRestoresHttpRequirements) {
   ProfilerConfig config{};
   config.size = sizeof(config);
   config.noEnvVars = true;
-  EXPECT_FALSE(SetupProfiler(&config));
+  EXPECT_FALSE(SetupProfiler(config));
   EXPECT_TRUE(Profiler::GetConfiguration()->IsExportEnabled());
 }
 
@@ -265,7 +316,7 @@ TEST_F(
                                  .count();
   ASSERT_TRUE(StartProfiler());
   EXPECT_FALSE(SetupProfilingDataCallback({}));
-  StopProfiler();
+  EXPECT_TRUE(StopProfiler());
   const auto afterStopMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                                std::chrono::system_clock::now().time_since_epoch()
   )
@@ -393,6 +444,41 @@ TEST_F(ProfilingDataCallbackTests, EncodingErrorsReturnCodesAndNextExportRecover
   }
 }
 
+TEST_F(ProfilingDataCallbackTests, FinalEncodingErrorsReturnFalseAndNotifyCallback) {
+  for (const auto code :
+       {ProfilingErrorCode::SerializationFailed,
+        ProfilingErrorCode::ProfileBytesUnavailable,
+        ProfilingErrorCode::ProfileResetFailed}) {
+    SCOPED_TRACE(static_cast<uint32_t>(code));
+    encodingFailure = {};
+    encodingFailure.serialize = code == ProfilingErrorCode::SerializationFailed;
+    encodingFailure.bytes = code == ProfilingErrorCode::ProfileBytesUnavailable;
+    encodingFailure.reset = code == ProfilingErrorCode::ProfileResetFailed;
+    int errors = 0;
+    ProfilingDataCallback callback = [&](ProfilingData data) {
+      EXPECT_TRUE(data.isLast);
+      if (data.result != 0) {
+        EXPECT_EQ(data.result, static_cast<uint32_t>(code));
+        EXPECT_TRUE(data.pprof.empty());
+        ++errors;
+      }
+    };
+    const dd_win_prof::ProfileEncodingApi api{
+        SerializeWithFailure, ReadBytesWithFailure, ResetWithFailure
+    };
+    std::vector<SampleValueType> types{{"cpu-time", "nanoseconds"}};
+    ProfileExporter exporter(
+        Profiler::GetConfiguration(), types, nullptr, callback, api
+    );
+    ASSERT_TRUE(exporter.Initialize());
+    SamplesCollector collector(Profiler::GetConfiguration(), &exporter);
+    collector.Start();
+    EXPECT_FALSE(collector.Stop());
+    exporter.Cleanup();
+    EXPECT_EQ(errors, 1);
+  }
+}
+
 TEST_F(ProfilingDataCallbackTests, ThrowingErrorCallbackDoesNotRecurse) {
   encodingFailure = {};
   encodingFailure.serialize = true;
@@ -478,17 +564,17 @@ TEST_F(ProfilingDataCallbackTests, CanReconfigureAndReplaceCallbackAfterStop) {
   config.noEnvVars = true;
   config.uploadIntervalSeconds = 3600;
   for (int cycle = 0; cycle < 2; ++cycle) {
-    ASSERT_TRUE(SetupProfiler(&config));
+    ASSERT_TRUE(SetupProfiler(config));
     ASSERT_TRUE(StartProfiler());
-    StopProfiler();
+    EXPECT_TRUE(StopProfiler());
     EXPECT_EQ(firstCalls, cycle + 1);
-    StopProfiler();
+    EXPECT_TRUE(StopProfiler());
     EXPECT_EQ(firstCalls, cycle + 1);
   }
   ASSERT_TRUE(SetupProfilingDataCallback([&](ProfilingData) { ++secondCalls; }));
-  ASSERT_TRUE(SetupProfiler(&config));
+  ASSERT_TRUE(SetupProfiler(config));
   ASSERT_TRUE(StartProfiler());
-  StopProfiler();
+  EXPECT_TRUE(StopProfiler());
   EXPECT_EQ(firstCalls, 2);
   EXPECT_EQ(secondCalls, 1);
 }
@@ -513,18 +599,18 @@ TEST_F(
   config.size = sizeof(config);
   config.noEnvVars = true;
   config.uploadIntervalSeconds = 1;
-  ASSERT_TRUE(SetupProfiler(&config));
+  ASSERT_TRUE(SetupProfiler(config));
   ASSERT_TRUE(StartProfiler());
   const auto status = entered.wait_for(std::chrono::seconds(5));
   EXPECT_EQ(status, std::future_status::ready);
-  auto stopped = std::async(std::launch::async, [] { StopProfiler(); });
+  auto stopped = std::async(std::launch::async, [] { return StopProfiler(); });
   if (status == std::future_status::ready) {
     EXPECT_EQ(
         stopped.wait_for(std::chrono::milliseconds(50)), std::future_status::timeout
     );
   }
   releasePeriodic.set_value();
-  stopped.get();
+  EXPECT_TRUE(stopped.get());
   ASSERT_GE(results.size(), 2u);
   EXPECT_EQ(results.front().result, 0u);
   EXPECT_EQ(results.back().result, 0u);
@@ -536,6 +622,83 @@ TEST_F(ProfilingDataCallbackTests, MissingProfilerRejectsRegistration) {
   profiler.reset();
   EXPECT_FALSE(SetupProfilingDataCallback({}));
   profiler = std::make_unique<Profiler>();
+}
+
+TEST_F(ProfilingDataCallbackTests, ThreadCreationFailuresRollBackAndAllowRetry) {
+  for (const int failAt : {1, 2, 3}) {
+    SCOPED_TRACE(failAt);
+    profiler.reset();
+    startupFailure = {};
+    startupFailure.failThreadAt = failAt;
+    ASSERT_EQ(activeStartupThreads.load(), 0);
+    profiler = std::make_unique<Profiler>(MakeThreadWithFailure);
+    int calls = 0;
+    ASSERT_TRUE(SetupProfilingDataCallback([&](ProfilingData data) {
+      EXPECT_EQ(data.result, 0u);
+      EXPECT_TRUE(data.isLast);
+      ++calls;
+    }));
+    ProfilerConfig config{};
+    config.size = sizeof(config);
+    config.noEnvVars = true;
+    config.uploadIntervalSeconds = 3600;
+    ASSERT_TRUE(SetupProfiler(config));
+
+    EXPECT_FALSE(StartProfiler());
+    EXPECT_FALSE(profiler->IsStarted());
+    EXPECT_EQ(startupFailure.threadAttempts, failAt);
+    EXPECT_EQ(activeStartupThreads.load(), 0);
+    EXPECT_EQ(calls, 0);
+    EXPECT_TRUE(StopProfiler());
+    EXPECT_EQ(calls, 0);
+
+    startupFailure.failThreadAt = 0;
+    ASSERT_TRUE(StartProfiler());
+    EXPECT_EQ(startupFailure.threadAttempts, failAt + 3);
+    EXPECT_TRUE(StopProfiler());
+    EXPECT_EQ(activeStartupThreads.load(), 0);
+    EXPECT_EQ(calls, 1);
+    ASSERT_TRUE(SetupProfilingDataCallback({}));
+  }
+}
+
+TEST_F(
+    ProfilingDataCallbackTests, PartialNativeInitializationReleasesStorageAndCanRetry
+) {
+  profiler.reset();
+  startupFailure = {};
+  startupFailure.failProfileCreation = true;
+  dd_win_prof::ProfileEncodingApi api;
+  api.newProfile = NewProfileWithFailure;
+  api.dropStringStorage = DropStringStorageWithCounting;
+  profiler = std::make_unique<Profiler>(MakeThreadWithFailure, api);
+  int calls = 0;
+  ASSERT_TRUE(SetupProfilingDataCallback([&](ProfilingData data) {
+    EXPECT_EQ(data.result, 0u);
+    EXPECT_TRUE(data.isLast);
+    ++calls;
+  }));
+  ProfilerConfig config{};
+  config.size = sizeof(config);
+  config.noEnvVars = true;
+  config.uploadIntervalSeconds = 3600;
+  ASSERT_TRUE(SetupProfiler(config));
+
+  EXPECT_FALSE(StartProfiler());
+  EXPECT_FALSE(profiler->IsStarted());
+  EXPECT_EQ(startupFailure.profileCreations, 1);
+  EXPECT_EQ(startupFailure.storageDrops, 1);
+  EXPECT_EQ(startupFailure.threadAttempts, 0);
+  EXPECT_EQ(calls, 0);
+  EXPECT_TRUE(StopProfiler());
+  EXPECT_EQ(startupFailure.storageDrops, 1);
+
+  ASSERT_TRUE(StartProfiler());
+  EXPECT_EQ(startupFailure.profileCreations, 2);
+  EXPECT_TRUE(StopProfiler());
+  EXPECT_EQ(startupFailure.storageDrops, 2);
+  EXPECT_EQ(activeStartupThreads.load(), 0);
+  EXPECT_EQ(calls, 1);
 }
 
 TEST(ProfilingDataExportTests, ResultIsFirstAggregateFieldAndDefaultsToSuccess) {
@@ -584,6 +747,28 @@ TEST(ProfilingDataExportTests, CallbackBypassesHttpAndOwnsBytes) {
   EXPECT_FALSE(second.pprof.empty());
   EXPECT_LE(first.startUnixTimeMs, first.endUnixTimeMs);
   EXPECT_EQ(first.endUnixTimeMs, second.startUnixTimeMs);
+}
+
+TEST(ProfilingDataExportTests, DestructorReleasesPartiallyInitializedStorage) {
+  startupFailure = {};
+  startupFailure.failProfileCreation = true;
+  Configuration config;
+  config.ResetToDefaults();
+  dd_win_prof::ProfileEncodingApi api;
+  api.newProfile = NewProfileWithFailure;
+  api.dropStringStorage = DropStringStorageWithCounting;
+  std::vector<SampleValueType> types{{"cpu-time", "nanoseconds"}};
+  int calls = 0;
+  {
+    ProfileExporter exporter(
+        &config, types, nullptr, [&](ProfilingData) { ++calls; }, api
+    );
+    EXPECT_FALSE(exporter.Initialize());
+    EXPECT_EQ(startupFailure.profileCreations, 1);
+    EXPECT_EQ(startupFailure.storageDrops, 0);
+  }
+  EXPECT_EQ(startupFailure.storageDrops, 1);
+  EXPECT_EQ(calls, 0);
 }
 
 TEST(ProfilingDataExportTests, ResetErrorIsDeliveredAndNextExportRecovers) {
@@ -672,3 +857,4 @@ TEST(ProfilingDataExportTests, ThrowingCallbackDoesNotPreventNextExport) {
   EXPECT_EQ(calls, 3);
   exporter.Cleanup();
 }
+}  // namespace

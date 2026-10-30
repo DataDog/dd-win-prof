@@ -3,6 +3,7 @@ add_executable(Tests
     ConfigurationTests.cpp
     CpuOverlapTests.cpp
     DynamicModuleTests.cpp
+    LifecycleDiagnosticTests.cpp
     PprofAggregatorTests.cpp
     ProfileExporterTests.cpp
     ProfilerShutdownTests.cpp
@@ -100,3 +101,32 @@ dd_win_prof_copy_asan_runtime(Tests)
 include(CTest)
 add_test(NAME Tests COMMAND Tests)
 set_tests_properties(Tests PROPERTIES TIMEOUT 180)
+
+# Check lifecycle results and static messages with independently selected CRTs.
+foreach(_crt IN ITEMS MT MD)
+    set(_consumer "LifecycleDll${_crt}")
+    add_executable(${_consumer} LifecycleDllTests.cpp)
+    target_link_libraries(${_consumer} PRIVATE dd-win-prof)
+    set_property(TARGET ${_consumer} PROPERTY RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/${_consumer}")
+    if(_crt STREQUAL "MT")
+        set_property(TARGET ${_consumer} PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    else()
+        set_property(TARGET ${_consumer} PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+    endif()
+    add_custom_target(${_consumer}Runtime
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${_consumer}>"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:dd-win-prof>" "$<TARGET_FILE_DIR:${_consumer}>"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${_ld_dyn}/datadog_profiling_ffi.dll" "$<TARGET_FILE_DIR:${_consumer}>"
+        DEPENDS dd-win-prof
+        VERBATIM
+    )
+    add_dependencies(${_consumer} ${_consumer}Runtime)
+    dd_win_prof_copy_asan_runtime(${_consumer})
+    add_test(NAME ${_consumer} COMMAND ${_consumer})
+    set_tests_properties(${_consumer} PROPERTIES
+        TIMEOUT 60
+        ENVIRONMENT "DD_PROFILING_AUTO_START=0;DD_PROFILING_ENABLED=1;DD_INTERNAL_PROFILING_EXPORT_ENABLED=0;DD_API_KEY=;DD_TRACE_AGENT_URL=;DD_AGENT_HOST=localhost;DD_TRACE_AGENT_PORT=8126"
+    )
+endforeach()
