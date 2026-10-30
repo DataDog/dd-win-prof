@@ -28,6 +28,8 @@ add_library(dd-win-prof SHARED
     Configuration.h
     CpuTimeProvider.h
     include/dd-win-prof.h
+    include/internal/error.h
+    include/internal/dd-win-rum-private.h
     dd-win-prof-internal.h
     EnvironmentVariables.h
     framework.h
@@ -65,10 +67,9 @@ add_library(dd-win-prof SHARED
 # generates its own PCH mechanism, so we drive it only through pch.h here.
 target_precompile_headers(dd-win-prof PRIVATE pch.h)
 
-# Only include/ (dd-win-prof.h) is public. Everything else in this directory is
-# private, so consumers don't get Log.h, Uuid.h, version.h etc. on their include path.
-# INSTALL_INTERFACE is for projects that export this target in their own install set
-# (see README): they install dd-win-prof.h to <prefix>/include.
+# Expose include/, with the SDK bridge under internal/. Implementation headers such
+# as Log.h, Uuid.h and version.h remain private.
+# Projects exporting this target install the same header tree under <prefix>/include.
 target_include_directories(dd-win-prof
     PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     PUBLIC $<INSTALL_INTERFACE:include>
@@ -117,14 +118,13 @@ if(DD_WIN_PROF_DEVELOPMENT OR DD_WIN_PROF_BUILD_RUNNER)
     set(_ref_dir "${WINDOWSPROFILER_ROOT_DIR}/src/reference")
     set(_ld_dyn  "${libdatadog_SOURCE_DIR}/${DD_WIN_PROF_LIBDATADOG_CONFIG_DIR}/dynamic")
 
-    # Copy the public header before compilation so that Runner (and any other
-    # consumer) always has a current copy of the API surface.
+    # Preserve the published header tree, including the SDK bridge under internal/.
     add_custom_command(TARGET dd-win-prof PRE_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy
-            "${CMAKE_CURRENT_SOURCE_DIR}/include/dd-win-prof.h"
-            "${_ref_dir}/dd-win-prof.h"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/include"
+            "${_ref_dir}"
         VERBATIM
-        COMMENT "Copying dd-win-prof.h to src/reference"
+        COMMENT "Copying profiler headers to src/reference"
     )
 
     # Publish the DLL, import library, PDB and the libdatadog dynamic DLL/PDB to
@@ -157,6 +157,7 @@ if(DD_WIN_PROF_BUILD_INSTALL)
     )
     install(FILES $<TARGET_PDB_FILE:dd-win-prof> DESTINATION Profiler OPTIONAL)
     install(FILES include/dd-win-prof.h DESTINATION Profiler)
+    install(FILES include/internal/dd-win-rum-private.h include/internal/error.h DESTINATION Profiler/internal)
     install(FILES
         "${libdatadog_SOURCE_DIR}/${DD_WIN_PROF_LIBDATADOG_CONFIG_DIR}/dynamic/datadog_profiling_ffi.dll"
         "${libdatadog_SOURCE_DIR}/${DD_WIN_PROF_LIBDATADOG_CONFIG_DIR}/dynamic/datadog_profiling_ffi.pdb"

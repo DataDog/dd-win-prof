@@ -14,8 +14,10 @@ Implementation of a Windows CPU profiler
 
 In your project, you need the following files:
 
-- **dd-win-prof.h**: header containing the declaration of the `StartProfiler` and `StopProfiler` functions to be called when the application starts and when it stops.
-- **dd-win-prof.lib**: library containing the stub for the two functions pointing to **dd-win-prof.dll**
+- **dd-win-prof.h**: public API and configuration declarations.
+- **dd-win-prof.lib**: import library for **dd-win-prof.dll**
+
+Use the headers and import library supplied with the DLL.
 
 The following files are required in the folder from where the application runs:
 
@@ -307,5 +309,3 @@ For reference, see the complete automated build process in [`.github/workflows/t
 1. Sign and push the tag: `git tag -s vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`. (`-s` signs the annotated tag; lightweight unsigned tags are discouraged.) The workflow asserts `version.h` matches the tag and fails fast otherwise.
 2. Open a follow-up PR bumping `src/dd-win-prof/version.h` to the next dev version, so `main` is ready for the next release cycle.
 3. Edit the auto-generated notes on the draft release and publish.
-
-

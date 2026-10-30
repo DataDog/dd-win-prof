@@ -71,8 +71,7 @@ void ThreadList::ResetProfilingState() {
   _iterators.clear();
 
   for (auto& pInfo : _threads) {
-    auto cpuConsumption =
-        std::get<1>(OsSpecificApi::IsRunning(pInfo->GetOsThreadHandle()));
+    auto cpuConsumption = OsSpecificApi::GetThreadCpuTime(pInfo->GetOsThreadHandle());
     pInfo->ResetProfilingState(cpuConsumption);
   }
 }
