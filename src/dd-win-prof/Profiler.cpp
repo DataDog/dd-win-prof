@@ -27,31 +27,20 @@ Profiler::~Profiler() {
   _isStarted = false;
 }
 
-std::optional<ProfilingError> Profiler::SetProfilingDataCallback(
-    const ProfilingDataCallback& callback
-) {
+bool Profiler::SetProfilingDataCallback(const ProfilingDataCallback& callback) {
   if (IsStarted()) {
-    return ProfilingError{
-        ProfilingSeverity::Error,
-        ProfilingErrorCode::ProfilerAlreadyRunning,
-        "Cannot change the profiling callback while the profiler is running"
-    };
+    Log::Error("Cannot change the profiling callback while the profiler is running");
+    return false;
   }
   try {
     _profilingDataCallback = callback;
-    return std::nullopt;
+    return true;
   } catch (const std::exception& error) {
-    return ProfilingError{
-        ProfilingSeverity::Fatal,
-        ProfilingErrorCode::CallbackCopyFailed,
-        "Failed to copy profiling data callback: " + std::string(error.what())
-    };
+    Log::Error("Failed to copy profiling data callback: ", error.what());
+    return false;
   } catch (...) {
-    return ProfilingError{
-        ProfilingSeverity::Fatal,
-        ProfilingErrorCode::CallbackCopyFailed,
-        "Failed to copy profiling data callback: non-standard exception"
-    };
+    Log::Error("Failed to copy profiling data callback: non-standard exception");
+    return false;
   }
 }
 
@@ -98,9 +87,6 @@ bool Profiler::StartProfiling() {
 
   // Initialize the ProfileExporter
   if (!_pProfileExporter->Initialize()) {
-    Log::Error(
-        "Failed to initialize profile exporter: ", _pProfileExporter->GetLastError()
-    );
     _pProfileExporter.reset();
     return false;
   }

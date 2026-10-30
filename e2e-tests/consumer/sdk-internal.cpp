@@ -10,13 +10,16 @@
 #include <utility>
 
 int TestSdkCallback() {
-  std::vector<ProfilingDataResult> results;
-  const ProfilingDataCallback callback = [&](ProfilingDataResult result) {
-    results.push_back(std::move(result));
+  std::vector<ProfilingData> results;
+  const ProfilingDataCallback callback = [&](ProfilingData data) {
+    if (data.result != 0) {
+      std::cerr << "Profile delivery failed: " << GetProfilingErrorMessage(data.result)
+                << '\n';
+    }
+    results.push_back(std::move(data));
   };
-  if (auto error = SetupProfilingDataCallback(callback)) {
-    std::cerr << "Failed to register the profiling callback: " << error->message
-              << '\n';
+  if (!SetupProfilingDataCallback(callback)) {
+    std::cerr << "Failed to register the profiling callback\n";
     return 1;
   }
 
@@ -26,17 +29,16 @@ int TestSdkCallback() {
   config.uploadIntervalSeconds = 3600;
   if (!SetupProfiler(&config) || !StartProfiler()) {
     std::cerr << "Failed to configure or start the profiler\n";
-    if (auto error = SetupProfilingDataCallback({})) {
-      std::cerr << "Failed to unregister the profiling callback: " << error->message
-                << '\n';
+    if (!SetupProfilingDataCallback({})) {
+      std::cerr << "Failed to unregister the profiling callback\n";
     }
     return 1;
   }
 
   StopProfiler();
-  if (auto error = SetupProfilingDataCallback({})) {
-    std::cerr << "Failed to unregister the profiling callback: " << error->message
-              << '\n';
+  const bool unregistered = SetupProfilingDataCallback({});
+  if (!unregistered) {
+    std::cerr << "Failed to unregister the profiling callback\n";
     return 1;
   }
 
@@ -45,25 +47,25 @@ int TestSdkCallback() {
     return 1;
   }
 
-  const auto* profile = std::get_if<ProfilingData>(&results.front());
-  if (profile == nullptr) {
-    std::cerr << "Expected a profile, got an error: "
-              << std::get<ProfilingError>(results.front()).message << '\n';
+  const auto& profile = results.front();
+  if (profile.result != 0) {
+    std::cerr << "Expected a profile, got: " << GetProfilingErrorMessage(profile.result)
+              << '\n';
     return 1;
   }
-  if (!profile->isLast) {
+  if (!profile.isLast) {
     std::cerr << "Profile delivered on stop was not marked final\n";
     return 1;
   }
-  if (profile->pprof.empty()) {
+  if (profile.pprof.empty()) {
     std::cerr << "Final profile has no pprof bytes\n";
     return 1;
   }
-  if (profile->startUnixTimeMs <= 0) {
+  if (profile.startUnixTimeMs <= 0) {
     std::cerr << "Final profile has an invalid start timestamp\n";
     return 1;
   }
-  if (profile->endUnixTimeMs < profile->startUnixTimeMs) {
+  if (profile.endUnixTimeMs < profile.startUnixTimeMs) {
     std::cerr << "Final profile ends before it starts\n";
     return 1;
   }

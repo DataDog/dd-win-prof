@@ -180,7 +180,11 @@ Configuration is managed in `Configuration.cpp`. Values come from two sources, w
 
 2. **`SetupProfiler(const ProfilerConfig*)`** (`dd-win-prof.cpp`): Callers pass a `ProfilerConfig` struct; `InitializeConfiguration()` applies its fields to the shared `Configuration` instance.
 
-**SDK callback registration**: `Profiler` owns the callback registered through `SetupProfilingDataCallback()`. The function returns `std::optional<ProfilingError>`: empty on success, or a synchronous diagnostic without invoking the callback or replacing the previous registration. Registration survives configuration resets and stop/start cycles. Each `ProfileExporter` receives a copy for its run. Configuration validation receives the delivery mode explicitly and does not own the callable.
+**Compatibility**: The public lifecycle API retains C linkage: `bool SetupProfiler(const ProfilerConfig*)`, `bool StartProfiler()` and `void StopProfiler()`. The SDK-private callback is supported only as a source-build dependency with compatible compiler, standard library and CRT settings. No callback API/ABI compatibility is guaranteed across versions or independent builds.
+
+**SDK callback registration**: `Profiler` owns the callback registered through `SetupProfilingDataCallback()`. The function returns `bool`; failure is logged without invoking the callback or replacing the previous registration. Registration survives configuration resets and stop/start cycles. Each `ProfileExporter` receives a copy for its run. Configuration validation receives the delivery mode explicitly and does not own the callable.
+
+**Callback errors**: Native details are logged at the failure site, without last-error storage, severity or reporting flags. Only the callback boundary carries a numeric code: `ProfilingData.result` is zero for an owned profile, otherwise a `ProfilingErrorCode` with empty pprof bytes. `GetProfilingErrorMessage(uint32_t)` returns static explanatory text, including a fallback for unknown codes. It needs no allocation, copying, cleanup or error state. Final export errors have `isLast` set, just like final profiles. Errors do not trigger automatic shutdown.
 
 **No-env-vars mode** (`ProfilerConfig.noEnvVars == true`): `ResetToDefaults()` is called first, then only explicit struct fields are applied. All environment variables are ignored. For HTTP delivery, `url` and `apiKey` are mandatory; `SetupProfiler` returns `false` if either is missing. Callback delivery does not require them.
 

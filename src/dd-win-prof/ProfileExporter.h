@@ -39,7 +39,6 @@ class ProfileExporter {
 
   // Check if properly initialized
   bool IsInitialized() const { return _initialized; }
-  const std::string& GetLastError() const { return _lastError; }
 
   // RUM application ID tag (set once by Profiler, emitted per-export)
   void SetRumApplicationId(const std::string& applicationId);
@@ -102,7 +101,9 @@ class ProfileExporter {
   using EncodedProfilePtr =
       std::unique_ptr<ddog_prof_EncodedProfile, EncodedProfileDeleter>;
 
-  EncodedProfilePtr SerializeProfile(int64_t startUnixTimeMs, int64_t endUnixTimeMs);
+  bool ExportCurrentProfile(
+      bool lastCall, int64_t startUnixTimeMs, int64_t endUnixTimeMs
+  );
   std::string CollectRumRecordsJson();
   void DiscardRumRecords();
   void WriteDebugFiles(
@@ -110,17 +111,16 @@ class ProfileExporter {
       const std::string& rumRecordsJson,
       int64_t endUnixTimeMs
   );
-  std::optional<ddog_ByteSlice> ReadProfileBytes(ddog_prof_EncodedProfile* profile);
   bool DeliverProfileToCallback(
       const ddog_ByteSlice& bytes,
       int64_t startUnixTimeMs,
       int64_t endUnixTimeMs,
       bool lastCall
   );
-  bool DeliverProfilingData(ProfilingDataResult result);
-  void ReportError(ProfilingErrorCode code, std::string message);
+  bool DeliverProfilingData(ProfilingData data);
+  bool ReportError(ProfilingErrorCode code, bool lastCall);
   void LogExport(bool lastCall, int64_t durationMs, size_t profileSize) const;
-  bool FinishExport(std::chrono::system_clock::time_point end);
+  bool FinishExport(std::chrono::system_clock::time_point end, bool lastCall);
 
   // Helper methods for location/function/mapping management
   std::optional<ddog_prof_LocationId> InternLocation(uint64_t address);
@@ -210,7 +210,6 @@ class ProfileExporter {
   std::string _runtimeId;
   uint32_t _processId;
   bool _initialized;
-  std::string _lastError;
 
   // Debug pprof file writing configuration
   bool _debugPprofFileWritingEnabled;

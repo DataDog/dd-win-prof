@@ -49,7 +49,6 @@ TEST_F(ProfileExporterExportTests, InitializationWithExportEnabled) {
   // Test that exporter initializes correctly with export enabled
   ASSERT_TRUE(exporter->Initialize());
   EXPECT_TRUE(exporter->IsInitialized());
-  EXPECT_TRUE(exporter->GetLastError().empty());
 }
 
 TEST_F(ProfileExporterExportTests, ExportWithoutSamples) {
@@ -312,9 +311,7 @@ TEST_F(ProfileExporterExportTests, ExporterInitializesWithDefaultsAndExportEnabl
   Sample::SetValuesCount(types.size());
 
   auto exp = std::make_unique<ProfileExporter>(agentConfig.get(), types);
-  ASSERT_TRUE(exp->Initialize())
-      << "Exporter should initialize with default agent config: "
-      << exp->GetLastError();
+  ASSERT_TRUE(exp->Initialize());
   EXPECT_TRUE(exp->IsInitialized());
 
   // Explicit cleanup before destruction to avoid potential deadlocks

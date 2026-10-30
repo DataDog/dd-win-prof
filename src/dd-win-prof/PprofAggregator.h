@@ -9,7 +9,6 @@
 #include <cstdint>
 #include <memory>
 #include <span>
-#include <string>
 #include <vector>
 
 #include "SampleValueType.h"
@@ -59,12 +58,6 @@ class PprofAggregator {
   /// </summary>
   /// <returns>True if initialized successfully, false otherwise</returns>
   bool IsInitialized() const;
-
-  /// <summary>
-  /// Gets the last error message if initialization failed
-  /// </summary>
-  /// <returns>Error message string, empty if no error</returns>
-  const std::string& GetLastError() const;
 
   /// <summary>
   /// Serializes the current profile to pprof format.
@@ -129,7 +122,6 @@ class PprofAggregator {
  private:
   ProfileEncodingApi m_encodingApi;
   ddog_prof_Profile m_profile;  // libdatadog profile object
-  std::string m_lastError;      // Last error message
   bool m_initialized;           // Initialization status
   int m_periodMs;               // Configured period in milliseconds
   std::vector<ddog_prof_ValueType>

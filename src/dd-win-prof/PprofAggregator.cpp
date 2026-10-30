@@ -10,6 +10,7 @@
 #include <cassert>
 #include <cstring>
 #include <iostream>
+#include <string_view>
 
 #include "LibDatadogHelper.h"
 #include "Log.h"
@@ -31,7 +32,7 @@ PprofAggregator::PprofAggregator(
   m_valueTypes = ConvertSampleValueTypes(sampleValueTypes);
 
   if (m_valueTypes.empty()) {
-    m_lastError = "No valid sample value types provided";
+    Log::Error("No valid sample value types provided");
     return;
   }
 
@@ -57,13 +58,12 @@ PprofAggregator::PprofAggregator(
     m_profile = result.ok;
     m_initialized = true;
   } else {
-    // Extract error message
-    m_lastError = "Failed to create profile with shared string storage: ";
-    if (result.err.message.ptr && result.err.message.len > 0) {
-      m_lastError += std::string(
-          reinterpret_cast<const char*>(result.err.message.ptr), result.err.message.len
-      );
-    }
+    const auto message = ddog_Error_message(&result.err);
+    Log::Error(
+        "Failed to create profile with shared string storage: ",
+        std::string_view(message.ptr, message.len)
+    );
+    ddog_Error_drop(&result.err);
   }
 }
 
@@ -73,14 +73,11 @@ bool PprofAggregator::IsInitialized() const {
   return m_initialized && m_profile.inner != nullptr;
 }
 
-const std::string& PprofAggregator::GetLastError() const { return m_lastError; }
-
 ddog_prof_EncodedProfile* PprofAggregator::Serialize(
     int64_t startTimestampMs, int64_t endTimestampMs
 ) {
-  m_lastError.clear();
   if (!IsInitialized()) {
-    m_lastError = "Cannot serialize an uninitialized profile";
+    Log::Error("Cannot serialize an uninitialized profile");
     return nullptr;
   }
 
@@ -103,18 +100,18 @@ ddog_prof_EncodedProfile* PprofAggregator::Serialize(
     return encoded.release();
   }
 
-  m_lastError = "libdatadog profile serialization/compression failed: ";
-  m_lastError.append(
-      reinterpret_cast<const char*>(result.err.message.ptr), result.err.message.len
+  const auto message = ddog_Error_message(&result.err);
+  Log::Error(
+      "libdatadog profile serialization/compression failed: ",
+      std::string_view(message.ptr, message.len)
   );
   ddog_Error_drop(&result.err);
   return nullptr;
 }
 
 bool PprofAggregator::Reset() {
-  m_lastError.clear();
   if (!m_initialized) {
-    m_lastError = "Cannot reset an uninitialized profile";
+    Log::Error("Cannot reset an uninitialized profile");
     return false;
   }
 
@@ -123,9 +120,10 @@ bool PprofAggregator::Reset() {
     return true;
   }
 
-  m_lastError = "libdatadog failed to reset profile: ";
   const auto message = ddog_Error_message(&result.err);
-  m_lastError.append(message.ptr, message.len);
+  Log::Error(
+      "libdatadog failed to reset profile: ", std::string_view(message.ptr, message.len)
+  );
   ddog_Error_drop(&result.err);
   return false;
 }
@@ -137,17 +135,14 @@ bool PprofAggregator::AddSample(
     ddog_prof_LabelSetId labelsetId
 ) {
   if (!m_initialized) {
-    m_lastError = "PprofAggregator not initialized";
-    Log::Error("AddSample failed: ", m_lastError);
+    Log::Error("AddSample failed: PprofAggregator not initialized");
     return false;
   }
 
   if (values.size() != m_valueTypes.size()) {
-    m_lastError = "Values count doesn't match configured sample types";
     Log::Error(
-        "AddSample failed: ",
-        m_lastError,
-        " (values: ",
+        "AddSample failed: values count doesn't match configured sample types "
+        "(values: ",
         values.size(),
         ", types: ",
         m_valueTypes.size(),
@@ -164,9 +159,10 @@ bool PprofAggregator::AddSample(
       ddog_prof_Profile_intern_stacktrace(&m_profile, locations_slice);
   if (stacktrace_result.tag !=
       DDOG_PROF_STACK_TRACE_ID_RESULT_OK_GENERATIONAL_ID_STACK_TRACE_ID) {
-    m_lastError = "Failed to intern stacktrace";
     Log::Error(
-        "AddSample failed: ", m_lastError, " (tag: ", stacktrace_result.tag, ")"
+        "AddSample failed: failed to intern stacktrace (tag: ",
+        stacktrace_result.tag,
+        ")"
     );
     return false;
   }
@@ -177,8 +173,9 @@ bool PprofAggregator::AddSample(
       &m_profile, stacktrace_result.ok, values_slice, labelsetId, timestamp
   );
   if (sample_result.tag != DDOG_VOID_RESULT_OK) {
-    m_lastError = "Failed to intern sample";
-    Log::Error("AddSample failed: ", m_lastError, " (tag: ", sample_result.tag, ")");
+    Log::Error(
+        "AddSample failed: failed to intern sample (tag: ", sample_result.tag, ")"
+    );
     return false;
   }
 
