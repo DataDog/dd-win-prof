@@ -60,14 +60,9 @@ Write-Host ""
 $rumAppId     = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 $rumSessionId = "11111111-2222-3333-4444-555555555555"
 
-$env:DD_TRACE_LOG_DIRECTORY = $logDir
-
 $runnerArgs = @(
     "--scenario",       5,
     "--iterations",     $Iterations,
-    "--noenvvars",
-    "--url",            "https://localhost:0/no-upload",
-    "--apikey",         "integration-test-key",
     "--pprofdir",       $pprofDir,
     "--rum-app-id",     $rumAppId,
     "--rum-session-id", $rumSessionId
@@ -76,10 +71,26 @@ $runnerArgs = @(
 Write-Host "Running: $runner $($runnerArgs -join ' ')" -ForegroundColor Yellow
 Write-Host ""
 
-& $runner @runnerArgs
-$runnerExit = $LASTEXITCODE
+$startInfo = [System.Diagnostics.ProcessStartInfo]::new($runner)
+$startInfo.UseShellExecute = $false
+foreach ($argument in $runnerArgs) {
+    $startInfo.ArgumentList.Add([string]$argument)
+}
 
-Remove-Item Env:\DD_TRACE_LOG_DIRECTORY -ErrorAction SilentlyContinue
+# Isolate profiler settings while preserving ASAN_OPTIONS and other runtime settings.
+foreach ($name in @($startInfo.Environment.Keys | Where-Object { $_ -like "DD_*" })) {
+    [void]$startInfo.Environment.Remove($name)
+}
+$startInfo.Environment["DD_TRACE_LOG_DIRECTORY"] = $logDir
+$startInfo.Environment["DD_INTERNAL_PROFILING_EXPORT_ENABLED"] = "0"
+
+$process = [System.Diagnostics.Process]::Start($startInfo)
+try {
+    $process.WaitForExit()
+    $runnerExit = $process.ExitCode
+} finally {
+    $process.Dispose()
+}
 
 Write-Host ""
 Write-Host "-- Assertions --" -ForegroundColor Cyan
@@ -93,6 +104,8 @@ Assert ($logFiles.Count -gt 0) "Profiler log file exists ($($logFiles.Count) fou
 
 if ($logFiles.Count -gt 0) {
     $logContent = Get-Content $logFiles[0].FullName -Raw
+
+    Assert ($logContent.Contains("Profiles export disabled")) "HTTP export is disabled"
 
     $wroteMatch = $logContent | Select-String "Successfully wrote .+ bytes to pprof file"
     Assert ($null -ne $wroteMatch) "Log contains 'Successfully wrote ... bytes to pprof file'"
