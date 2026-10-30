@@ -67,4 +67,4 @@ git tag -d vX.Y.Z
 - Workflow: `.github/workflows/release.yml`
 - Octo-STS policy: `.github/chainguard/self.github.release.publish.sts.yaml`
 - Local check: `pwsh scripts/check-version.ps1 -Tag vX.Y.Z`
-- README sections: *Packaging a release*, *Cutting a release*
+- Contributor guide: [Packaging a release](../../../CONTRIBUTING.md#packaging-a-release), [Cutting a release](../../../CONTRIBUTING.md#cutting-a-release)

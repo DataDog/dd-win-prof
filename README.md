@@ -8,7 +8,7 @@
 > **Use in production environments at your own risk.** Please thoroughly test in your specific 
 > environment before considering any production deployment.
 
-Implementation of a Windows CPU profiler
+Implementation of a Windows CPU and wall-time profiler
 
 ## Usage : how to profile your 64-bit Windows application
 
@@ -17,10 +17,12 @@ In your project, you need the following files:
 - **dd-win-prof.h**: header containing the declaration of the `StartProfiler` and `StopProfiler` functions to be called when the application starts and when it stops.
 - **dd-win-prof.lib**: library containing the stub for the two functions pointing to **dd-win-prof.dll**
 
-The following files are required in the folder from where the application runs:
-- **dd-win-prof.dll**: profiling code
-- **datadog_profiling_ffi.dll**: responsible for serializing and sending the profiles to Datadog via HTTP
-*Note: the corresponding .pdb files are available for debugging purposes*
+Deploy **dd-win-prof.dll** next to your application's executable. It links
+libdatadog statically for profile serialization and upload.
+
+The separate **datadog_profiling_ffi.dll** is needed by the unit-test executable,
+not by applications that only link `dd-win-prof.lib`. The corresponding `.pdb`
+files are available for debugging.
 
 ## CMake Setup
 
@@ -42,7 +44,8 @@ Then you can use `target_link_libraries` to configure your project's include pat
 target_link_libraries(your_application PRIVATE dd-win-prof)
 ```
 
-To ensure that your development builds will have the requisite DLLs present alongside the application binary, you can call `dd_win_prof_copy_runtime_deps`, which adds a `POST_BUILD` command to copy `dd-win-prof.dll` and `datadog_profiling_ffi.dll` alongside your application's binaries:
+To copy the profiler beside your application's binary after each build, call
+`dd_win_prof_copy_runtime_deps`. The helper also copies the FFI DLL used by tests:
 
 ```
 dd_win_prof_copy_runtime_deps(your_application)
@@ -50,7 +53,7 @@ dd_win_prof_copy_runtime_deps(your_application)
 
 (You can optionally supply `INCLUDE_PDBS` to copy `.pdb` files for these libraries as well.)
 
-Finally, if you're generating installed builds of your CMake project, you'll also want to ensure that `dd-win-prof` is added to the export set (to make `dd-win-prof.dll` available alongside your binaries, and to make the `dd-win-prof` CMake target accessible), and that `datadog_profiling_ffi.dll` is also copied to the same directory:
+For installed builds, add `dd-win-prof` to your export set and install the public header:
 
 ```cmake
 install(TARGETS dd-win-prof
@@ -62,7 +65,6 @@ install(TARGETS dd-win-prof
 # there too. ${dd-win-prof_SOURCE_DIR} is set by FetchContent; with add_subdirectory
 # use the path you added.
 install(FILES "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/dd-win-prof.h" DESTINATION include)
-install(FILES "$<TARGET_FILE:dd_win_prof_libdatadog_dynamic>" DESTINATION bin)
 ```
 
 ## Configuration
@@ -86,11 +88,15 @@ Define your configuration in a `ProfilerConfig` instance and pass it to `SetupPr
     }
 ```
 
-**No-env-vars mode** (`config.noEnvVars = true`): Ignores all environment variables and uses only values from the struct. In this mode, `url` and `apiKey` are **mandatory**; `SetupProfiler` returns `false` if either is missing.
+**No-env-vars mode** (`config.noEnvVars = true`): Uses struct values and defaults
+instead of environment-based profiler settings. In this mode, `url` and `apiKey`
+are **mandatory**; `SetupProfiler` returns `false` if either is missing.
+Set these fields before calling `SetupProfiler`. `url` is a Datadog site name,
+not a full intake URL:
 
 ```C++
     config.noEnvVars = true;
-    config.url = "https://intake.datadoghq.com";
+    config.url = "datadoghq.com";
     config.apiKey = "your_datadog_api_key_here";
     config.serviceName = "my-windows-app";
 ```
@@ -99,7 +105,7 @@ Define your configuration in a `ProfilerConfig` instance and pass it to `SetupPr
 
 | Field | Description |
 |-------|-------------|
-| `noEnvVars` | If true, ignore env vars; use only struct values (default: false) |
+| `noEnvVars` | If true, use struct values and defaults instead of environment-based profiler settings (default: false) |
 | `serviceName`, `serviceEnvironment`, `serviceVersion` | Application metadata |
 | `url`, `apiKey` | Mandatory when `noEnvVars=true`; otherwise can come from env |
 | `pprofOutputDirectory` | Override for local pprof debug output (default: empty) |
@@ -132,23 +138,25 @@ When `DD_API_KEY` is set, profiling data is sent directly to the Datadog intake 
 
 ### Example configurations
 
-**Agentless via env vars:**
-```bash
-DD_SERVICE=my-windows-app
-DD_SITE=datadoghq.com
-DD_API_KEY=your_datadog_api_key_here
-DD_VERSION=1.2.3
-DD_ENV=production
+Set these variables before launching the application. For example, in PowerShell:
+
+**Agentless:**
+```powershell
+$env:DD_SERVICE = "my-windows-app"
+$env:DD_SITE = "datadoghq.com"
+$env:DD_API_KEY = "your_datadog_api_key_here"
+$env:DD_VERSION = "1.2.3"
+$env:DD_ENV = "production"
 ```
 
-**Agent-based:**
-```bash
-DD_SERVICE=my-windows-app
-DD_VERSION=1.2.3
-DD_ENV=production
+**Agent-based** (leave `DD_API_KEY` unset):
+```powershell
+$env:DD_SERVICE = "my-windows-app"
+$env:DD_VERSION = "1.2.3"
+$env:DD_ENV = "production"
 ```
 
-Call [StartProfiler](./src/dd-win-prof/include/dd-win-prof.h) when ready; [StopProfiler](./src/dd-win-prof/include/dd-win-prof.h) when done. Use `DD_PROFILING_ENABLED=0` to disable profiling even if `StartProfiler` is called.
+Call [StartProfiler](./src/dd-win-prof/include/dd-win-prof.h) when ready; [StopProfiler](./src/dd-win-prof/include/dd-win-prof.h) when done. With environment-based configuration, use `DD_PROFILING_ENABLED=0` to disable profiling even if `StartProfiler` is called.
 
 Call `StopProfiler()` before process exit to export the final profile. During
 process termination, the DLL skips profiler cleanup because Windows may already
@@ -157,150 +165,7 @@ DLL unloading with `FreeLibrary()`.
 
 **NOTE:** Method names are obfuscated by default. Add `DD_PROFILING_INTERNAL_SYMBOLIZE_CALLSTACKS=1` to enable symbolization.
 
+## Contributing
 
-## How to build dd-win-prof
-
-### Prerequisites
-
-- **Windows 10/11** or **Windows Server 2019/2022**
-- **Visual Studio 2022** or later with C++ development tools (or **Build Tools for Visual Studio**)
-- **CMake 3.21** or later
-
-### Dependencies
-
-All dependencies are downloaded automatically by CMake at configure time via `FetchContent`:
-
-- **libdatadog v19.0.0** — profile serialization and upload
-- **spdlog v1.14.1** — logging
-- **Google Test v1.14.0** — unit testing
-
-### Build with CMake (command line)
-
-```powershell
-# Configure and build (Release)
-cmake -G "Visual Studio 17 2022" -A x64 -B build
-cmake --build build --config Release
-```
-
-### Build with Visual Studio
-
-Run the helper script to generate and open the solution:
-
-```powershell
-.\scripts\generate-vs.ps1
-```
-
-This generates a Visual Studio solution in `build\` and opens it automatically. You can then build and debug directly from the IDE. See `.\scripts\generate-vs.ps1 -?` for options (custom build directory, VS version, etc.).
-
-#### Building with AddressSanitizer
-
-To get an ASan-instrumented solution, pass `-Asan` and use a separate build
-directory so it does not clobber your regular `build\`:
-
-```powershell
-.\scripts\generate-vs.ps1 -BuildDir build-asan -Asan
-```
-
-This configures CMake with `-DDD_WIN_PROF_ENABLE_ASAN=ON` and opens the
-resulting solution. Every configuration in that solution (Debug, Release, ...)
-will be ASan-instrumented; pick Debug from the VS dropdown for typical use.
-
-Requirements:
-- The **C++ AddressSanitizer** component must be installed via the Visual
-  Studio Installer (`Modify` → *Individual components* → search "AddressSanitizer").
-- No Developer Command Prompt needed: the build locates the ASan runtime DLL
-  (`clang_rt.asan_dynamic-x86_64.dll`) automatically via `vswhere` and copies
-  it next to `Tests.exe` and `Runner.exe`.
-
-To switch back to a non-ASan build, just open the original `build\` solution
-(or generate one without `-Asan`).
-
-### Project structure and build outputs
-
-```
-dd-win-prof/
-├── CMakeLists.txt                  # Root CMake configuration
-├── src/
-│   ├── CMakeLists.txt              # Dependencies (libdatadog, spdlog, googletest via FetchContent)
-│   ├── dd-win-prof/                # Main profiler DLL
-│   ├── Runner/                     # Example app for testing the profiler
-│   ├── Tests/                      # Unit tests (Google Test)
-│   ├── ProfilerInjector/           # Utility to inject profiler into a target process
-│   └── reference/                  # Staging directory (POST_BUILD copies DLLs here)
-├── obfuscation/                    # Symbol obfuscation tools (optional, requires DIA SDK)
-│   ├── ObfSymbols/                 # PDB symbol extractor/obfuscator
-│   ├── TestSymbols/                # Test executable for ObfSymbols
-│   └── TestSymbolsDll/             # Test DLL for ObfSymbols
-├── e2e-tests/                      # End-to-end Vulkan profiling tests
-└── scripts/
-    └── generate-vs.ps1             # Generate and open VS solution from CMake
-```
-
-After building, the key artifacts are:
-
-| Artifact | Location |
-|----------|----------|
-| `dd-win-prof.dll` / `.lib` / `.pdb` | `build\src\dd-win-prof\<Config>\` |
-| `datadog_profiling_ffi.dll` | `build\_deps\libdatadog-src\<config>\dynamic\` |
-| `Runner.exe` | `build\src\Runner\<Config>\` |
-| `Tests.exe` | `build\src\Tests\<Config>\` |
-| `ProfilerInjector.exe` | `build\src\ProfilerInjector\<Config>\` |
-| **All runtime DLLs together** | `src\reference\` (copied by POST_BUILD) |
-
-The `src\reference\` directory is the easiest way to get all the files needed at runtime — after a successful build it contains `dd-win-prof.dll`, `dd-win-prof.lib`, `dd-win-prof.pdb`, `datadog_profiling_ffi.dll`, and `datadog_profiling_ffi.pdb`. It is only populated when dd-win-prof is built as the top-level project (or with `DD_WIN_PROF_DEVELOPMENT=ON` / `DD_WIN_PROF_BUILD_RUNNER=ON`). Projects that consume dd-win-prof via `FetchContent` or `add_subdirectory` should call `dd_win_prof_copy_runtime_deps(<target>)` instead.
-
-### Packaging a release
-
-Reproduce the release zip layout locally with `cmake --install`:
-
-```powershell
-cmake --install build --config Release --prefix .\stage\dd-win-prof
-```
-
-Layout is owned by `install()` rules in the relevant `CMakeLists.txt` files.
-
-### Run Tests
-
-```powershell
-cmake --build build --config Debug
-build\src\Tests\Debug\Tests.exe
-```
-
-See [`src/Tests/README.md`](src/Tests/README.md) for details on test coverage.
-
-### Build and Run the Test Runner
-
-The **Runner** project is an example application for testing the profiler. It supports both environment-variable and `--noenvvars` modes.
-
-```powershell
-cmake --build build --config Debug --target Runner
-build\src\Runner\Debug\Runner.exe
-```
-
-See [`src/Runner/README.md`](src/Runner/README.md) for full CLI reference and examples.
-
-### Optional: Run Integration Tests
-
-Integration tests exercise the full profiling pipeline (Runner execution, pprof output, log validation). They require **Python 3.9+** with a few packages.
-
-```powershell
-# Install Python dependencies (one-time)
-src\integration-tests\install-dependencies.ps1
-
-# Run the RUM context integration test
-src\integration-tests\test_rum_scenario.ps1
-```
-
-See [`src/integration-tests/README.md`](src/integration-tests/README.md) for details.
-
-### Automated Build
-
-For reference, see the complete automated build process in [`.github/workflows/test.yml`](.github/workflows/test.yml).
-
-### Cutting a release
-
-[`.github/workflows/release.yml`](.github/workflows/release.yml) runs on `vX.Y.Z` tag push and produces a draft GitHub Release with `dd-win-prof.zip`. `main` always sits at the version about to be released, so the tag points at `main` as-is.
-
-1. Sign and push the tag: `git tag -s vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`. (`-s` signs the annotated tag; lightweight unsigned tags are discouraged.) The workflow asserts `version.h` matches the tag and fails fast otherwise.
-2. Open a follow-up PR bumping `src/dd-win-prof/version.h` to the next dev version, so `main` is ready for the next release cycle.
-3. Edit the auto-generated notes on the draft release and publish.
+For build instructions, development setup, testing, and releases, see
+[CONTRIBUTING.md](CONTRIBUTING.md).
