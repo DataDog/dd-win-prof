@@ -11,6 +11,8 @@
 #include "dd-win-prof.h"
 #include "error.h"
 
+// Source-build only, with compatible compiler, standard library and CRT settings.
+// No cross-version or independent-build ABI compatibility is guaranteed.
 struct ProfilingData {
   // Zero on success; otherwise a ProfilingErrorCode with no pprof bytes.
   uint32_t result = 0;

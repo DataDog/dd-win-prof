@@ -180,7 +180,7 @@ Configuration is managed in `Configuration.cpp`. Values come from two sources, w
 
 2. **`SetupProfiler(const ProfilerConfig&)`** (`dd-win-prof.cpp`): Callers pass a `ProfilerConfig` struct; `InitializeConfiguration()` applies its fields to the shared `Configuration` instance.
 
-**Compatibility**: The profiler lifecycle API uses C++ linkage, not a versioned ABI; consumers need matching headers and toolchains. Existing RUM functions retain C linkage. The SDK-private callback is supported only as a source-build dependency with compatible compiler, standard library and CRT settings. No callback API/ABI compatibility is guaranteed across versions or independent builds.
+**Compatibility**: Use the headers and import library supplied with the DLL. The profiler lifecycle API uses C++ linkage; existing RUM functions retain C linkage. The SDK-private callback is supported only as a source-build dependency with compatible compiler, standard library and CRT settings. No callback API/ABI compatibility is guaranteed across versions or independent builds.
 
 **SDK callback registration**: `Profiler` owns the callback registered through `SetupProfilingDataCallback()`. The function returns `bool`; failure is logged without invoking the callback or replacing the previous registration. Registration survives configuration resets and stop/start cycles. Each `ProfileExporter` receives a copy for its run. Configuration validation receives the delivery mode explicitly and does not own the callable.
 
