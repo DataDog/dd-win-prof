@@ -7,10 +7,15 @@
 
 #include "EnvironmentVariables.h"
 #include "Profiler.h"
+#include "internal/dd-win-prof-private.h"
 #include "internal/dd-win-rum-private.h"
 #include "pch.h"
 
 namespace {
+using dd_win_prof::SetupProfiler;
+using dd_win_prof::StartProfiler;
+using dd_win_prof::StopProfiler;
+
 class ScopedEnvironment {
  public:
   ScopedEnvironment(const char* name, const char* value) : _name(name) {
@@ -30,7 +35,6 @@ class ScopedEnvironment {
   const char* _name;
   std::string _previous;
 };
-}  // namespace
 
 class LifecycleDiagnosticTests : public ::testing::Test {
  protected:
@@ -61,6 +65,54 @@ class LifecycleDiagnosticTests : public ::testing::Test {
   std::optional<Configuration> previous;
   std::unique_ptr<Profiler> profiler;
 };
+
+TEST_F(LifecycleDiagnosticTests, PublicCSetupRejectsNullAndInvalidConfiguration) {
+  EXPECT_FALSE(::SetupProfiler(nullptr));
+  ProfilerConfig config{};
+  EXPECT_FALSE(::SetupProfiler(&config));
+  EXPECT_FALSE(profiler->IsStarted());
+}
+
+TEST_F(LifecycleDiagnosticTests, PublicCLifecycleCanRestart) {
+  int calls = 0;
+  ASSERT_TRUE(SetupProfilingDataCallback([&](ProfilingData data) {
+    EXPECT_EQ(data.result, 0u);
+    EXPECT_TRUE(data.isLast);
+    ++calls;
+  }));
+  ProfilerConfig config{};
+  config.size = sizeof(config);
+  config.noEnvVars = true;
+  config.uploadIntervalSeconds = 3600;
+  ASSERT_TRUE(::SetupProfiler(&config));
+  for (int cycle = 0; cycle < 2; ++cycle) {
+    ASSERT_TRUE(::StartProfiler());
+    EXPECT_FALSE(::StartProfiler());
+    EXPECT_FALSE(::SetupProfiler(&config));
+    EXPECT_TRUE(::StopProfiler());
+    EXPECT_FALSE(profiler->IsStarted());
+    EXPECT_TRUE(::StopProfiler());
+  }
+  EXPECT_EQ(calls, 2);
+}
+
+TEST_F(LifecycleDiagnosticTests, PublicCStopContainsCallbackExceptions) {
+  ConfigureCallback([](ProfilingData) { throw std::runtime_error("callback failed"); });
+  ASSERT_TRUE(::StartProfiler());
+  EXPECT_FALSE(::StopProfiler());
+  EXPECT_FALSE(profiler->IsStarted());
+  EXPECT_TRUE(::StopProfiler());
+}
+
+TEST_F(LifecycleDiagnosticTests, PublicCOperationsHandleMissingInstance) {
+  profiler.reset();
+  ProfilerConfig config{};
+  config.size = sizeof(config);
+  EXPECT_FALSE(::SetupProfiler(&config));
+  EXPECT_FALSE(::StartProfiler());
+  EXPECT_FALSE(::StopProfiler());
+  profiler = std::make_unique<Profiler>();
+}
 
 TEST_F(LifecycleDiagnosticTests, InvalidConfigurationReturnsFalse) {
   ProfilerConfig config{};
@@ -195,3 +247,4 @@ TEST(LifecycleFinalExportTests, HttpStatusAlwaysDescribesDeliveryOutcome) {
     EXPECT_EQ(exporter.CheckExportResponse(status), status >= 200 && status < 300);
   }
 }
+}  // namespace

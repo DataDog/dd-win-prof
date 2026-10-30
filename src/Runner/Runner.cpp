@@ -17,6 +17,7 @@
 #include "..\dd-win-prof\Uuid.h"
 #include "Helpers.h"
 #include "Spinner.h"
+#include "internal/dd-win-prof-private.h"
 #include "internal/dd-win-rum-private.h"
 
 // scenarios
@@ -483,12 +484,12 @@ int main(int argc, char* argv[]) {
   config.pprofOutputDirectory = opts.pprofDir.empty() ? nullptr : opts.pprofDir.c_str();
   config.symbolizeCallstacks = opts.symbolize;
 
-  if (!SetupProfiler(config)) {
+  if (!dd_win_prof::SetupProfiler(config)) {
     std::cerr << "Failed to configure the profiler; see native logs\n";
     return -2;
   }
 
-  if (!StartProfiler()) {
+  if (!dd_win_prof::StartProfiler()) {
     std::cerr << "Failed to start the profiler; see native logs\n";
     return -1;
   }
@@ -520,7 +521,7 @@ int main(int argc, char* argv[]) {
     }
   }
 
-  if (!StopProfiler()) {
+  if (!dd_win_prof::StopProfiler()) {
     std::cerr << "Failed to stop or export the final profile; see native logs\n";
     return -3;
   }

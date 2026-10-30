@@ -85,7 +85,7 @@ Define your configuration in a `ProfilerConfig` instance and pass it to `SetupPr
     config.serviceEnvironment = "production";
     config.serviceName = "my-windows-app";
     config.serviceVersion = "1.2.3";
-    if (!SetupProfiler(config)) {
+    if (!SetupProfiler(&config)) {
         // Setup failed (e.g. mandatory fields missing when noEnvVars=true)
         return -1;
     }

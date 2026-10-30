@@ -38,6 +38,7 @@ install(FILES
     DESTINATION include
 )
 install(FILES
+    "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/internal/dd-win-prof-private.h"
     "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/internal/dd-win-rum-private.h"
     "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/internal/error.h"
     DESTINATION include/internal)

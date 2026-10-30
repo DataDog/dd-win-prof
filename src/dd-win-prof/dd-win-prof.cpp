@@ -4,6 +4,7 @@
 
 #include "Log.h"
 #include "Profiler.h"
+#include "internal/dd-win-prof-private.h"
 #include "internal/dd-win-rum-private.h"
 #include "pch.h"
 
@@ -42,6 +43,7 @@ DD_WIN_PROF_API bool SetupProfilingDataCallback(
   });
 }
 
+namespace dd_win_prof {
 DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig& settings) noexcept {
   return RunLifecycle([&](Profiler& profiler) { return profiler.Configure(settings); });
 }
@@ -53,6 +55,19 @@ DD_WIN_PROF_API bool StartProfiler() noexcept {
 DD_WIN_PROF_API bool StopProfiler() noexcept {
   return RunLifecycle([](Profiler& profiler) { return profiler.StopProfiling(); });
 }
+}  // namespace dd_win_prof
+
+DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig* pSettings) {
+  if (pSettings == nullptr) {
+    LogLifecycleException("Null profiler configuration structure");
+    return false;
+  }
+  return dd_win_prof::SetupProfiler(*pSettings);
+}
+
+DD_WIN_PROF_API bool StartProfiler() { return dd_win_prof::StartProfiler(); }
+
+DD_WIN_PROF_API bool StopProfiler() { return dd_win_prof::StopProfiler(); }
 
 DD_WIN_PROF_API const char* GetProfilingErrorMessage(uint32_t result) noexcept {
   switch (static_cast<ProfilingErrorCode>(result)) {

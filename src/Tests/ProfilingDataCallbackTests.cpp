@@ -19,10 +19,15 @@
 #include "LibDatadogHelper.h"
 #include "ProfileExporter.h"
 #include "Profiler.h"
+#include "internal/dd-win-prof-private.h"
 #include "internal/dd-win-rum-private.h"
 #include "pch.h"
 
 namespace {
+using dd_win_prof::SetupProfiler;
+using dd_win_prof::StartProfiler;
+using dd_win_prof::StopProfiler;
+
 struct EncodingFailureState {
   bool serialize = false;
   bool bytes = false;
@@ -125,7 +130,6 @@ void DropStringStorageWithCounting(ddog_prof_ManagedStringStorage storage) {
   ++startupFailure.storageDrops;
   ddog_prof_ManagedStringStorage_drop(storage);
 }
-}  // namespace
 
 class ProfilingDataCallbackTests : public ::testing::Test {
  protected:
@@ -853,3 +857,4 @@ TEST(ProfilingDataExportTests, ThrowingCallbackDoesNotPreventNextExport) {
   EXPECT_EQ(calls, 3);
   exporter.Cleanup();
 }
+}  // namespace

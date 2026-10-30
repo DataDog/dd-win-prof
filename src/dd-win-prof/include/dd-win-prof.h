@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include <cstdint>
+#include <stdint.h>
 
 #ifdef DD_WIN_PROF_STATIC_LINK
 #define DD_WIN_PROF_API
@@ -14,7 +14,7 @@
 #define DD_WIN_PROF_API __declspec(dllimport)
 #endif
 
-struct ProfilerConfig {
+typedef struct _ProfilerConfig {
   uint32_t size;  // size of this struct, for versioning
 
   // env vars usage
@@ -51,20 +51,20 @@ struct ProfilerConfig {
   //       via DD_TRACE_LOG_DIRECTORY (default: %PROGRAMDATA%\Datadog Tracer\logs)
   const char* pprofOutputDirectory;  // override for pprof debug output directory
                                      // (default: empty = disabled)
-};
+} ProfilerConfig;
+
+extern "C" {
 
 // Serialize lifecycle/registration calls; do not call them from profiling callbacks.
 // Configure while stopped. Preserves callback registration.
-DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig& settings) noexcept;
+DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig* pSettings);
 
 // Can be restarted after StopProfiler().
-DD_WIN_PROF_API bool StartProfiler() noexcept;
+DD_WIN_PROF_API bool StartProfiler();
 
 // Final export runs on this thread. Waits for callbacks, not queued SDK work.
 // No callbacks run after return until the next start. Safe to call when stopped.
-DD_WIN_PROF_API bool StopProfiler() noexcept;
-
-extern "C" {
+DD_WIN_PROF_API bool StopProfiler();
 
 // Enter a named view. Generates a unique view_id internally.
 // Updates per-sample pprof labels: rum.view_id and trace endpoint (viewName).
