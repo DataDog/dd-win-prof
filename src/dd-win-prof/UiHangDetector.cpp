@@ -9,6 +9,8 @@
 #include "pch.h"
 
 UiHangDetector* UiHangDetector::_this = nullptr;
+std::mutex UiHangDetector::_instanceMutex;
+
 constexpr const wchar_t* ThreadName = L"DD_UI_Hang";
 
 UiHangDetector::UiHangDetector(
@@ -39,16 +41,20 @@ UiHangDetector::UiHangDetector(
 UiHangDetector::~UiHangDetector() { Stop(); }
 
 LRESULT CALLBACK GetMsgProc(int code, WPARAM wParam, LPARAM lParam) {
-  if (UiHangDetector::_this == nullptr) {
-    return ::CallNextHookEx(nullptr, code, wParam, lParam);
-  }
-
   if (code < 0) {
     return ::CallNextHookEx(nullptr, code, wParam, lParam);
   }
 
-  // forward to the current instance of UiHangDetector
-  UiHangDetector::_this->ProcessHook(code, wParam, lParam);
+  // don't keep the lock when calling CallNextHookEx that could trigger a reentrency
+  // issue
+  {
+    std::lock_guard<std::mutex> lock(UiHangDetector::_instanceMutex);
+
+    // forward to the current instance of UiHangDetector
+    if (UiHangDetector::_this != nullptr) {
+      UiHangDetector::_this->ProcessHook(code, wParam, lParam);
+    }
+  }
 
   return ::CallNextHookEx(nullptr, code, wParam, lParam);
 }
@@ -65,6 +71,11 @@ bool UiHangDetector::MonitorWindowHangs(HWND hWnd, ThreadList* pThreadList) {
   // we can't monitor more than one window at a time
   if (_hWnd != nullptr) {
     Log::Warn("Impossible to monitor more than one window for UI hang detection.");
+    return false;
+  }
+
+  if (_stopEvent == nullptr) {
+    Log::Warn("Failed to create the stop event.");
     return false;
   }
 
@@ -123,7 +134,9 @@ bool UiHangDetector::MonitorWindowHangs(HWND hWnd, ThreadList* pThreadList) {
 }
 
 void UiHangDetector::Stop() {
-  // Should be called only once
+  std::lock_guard<std::mutex> lock(UiHangDetector::_instanceMutex);
+
+  // Do nothing if called several times
   if (_stopEvent == nullptr) {
     return;
   }

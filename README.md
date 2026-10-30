@@ -20,9 +20,10 @@ In your project, you need the following files:
 Use the headers and import library supplied with the DLL.
 
 The following files are required in the folder from where the application runs:
+
 - **dd-win-prof.dll**: profiling code
 - **datadog_profiling_ffi.dll**: responsible for serializing and sending the profiles to Datadog via HTTP
-*Note: the corresponding .pdb files are available for debugging purposes*
+  *Note: the corresponding .pdb files are available for debugging purposes*
 
 ## CMake Setup
 
@@ -99,13 +100,13 @@ Define your configuration in a `ProfilerConfig` instance and pass it to `SetupPr
 
 **ProfilerConfig fields** (see `dd-win-prof.h`):
 
-| Field | Description |
-|-------|-------------|
-| `noEnvVars` | If true, ignore env vars; use only struct values (default: false) |
-| `serviceName`, `serviceEnvironment`, `serviceVersion` | Application metadata |
-| `url`, `apiKey` | Mandatory when `noEnvVars=true`; otherwise can come from env |
-| `pprofOutputDirectory` | Override for local pprof debug output (default: empty) |
-| `tags`, `symbolizeCallstacks` | Tags and symbolization options |
+| Field                                                 | Description                                                       |
+| ----------------------------------------------------- | ----------------------------------------------------------------- |
+| `noEnvVars`                                           | If true, ignore env vars; use only struct values (default: false) |
+| `serviceName`, `serviceEnvironment`, `serviceVersion` | Application metadata                                              |
+| `url`, `apiKey`                                       | Mandatory when `noEnvVars=true`; otherwise can come from env      |
+| `pprofOutputDirectory`                                | Override for local pprof debug output (default: empty)            |
+| `tags`, `symbolizeCallstacks`                         | Tags and symbolization options                                    |
 
 **Note:** Log output directory is **not** configurable via `ProfilerConfig`. It is set at DLL load time via the `DD_TRACE_LOG_DIRECTORY` environment variable (default: `%PROGRAMDATA%\Datadog Tracer\logs`).
 
@@ -135,6 +136,7 @@ When `DD_API_KEY` is set, profiling data is sent directly to the Datadog intake 
 ### Example configurations
 
 **Agentless via env vars:**
+
 ```bash
 DD_SERVICE=my-windows-app
 DD_SITE=datadoghq.com
@@ -144,6 +146,7 @@ DD_ENV=production
 ```
 
 **Agent-based:**
+
 ```bash
 DD_SERVICE=my-windows-app
 DD_VERSION=1.2.3
@@ -152,51 +155,12 @@ DD_ENV=production
 
 Call [StartProfiler](./src/dd-win-prof/include/dd-win-prof.h) when ready; [StopProfiler](./src/dd-win-prof/include/dd-win-prof.h) when done. Use `DD_PROFILING_ENABLED=0` to disable profiling even if `StartProfiler` is called.
 
-### Public API lifecycle
-
-The DLL creates one process-wide profiler instance. Each successful
-`StartProfiler()` begins a new profiling session, and `StopProfiler()` ends that
-session. Starting another session in the same process is supported:
-
-```C++
-if (StartProfiler()) {
-    MonitorWindowHangs(hwnd);  // Optional; at most one window per session
-    // ...
-    StopProfiler();
-}
-
-if (StartProfiler()) {
-    // UI-hang monitoring is session-scoped and must be registered again.
-    MonitorWindowHangs(hwnd);
-    // ...
-    StopProfiler();
-}
-```
-
-The supported API behavior is:
-
-- `SetupProfiler()` is optional when environment variables provide the
-  configuration. When used, call it while profiling is stopped, before the
-  session it configures.
-- `StartProfiler()` succeeds while stopped, including after a previous
-  `StopProfiler()`.
-- Calling `StartProfiler()` while already running emits a warning and returns
-  `false`.
-- `MonitorWindowHangs()` succeeds only while profiling is running. Calling it
-  before the first start or after a stop emits a warning and returns `false`.
-- Only one window can be registered in a profiling session. A second
-  registration attempt after one succeeds emits a warning and returns `false`.
-- `StopProfiler()` ends and exports the current session. Calling it before a
-  start or after the session is already stopped emits a warning and otherwise
-  has no effect.
-
 Call `StopProfiler()` before process exit to export the final profile. During
 process termination, the DLL skips profiler cleanup because Windows may already
 have terminated threads holding its locks. This does not add support for dynamic
 DLL unloading with `FreeLibrary()`.
 
 **NOTE:** Method names are obfuscated by default. Add `DD_PROFILING_INTERNAL_SYMBOLIZE_CALLSTACKS=1` to enable symbolization.
-
 
 ## How to build dd-win-prof
 
@@ -246,6 +210,7 @@ resulting solution. Every configuration in that solution (Debug, Release, ...)
 will be ASan-instrumented; pick Debug from the VS dropdown for typical use.
 
 Requirements:
+
 - The **C++ AddressSanitizer** component must be installed via the Visual
   Studio Installer (`Modify` → *Individual components* → search "AddressSanitizer").
 - No Developer Command Prompt needed: the build locates the ASan runtime DLL
@@ -278,14 +243,14 @@ dd-win-prof/
 
 After building, the key artifacts are:
 
-| Artifact | Location |
-|----------|----------|
-| `dd-win-prof.dll` / `.lib` / `.pdb` | `build\src\dd-win-prof\<Config>\` |
-| `datadog_profiling_ffi.dll` | `build\_deps\libdatadog-src\<config>\dynamic\` |
-| `Runner.exe` | `build\src\Runner\<Config>\` |
-| `Tests.exe` | `build\src\Tests\<Config>\` |
-| `ProfilerInjector.exe` | `build\src\ProfilerInjector\<Config>\` |
-| **All runtime DLLs together** | `src\reference\` (copied by POST_BUILD) |
+| Artifact                            | Location                                       |
+| ----------------------------------- | ---------------------------------------------- |
+| `dd-win-prof.dll` / `.lib` / `.pdb` | `build\src\dd-win-prof\<Config>\`              |
+| `datadog_profiling_ffi.dll`         | `build\_deps\libdatadog-src\<config>\dynamic\` |
+| `Runner.exe`                        | `build\src\Runner\<Config>\`                   |
+| `Tests.exe`                         | `build\src\Tests\<Config>\`                    |
+| `ProfilerInjector.exe`              | `build\src\ProfilerInjector\<Config>\`         |
+| **All runtime DLLs together**       | `src\reference\` (copied by POST_BUILD)        |
 
 The `src\reference\` directory is the easiest way to get all the files needed at runtime — after a successful build it contains `dd-win-prof.dll`, `dd-win-prof.lib`, `dd-win-prof.pdb`, `datadog_profiling_ffi.dll`, and `datadog_profiling_ffi.pdb`. It is only populated when dd-win-prof is built as the top-level project (or with `DD_WIN_PROF_DEVELOPMENT=ON` / `DD_WIN_PROF_BUILD_RUNNER=ON`). Projects that consume dd-win-prof via `FetchContent` or `add_subdirectory` should call `dd_win_prof_copy_runtime_deps(<target>)` instead.
 
