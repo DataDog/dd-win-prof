@@ -20,8 +20,9 @@ include(FetchContent)
 FetchContent_Declare(dd-win-prof SOURCE_DIR "${DD_WIN_PROF_SOURCE_DIR}")
 FetchContent_MakeAvailable(dd-win-prof)
 
-add_executable(consumer main.cpp)
+add_executable(consumer main.cpp sdk-internal.cpp)
 target_link_libraries(consumer PRIVATE dd-win-prof)
+dd_win_prof_copy_runtime_deps(consumer)
 install(TARGETS consumer RUNTIME DESTINATION bin)
 
 # Export dd-win-prof from this project's own install set, as the README documents
@@ -32,5 +33,12 @@ install(TARGETS dd-win-prof
     RUNTIME DESTINATION bin
     ARCHIVE DESTINATION lib
 )
-install(FILES "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/dd-win-prof.h" DESTINATION include)
+install(FILES
+    "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/dd-win-prof.h"
+    DESTINATION include
+)
+install(FILES
+    "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/internal/dd-win-rum-private.h"
+    "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/internal/error.h"
+    DESTINATION include/internal)
 install(EXPORT ConsumerTargets DESTINATION lib/cmake/consumer)

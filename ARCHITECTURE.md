@@ -24,7 +24,8 @@ This is a Windows native profiler that performs CPU sampling and exports profile
 - Exports `SetupProfiler()`, `StartProfiler()` and `StopProfiler()` functions for controlling the profiler
 - Exports `EnterView()` and `LeaveCurrentView()` for RUM view navigation
 
-**`dd-win-rum-private.h`** - SDK-level RUM context API (exported but not public)
+**`include/internal/dd-win-rum-private.h`** - SDK-internal API shipped for dependency consumers
+- Exports `SetupProfilingDataCallback()` for SDK-managed profile delivery
 - Exports `SetRumSession()` and `SetRumView()` for fine-grained RUM context management
 - Pass `nullptr` to `SetRumSession()` to end the current session
 
@@ -179,7 +180,13 @@ Configuration is managed in `Configuration.cpp`. Values come from two sources, w
 
 2. **`SetupProfiler(const ProfilerConfig*)`** (`dd-win-prof.cpp`): Callers pass a `ProfilerConfig` struct; `InitializeConfiguration()` applies its fields to the shared `Configuration` instance.
 
-**No-env-vars mode** (`ProfilerConfig.noEnvVars == true`): `ResetToDefaults()` is called first, then only explicit struct fields are applied. All environment variables are ignored. In this mode, `url` and `apiKey` are mandatory; `SetupProfiler` returns `false` if either is missing.
+**Compatibility**: The public lifecycle API retains C linkage: `bool SetupProfiler(const ProfilerConfig*)`, `bool StartProfiler()` and `void StopProfiler()`. The SDK-private callback is supported only as a source-build dependency with compatible compiler, standard library and CRT settings. No callback API/ABI compatibility is guaranteed across versions or independent builds.
+
+**SDK callback registration**: `Profiler` owns the callback registered through `SetupProfilingDataCallback()`. The function returns `bool`; failure is logged without invoking the callback or replacing the previous registration. Registration survives configuration resets and stop/start cycles. Each `ProfileExporter` receives a copy for its run. Configuration validation receives the delivery mode explicitly and does not own the callable.
+
+**Callback errors**: Native details are logged at the failure site, without last-error storage, severity or reporting flags. Only the callback boundary carries a numeric code: `ProfilingData.result` is zero for an owned profile, otherwise a `ProfilingErrorCode` with empty pprof bytes. `GetProfilingErrorMessage(uint32_t)` returns static explanatory text, including a fallback for unknown codes. It needs no allocation, copying, cleanup or error state. Final export errors have `isLast` set, just like final profiles. Errors do not trigger automatic shutdown.
+
+**No-env-vars mode** (`ProfilerConfig.noEnvVars == true`): `ResetToDefaults()` is called first, then only explicit struct fields are applied. All environment variables are ignored. For HTTP delivery, `url` and `apiKey` are mandatory; `SetupProfiler` returns `false` if either is missing. Callback delivery does not require them.
 
 **ProfilerConfig fields**: `serviceName`, `serviceEnvironment`, `serviceVersion`, `url`, `apiKey`, `tags`, `pprofOutputDirectory`, `symbolizeCallstacks`, plus tuning parameters (`cpuWallTimeSamplingPeriodNs`, `walltimeThreadsThreshold`, etc.). The **log directory** is not configurable via ProfilerConfig; it is set at DLL load time from `DD_TRACE_LOG_DIRECTORY` in `Log.h`.
 

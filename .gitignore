@@ -49,6 +49,7 @@
 # Environment files (API keys and profiler settings)
 .env
 .env.*
+.env_template
 
 # https://github.com/VerifyTests/Verify
 *.received.*

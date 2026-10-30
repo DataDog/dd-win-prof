@@ -19,8 +19,10 @@
       - a separate project (consumer/downstream) can configure, compile and link
         against the installed, exported dd-win-prof target (include path, header
         install and import library)
-    The compile steps additionally fail if dd-win-prof exposes internal headers (see
-    consumer/main.cpp) or if dd-win-prof.h isn't self-contained.
+      - consumers can register the SDK callback and retain a profile after stop
+        through both FetchContent and installed headers
+    The compile steps additionally fail if dd-win-prof exposes implementation headers
+    (see consumer/main.cpp) or either published header isn't self-contained.
 
     Run by the "Consume as dependency" job in .github/workflows/test.yml.
 
@@ -64,6 +66,17 @@ function Invoke-Soft {
     return ($LASTEXITCODE -eq 0)
 }
 
+function Invoke-Consumer([string]$Path) {
+    $previousAutoStart = $env:DD_PROFILING_AUTO_START
+    try {
+        $env:DD_PROFILING_AUTO_START = '0'
+        & $Path | Out-Host
+        return ($LASTEXITCODE -eq 0)
+    } finally {
+        $env:DD_PROFILING_AUTO_START = $previousAutoStart
+    }
+}
+
 # Snapshot of the working tree, ignoring the dependency cache CI keeps inside it.
 function Get-SourceTreeState {
     git -C $repoRoot status --porcelain --untracked-files=all -- . ':(exclude).deps'
@@ -88,6 +101,12 @@ Invoke-Checked cmake --build $buildDir --config $Config
 Invoke-Checked cmake --install $buildDir --config $Config --prefix $installDir
 
 $failures = @()
+if (-not (Invoke-Consumer (Join-Path $buildDir "$Config/consumer.exe"))) {
+    $failures += 'FetchContent consumer failed SDK callback delivery'
+}
+if (-not (Invoke-Consumer (Join-Path $installDir 'bin/consumer.exe'))) {
+    $failures += 'Installed consumer failed SDK callback delivery'
+}
 
 # A project that only has the installed prefix must be able to use the exported target:
 # the include path has to resolve (dd-win-prof.h installed under <prefix>/include) and
@@ -97,8 +116,9 @@ $ok = Invoke-Soft cmake -G 'Visual Studio 17 2022' -A x64 `
     -S (Join-Path $repoRoot 'e2e-tests/consumer/downstream') -B $downstreamDir `
     ('-DDD_WIN_PROF_CONSUMER_PREFIX=' + ($installDir -replace '\\', '/'))
 if ($ok) { $ok = Invoke-Soft cmake --build $downstreamDir --config $Config }
+if ($ok) { $ok = Invoke-Consumer (Join-Path $downstreamDir "$Config/downstream.exe") }
 if (-not $ok) {
-    $failures += 'A project using the installed, exported dd-win-prof target failed to configure or build (include path, header install or import library)'
+    $failures += 'A project using the installed, exported dd-win-prof target failed to configure, build or run its SDK callback'
 }
 
 # GoogleTest must not have been fetched.
@@ -132,6 +152,8 @@ $expectedInstalled = @(
     'bin/consumer.exe',
     'bin/dd-win-prof.dll',
     'include/dd-win-prof.h',
+    'include/internal/error.h',
+    'include/internal/dd-win-rum-private.h',
     'lib/cmake/consumer/ConsumerTargets.cmake',
     "lib/cmake/consumer/ConsumerTargets-$($Config.ToLower()).cmake",
     'lib/dd-win-prof.lib'
