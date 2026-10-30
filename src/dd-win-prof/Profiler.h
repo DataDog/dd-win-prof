@@ -14,7 +14,7 @@
 #include "UiHangDetector.h"
 #include "UiHangProvider.h"
 #include "dd-win-prof.h"
-#include "dd-win-rum-private.h"
+#include "internal/dd-win-rum-private.h"
 #include "pch.h"
 
 class Profiler : public IRumViewContextProvider,
@@ -27,6 +27,15 @@ class Profiler : public IRumViewContextProvider,
   bool StartProfiling();
   bool MonitorWindowHangs(HWND hWnd);
   void StopProfiling(bool shutdownOngoing = false);
+
+  [[nodiscard]] bool SetProfilingDataCallback(const ProfilingDataCallback& callback);
+  const ProfilingDataCallback& GetProfilingDataCallback() const {
+    return _profilingDataCallback;
+  }
+  ProfileDeliveryMode GetDeliveryMode() const {
+    return _profilingDataCallback ? ProfileDeliveryMode::Callback
+                                  : ProfileDeliveryMode::Http;
+  }
 
   bool AddCurrentThread();
   void RemoveCurrentThread();
@@ -68,6 +77,8 @@ class Profiler : public IRumViewContextProvider,
   }
 
  private:
+  friend class ProfilerShutdownTest;
+
   static Profiler* _this;
 
   // configuration
@@ -86,6 +97,7 @@ class Profiler : public IRumViewContextProvider,
   std::unique_ptr<UiHangProvider> _pUiHangProvider = nullptr;
 
   // exporter
+  ProfilingDataCallback _profilingDataCallback;
   std::unique_ptr<ProfileExporter> _pProfileExporter = nullptr;
 
   // samples collector

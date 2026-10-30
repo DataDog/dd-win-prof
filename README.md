@@ -14,8 +14,10 @@ Implementation of a Windows CPU profiler
 
 In your project, you need the following files:
 
-- **dd-win-prof.h**: header containing the declaration of the `StartProfiler` and `StopProfiler` functions to be called when the application starts and when it stops.
-- **dd-win-prof.lib**: library containing the stub for the two functions pointing to **dd-win-prof.dll**
+- **dd-win-prof.h**: public API and configuration declarations.
+- **dd-win-prof.lib**: import library for **dd-win-prof.dll**
+
+Use the headers and import library supplied with the DLL.
 
 The following files are required in the folder from where the application runs:
 - **dd-win-prof.dll**: profiling code
@@ -187,6 +189,11 @@ The supported API behavior is:
 - `StopProfiler()` ends and exports the current session. Calling it before a
   start or after the session is already stopped emits a warning and otherwise
   has no effect.
+
+Call `StopProfiler()` before process exit to export the final profile. During
+process termination, the DLL skips profiler cleanup because Windows may already
+have terminated threads holding its locks. This does not add support for dynamic
+DLL unloading with `FreeLibrary()`.
 
 **NOTE:** Method names are obfuscated by default. Add `DD_PROFILING_INTERNAL_SYMBOLIZE_CALLSTACKS=1` to enable symbolization.
 
