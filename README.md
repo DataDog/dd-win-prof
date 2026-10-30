@@ -17,7 +17,7 @@ In your project, you need the following files:
 - **dd-win-prof.h**: public API and configuration declarations.
 - **dd-win-prof.lib**: import library for **dd-win-prof.dll**
 
-Use matching headers and binaries built with compatible C++ toolchains. See [architecture](ARCHITECTURE.md#configuration) for the SDK-private callback's source-build and CRT compatibility requirements.
+Use the headers and import library supplied with the DLL.
 
 The following files are required in the folder from where the application runs:
 - **dd-win-prof.dll**: profiling code
