@@ -190,8 +190,8 @@ TEST(LifecycleFinalExportTests, HttpStatusAlwaysDescribesDeliveryOutcome) {
   Configuration config;
   std::vector<SampleValueType> types{{"cpu-time", "nanoseconds"}};
   ProfileExporter exporter(&config, types);
-  for (const uint16_t status :
-       {200, 202, 204, 301, 400, 403, 404, 429, 500, 503, 504}) {
+  for (const uint16_t status : {199, 200, 202, 204, 299, 300, 301, 400, 401, 403, 404,
+                                408, 413, 418, 429, 500, 502, 503, 504, 599, 600}) {
     EXPECT_EQ(exporter.CheckExportResponse(status), status >= 200 && status < 300);
   }
 }

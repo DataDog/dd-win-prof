@@ -29,6 +29,39 @@ using namespace dd_win_prof;
 using namespace OsSpecificApi;
 
 namespace {
+const char* HttpErrorMessage(uint16_t responseCode) noexcept {
+  switch (responseCode) {
+    case 400:
+      return "Bad request; check profile payload and metadata";
+    case 401:
+      return "Unauthorized; check API key";
+    case 403:
+      return "Forbidden; check API key and access permissions";
+    case 404:
+      return "Not found; check profiling endpoint";
+    case 408:
+      return "Request timeout";
+    case 413:
+      return "Profile too large";
+    case 429:
+      return "Rate limited";
+    case 502:
+      return "Bad gateway";
+    case 503:
+      return "Service unavailable";
+    case 504:
+      return "Gateway timeout";
+    default:
+      if (responseCode >= 500 && responseCode < 600) {
+        return "Server error";
+      }
+      if (responseCode >= 300 && responseCode < 400) {
+        return "Unexpected redirect; check upload URL";
+      }
+      return "Unexpected HTTP response";
+  }
+}
+
 int64_t ToUnixTimeMs(std::chrono::system_clock::time_point time) {
   return std::chrono::duration_cast<std::chrono::milliseconds>(time.time_since_epoch())
       .count();
@@ -1589,7 +1622,12 @@ bool ProfileExporter::CheckExportResponse(uint16_t responseCode) {
   if (responseCode >= 200 && responseCode < 300) {
     return true;
   }
-  Log::Error("Profile upload rejected with HTTP ", responseCode);
+  Log::Error(
+      "Profile upload failed with HTTP ",
+      responseCode,
+      ": ",
+      HttpErrorMessage(responseCode)
+  );
   return false;
 }
 
