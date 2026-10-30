@@ -155,6 +155,11 @@ DD_ENV=production
 
 Call [StartProfiler](./src/dd-win-prof/include/dd-win-prof.h) when ready; [StopProfiler](./src/dd-win-prof/include/dd-win-prof.h) when done. Use `DD_PROFILING_ENABLED=0` to disable profiling even if `StartProfiler` is called.
 
+Call `StopProfiler()` before process exit to export the final profile. During
+process termination, the DLL skips profiler cleanup because Windows may already
+have terminated threads holding its locks. This does not add support for dynamic
+DLL unloading with `FreeLibrary()`.
+
 **NOTE:** Method names are obfuscated by default. Add `DD_PROFILING_INTERNAL_SYMBOLIZE_CALLSTACKS=1` to enable symbolization.
 
 

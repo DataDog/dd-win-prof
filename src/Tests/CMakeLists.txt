@@ -6,6 +6,7 @@ add_executable(Tests
     LifecycleDiagnosticTests.cpp
     PprofAggregatorTests.cpp
     ProfileExporterTests.cpp
+    ProfilerShutdownTests.cpp
     ProfilingDataCallbackTests.cpp
     ProfilingErrorMessageTests.cpp
     RumContextTests.cpp
@@ -21,6 +22,7 @@ add_executable(Tests
     ../dd-win-prof/Configuration.cpp
     ../dd-win-prof/CpuTimeProvider.cpp
     ../dd-win-prof/dd-win-prof.cpp
+    ../dd-win-prof/dllmain.cpp
     ../dd-win-prof/OsSpecificApi.cpp
     ../dd-win-prof/OsSysTools.cpp
     ../dd-win-prof/PprofAggregator.cpp
