@@ -301,7 +301,13 @@ void UiHangDetector::WatchdogLoop() {
       if (isProcessed) {
         // so, emit a sample for its ending
         std::chrono::nanoseconds timestamp = _processedProbeTimestamp.load();
-        AddHangSample(false, timestamp, timestamp - _hangDetectionTimestamp);
+        std::chrono::nanoseconds hangDuration = timestamp - _hangDetectionTimestamp;
+        if (hangDuration < 0ns) {
+          // handle race condition where the probe message was processed JUST before the hang
+          // detection timestamp was set
+          hangDuration = 1ms;
+        }
+        AddHangSample(false, timestamp, hangDuration);
 
         // reset the last timestamp to avoid overcounting the next wait sample duration
         _pThreadInfo->SetLastWaitSampleTimestamp(timestamp);
