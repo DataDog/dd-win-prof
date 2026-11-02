@@ -5,8 +5,60 @@
 #include "Log.h"
 #include "Profiler.h"
 #include "dd-win-prof-internal.h"
-#include "dd-win-rum-private.h"
+#include "internal/dd-win-rum-private.h"
 #include "pch.h"
+
+namespace {
+void LogLifecycleException(const char* message) noexcept {
+  try {
+    Log::Error("Profiler lifecycle operation failed: ", message);
+  } catch (...) {
+    // Logging must not let exceptions escape the public API.
+  }
+}
+
+template <typename Action>
+bool RunLifecycle(Action action) noexcept {
+  try {
+    auto profiler = Profiler::GetInstance();
+    if (profiler == nullptr) {
+      Log::Error("Profiler instance is unavailable");
+      return false;
+    }
+    return action(*profiler);
+  } catch (const std::exception& error) {
+    LogLifecycleException(error.what());
+  } catch (...) {
+    LogLifecycleException("Non-standard exception");
+  }
+  return false;
+}
+}  // namespace
+
+DD_WIN_PROF_API bool SetupProfilingDataCallback(
+    const ProfilingDataCallback& callback
+) noexcept {
+  return RunLifecycle([&](Profiler& profiler) {
+    return profiler.SetProfilingDataCallback(callback);
+  });
+}
+
+DD_WIN_PROF_API const char* GetProfilingErrorMessage(uint32_t result) noexcept {
+  switch (static_cast<ProfilingErrorCode>(result)) {
+    case ProfilingErrorCode::None:
+      return "Success";
+    case ProfilingErrorCode::SerializationFailed:
+      return "Profile serialization failed";
+    case ProfilingErrorCode::ProfileBytesUnavailable:
+      return "Encoded profile bytes are unavailable";
+    case ProfilingErrorCode::ProfileResetFailed:
+      return "Profile reset failed";
+    case ProfilingErrorCode::SampleLabelsUnavailable:
+      return "Sample labels are unavailable";
+    default:
+      return "Unknown profiling error";
+  }
+}
 
 extern "C" {
 
@@ -34,7 +86,9 @@ DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig* pSettings) {
     return false;
   }
 
-  return InitializeConfiguration(Profiler::GetConfiguration(), pSettings);
+  return InitializeConfiguration(
+      Profiler::GetConfiguration(), pSettings, profiler->GetDeliveryMode()
+  );
 }
 
 DD_WIN_PROF_API bool StartProfiler() {

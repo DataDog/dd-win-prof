@@ -22,18 +22,18 @@ std::chrono::seconds const Configuration::DefaultProdUploadInterval = 60s;
 
 // these are used to override the environment variables via API
 void Configuration::SetServiceName(const char* serviceName) {
-  _serviceName = serviceName;
+  _upload.serviceName = serviceName;
 }
 
 void Configuration::SetEnvironmentName(const char* environmentName) {
-  _environmentName = environmentName;
+  _upload.environmentName = environmentName;
 }
 
-void Configuration::SetVersion(const char* version) { _version = version; }
+void Configuration::SetVersion(const char* version) { _upload.version = version; }
 
-void Configuration::SetEndpoint(const char* url) { _site = url; }
+void Configuration::SetEndpoint(const char* url) { _upload.site = url; }
 
-void Configuration::SetApiKey(const char* apiKey) { _apiKey = apiKey; }
+void Configuration::SetApiKey(const char* apiKey) { _upload.apiKey = apiKey; }
 
 void Configuration::InitDefaults() {
   _debugLogEnabled = false;
@@ -43,22 +43,22 @@ void Configuration::InitDefaults() {
   _isProfilerAutoStartEnabled = false;
   _isCpuProfilingEnabled = true;
   _isWallTimeProfilingEnabled = true;
-  _isExportEnabled = true;
+  _upload.enabled = true;
   _uploadPeriod = DefaultProdUploadInterval;
-  _userTags = {};
-  _version = DefaultVersion;
-  _environmentName = DefaultEnvironment;
-  _serviceName = OpSysTools::GetProcessName();
-  _hostname = OpSysTools::GetHostname();
+  _upload.userTags = {};
+  _upload.version = DefaultVersion;
+  _upload.environmentName = DefaultEnvironment;
+  _upload.serviceName = OpSysTools::GetProcessName();
+  _upload.hostname = OpSysTools::GetHostname();
   _cpuWallTimeSamplingPeriod =
       std::chrono::nanoseconds(DefaultSamplingPeriod * 1'000'000);
   _walltimeThreadsThreshold = DefaultWalltimeThreadsThreshold;
   _cpuThreadsThreshold = DefaultCpuThreadsThreshold;
-  _apiKey = DefaultEmptyString;
-  _agentUrl = DefaultEmptyString;
-  _agentHost = DefaultAgentHost;
-  _agentPort = DefaultAgentPort;
-  _site = DefaultProdSite;
+  _upload.apiKey = DefaultEmptyString;
+  _upload.agentUrl = DefaultEmptyString;
+  _upload.agentHost = DefaultAgentHost;
+  _upload.agentPort = DefaultAgentPort;
+  _upload.site = DefaultProdSite;
   _namedPipeName = DefaultEmptyString;
   _areCallstacksSymbolized = false;
 }
@@ -82,28 +82,32 @@ Configuration::Configuration() {
       GetEnvironmentValue(EnvironmentVariables::CpuProfilingEnabled, true);
   _isWallTimeProfilingEnabled =
       GetEnvironmentValue(EnvironmentVariables::WallTimeProfilingEnabled, true);
-  _isExportEnabled = GetEnvironmentValue(EnvironmentVariables::ExportEnabled, true);
+  _upload.enabled = GetEnvironmentValue(EnvironmentVariables::ExportEnabled, true);
 
   _uploadPeriod = ExtractUploadInterval();
-  _userTags = ExtractUserTags();
+  _upload.userTags = ExtractUserTags();
 
-  _version = GetEnvironmentValue(EnvironmentVariables::Version, DefaultVersion);
-  _environmentName =
+  _upload.version = GetEnvironmentValue(EnvironmentVariables::Version, DefaultVersion);
+  _upload.environmentName =
       GetEnvironmentValue(EnvironmentVariables::Environment, DefaultEnvironment);
-  _serviceName = GetEnvironmentValue(
+  _upload.serviceName = GetEnvironmentValue(
       EnvironmentVariables::ServiceName, OpSysTools::GetProcessName()
   );
-  _hostname =
+  _upload.hostname =
       GetEnvironmentValue(EnvironmentVariables::Hostname, OpSysTools::GetHostname());
   _cpuWallTimeSamplingPeriod = ExtractCpuWallTimeSamplingRate();
   _walltimeThreadsThreshold = ExtractWallTimeThreadsThreshold();
   _cpuThreadsThreshold = ExtractCpuThreadsThreshold();
-  _apiKey = GetEnvironmentValue(EnvironmentVariables::ApiKey, DefaultEmptyString);
+  _upload.apiKey =
+      GetEnvironmentValue(EnvironmentVariables::ApiKey, DefaultEmptyString);
 
-  _agentUrl = GetEnvironmentValue(EnvironmentVariables::AgentUrl, DefaultEmptyString);
-  _agentHost = GetEnvironmentValue(EnvironmentVariables::AgentHost, DefaultAgentHost);
-  _agentPort = GetEnvironmentValue(EnvironmentVariables::AgentPort, DefaultAgentPort);
-  _site = ExtractSite();
+  _upload.agentUrl =
+      GetEnvironmentValue(EnvironmentVariables::AgentUrl, DefaultEmptyString);
+  _upload.agentHost =
+      GetEnvironmentValue(EnvironmentVariables::AgentHost, DefaultAgentHost);
+  _upload.agentPort =
+      GetEnvironmentValue(EnvironmentVariables::AgentPort, DefaultAgentPort);
+  _upload.site = ExtractSite();
   _namedPipeName =
       GetEnvironmentValue(EnvironmentVariables::NamedPipeName, DefaultEmptyString);
 
@@ -264,9 +268,11 @@ bool Configuration::IsWallTimeProfilingEnabled() const {
   return _isWallTimeProfilingEnabled;
 }
 
-bool Configuration::IsExportEnabled() const { return _isExportEnabled; }
+bool Configuration::IsExportEnabled(ProfileDeliveryMode mode) const {
+  return mode == ProfileDeliveryMode::Http && _upload.enabled;
+}
 
-void Configuration::SetExportEnabled(bool enabled) { _isExportEnabled = enabled; }
+void Configuration::SetExportEnabled(bool enabled) { _upload.enabled = enabled; }
 
 bool Configuration::AreCallstacksSymbolized() const { return _areCallstacksSymbolized; }
 
@@ -299,27 +305,33 @@ int32_t Configuration::ExtractCpuThreadsThreshold() {
 
 std::chrono::seconds Configuration::GetUploadInterval() const { return _uploadPeriod; }
 
-tags const& Configuration::GetUserTags() const { return _userTags; }
+tags const& Configuration::GetUserTags() const { return _upload.userTags; }
 
 bool Configuration::IsDebugLogEnabled() const { return _debugLogEnabled; }
 
-std::string const& Configuration::GetVersion() const { return _version; }
+std::string const& Configuration::GetVersion() const { return _upload.version; }
 
-std::string const& Configuration::GetEnvironment() const { return _environmentName; }
+std::string const& Configuration::GetEnvironment() const {
+  return _upload.environmentName;
+}
 
-std::string const& Configuration::GetHostname() const { return _hostname; }
+std::string const& Configuration::GetHostname() const { return _upload.hostname; }
 
-std::string const& Configuration::GetAgentUrl() const { return _agentUrl; }
+std::string const& Configuration::GetAgentUrl() const { return _upload.agentUrl; }
 
-std::string const& Configuration::GetAgentHost() const { return _agentHost; }
+std::string const& Configuration::GetAgentHost() const { return _upload.agentHost; }
 
-int32_t Configuration::GetAgentPort() const { return _agentPort; }
+int32_t Configuration::GetAgentPort() const { return _upload.agentPort; }
 
-bool Configuration::IsAgentless() const { return !_apiKey.empty(); }
+bool Configuration::IsAgentless() const { return !_upload.apiKey.empty(); }
 
-bool Configuration::ValidateTransportConfig() const {
-  bool hasAgentSettings = !_agentUrl.empty() || _agentHost != DefaultAgentHost ||
-                          _agentPort != DefaultAgentPort;
+bool Configuration::ValidateTransportConfig(ProfileDeliveryMode mode) const {
+  if (mode == ProfileDeliveryMode::Callback) {
+    return true;
+  }
+  bool hasAgentSettings = !_upload.agentUrl.empty() ||
+                          _upload.agentHost != DefaultAgentHost ||
+                          _upload.agentPort != DefaultAgentPort;
   if (IsAgentless() && hasAgentSettings) {
     Log::Error(
         "Conflicting transport config: DD_API_KEY is set (agentless) but agent "
@@ -331,11 +343,11 @@ bool Configuration::ValidateTransportConfig() const {
   return true;
 }
 
-std::string const& Configuration::GetSite() const { return _site; }
+std::string const& Configuration::GetSite() const { return _upload.site; }
 
-std::string const& Configuration::GetApiKey() const { return _apiKey; }
+std::string const& Configuration::GetApiKey() const { return _upload.apiKey; }
 
-std::string const& Configuration::GetServiceName() const { return _serviceName; }
+std::string const& Configuration::GetServiceName() const { return _upload.serviceName; }
 
 fs::path Configuration::GetApmBaseDirectory() {
   char output[MAX_PATH] = {0};
@@ -460,7 +472,9 @@ T Configuration::GetEnvironmentValue(char const* name, T const& defaultValue) {
   return result;
 }
 
-bool InitializeConfiguration(Configuration* pConfig, const ProfilerConfig* pSettings) {
+bool InitializeConfiguration(
+    Configuration* pConfig, const ProfilerConfig* pSettings, ProfileDeliveryMode mode
+) {
   // if noEnvVars is set, we ignore all environment variables and use only the values
   // provided in the ProfilerConfig struct (or defaults if not set in the struct)
   if (pSettings->noEnvVars) {
@@ -469,14 +483,14 @@ bool InitializeConfiguration(Configuration* pConfig, const ProfilerConfig* pSett
 
   if (pSettings->url != nullptr) {
     pConfig->SetEndpoint(pSettings->url);
-  } else if (pSettings->noEnvVars) {
+  } else if (pSettings->noEnvVars && mode == ProfileDeliveryMode::Http) {
     Log::Error("Url endpoint must be set.");
     return false;
   }
 
   if (pSettings->apiKey != nullptr) {
     pConfig->SetApiKey(pSettings->apiKey);
-  } else if (pSettings->noEnvVars) {
+  } else if (pSettings->noEnvVars && mode == ProfileDeliveryMode::Http) {
     Log::Error("Datadog API Key must be set.");
     return false;
   }
@@ -521,5 +535,5 @@ bool InitializeConfiguration(Configuration* pConfig, const ProfilerConfig* pSett
     pConfig->EnableSymbolizedCallstacks();
   }
 
-  return pConfig->ValidateTransportConfig();
+  return pConfig->ValidateTransportConfig(mode);
 }

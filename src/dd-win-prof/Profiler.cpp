@@ -27,6 +27,23 @@ Profiler::~Profiler() {
   _isStarted = false;
 }
 
+bool Profiler::SetProfilingDataCallback(const ProfilingDataCallback& callback) {
+  if (IsStarted()) {
+    Log::Error("Cannot change the profiling callback while the profiler is running");
+    return false;
+  }
+  try {
+    _profilingDataCallback = callback;
+    return true;
+  } catch (const std::exception& error) {
+    Log::Error("Failed to copy profiling data callback: ", error.what());
+    return false;
+  } catch (...) {
+    Log::Error("Failed to copy profiling data callback: non-standard exception");
+    return false;
+  }
+}
+
 bool Profiler::StartProfiling() {
   std::lock_guard<std::mutex> lock(_lifecycleMutex);
 
@@ -45,7 +62,7 @@ bool Profiler::StartProfiling() {
     return false;
   }
 
-  if (!_pConfiguration->ValidateTransportConfig()) {
+  if (!_pConfiguration->ValidateTransportConfig(GetDeliveryMode())) {
     return false;
   }
 
@@ -78,14 +95,11 @@ bool Profiler::StartProfiling() {
 
   //... and pass them to the exporter
   _pProfileExporter = std::make_unique<ProfileExporter>(
-      _pConfiguration.get(), sampleTypeDefinitions, this
+      _pConfiguration.get(), sampleTypeDefinitions, this, _profilingDataCallback
   );
 
   // Initialize the ProfileExporter
   if (!_pProfileExporter->Initialize()) {
-    Log::Error(
-        "Failed to initialize profile exporter: ", _pProfileExporter->GetLastError()
-    );
     _pProfileExporter.reset();
     _pStackSamplerLoop.reset();
     _pUiHangProvider.reset();

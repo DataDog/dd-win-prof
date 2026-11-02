@@ -7,6 +7,8 @@
 #include "TagsHelper.h"
 #include "pch.h"
 
+enum class ProfileDeliveryMode { Http, Callback };
+
 class Configuration {
  public:
   Configuration();
@@ -25,7 +27,9 @@ class Configuration {
   std::string const& GetAgentHost() const;
   int32_t GetAgentPort() const;
   bool IsAgentless() const;
-  bool ValidateTransportConfig() const;
+  bool ValidateTransportConfig(
+      ProfileDeliveryMode mode = ProfileDeliveryMode::Http
+  ) const;
   std::string const& GetSite() const;
   std::string const& GetApiKey() const;
   std::string const& GetServiceName() const;
@@ -36,7 +40,7 @@ class Configuration {
   bool IsProfilerAutoStartEnabled() const;
   bool IsCpuProfilingEnabled() const;
   bool IsWallTimeProfilingEnabled() const;
-  bool IsExportEnabled() const;
+  bool IsExportEnabled(ProfileDeliveryMode mode = ProfileDeliveryMode::Http) const;
   bool AreCallstacksSymbolized() const;
 
   // Manual configuration methods (primarily for testing)
@@ -49,9 +53,8 @@ class Configuration {
   template <typename T>
   static T GetEnvironmentValue(char const* name, T const& defaultValue);
 
-  // Reset all fields to their default values (no env var reads).
-  // Used when noEnvVars is set in ProfilerConfig so that only
-  // explicit API overrides are applied on top of defaults.
+  // Reset settings to defaults (no env var reads).
+  // Used when noEnvVars is set in ProfilerConfig.
   void ResetToDefaults();
 
   // some values can be set via API and will override the environment variables
@@ -71,7 +74,7 @@ class Configuration {
   }
   void SetCpuThreadsThreshold(int32_t threshold) { _cpuThreadsThreshold = threshold; }
   void SetUploadInterval(std::chrono::seconds interval) { _uploadPeriod = interval; }
-  void SetUserTags(tags userTags) { _userTags = std::move(userTags); }
+  void SetUserTags(tags userTags) { _upload.userTags = std::move(userTags); }
   void SetProfilesOutputDirectory(const fs::path& dir) { _pprofDirectory = dir; }
 
  private:
@@ -110,23 +113,27 @@ class Configuration {
   bool _isProfilerAutoStartEnabled;
   bool _isCpuProfilingEnabled;
   bool _isWallTimeProfilingEnabled;
-  bool _isExportEnabled;
   bool _areCallstacksSymbolized;
   bool _debugLogEnabled;
   fs::path _logDirectory;
   fs::path _pprofDirectory;
-  std::string _version;
-  std::string _serviceName;
-  std::string _environmentName;
+  // Used only by the built-in HTTP uploader, not by SDK callbacks.
+  struct UploadConfiguration {
+    bool enabled;
+    std::string version;
+    std::string serviceName;
+    std::string environmentName;
+    std::string agentUrl;
+    std::string agentHost;
+    std::int32_t agentPort;
+    std::string apiKey;
+    std::string hostname;
+    std::string site;
+    tags userTags;
+  };
+  UploadConfiguration _upload;
   std::chrono::seconds _uploadPeriod;
-  std::string _agentUrl;
-  std::string _agentHost;
-  std::int32_t _agentPort;
-  std::string _apiKey;
-  std::string _hostname;
-  std::string _site;
   std::string _namedPipeName;
-  tags _userTags;
 
   std::chrono::nanoseconds _cpuWallTimeSamplingPeriod;
   int32_t _walltimeThreadsThreshold;

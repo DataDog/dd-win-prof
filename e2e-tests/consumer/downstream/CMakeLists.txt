@@ -13,5 +13,10 @@ endif()
 
 include("${DD_WIN_PROF_CONSUMER_PREFIX}/lib/cmake/consumer/ConsumerTargets.cmake")
 
-add_executable(downstream ../main.cpp)
+add_executable(downstream ../main.cpp ../sdk-internal.cpp)
 target_link_libraries(downstream PRIVATE dd-win-prof)
+add_custom_command(TARGET downstream POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:dd-win-prof>" "$<TARGET_FILE_DIR:downstream>"
+    VERBATIM
+)

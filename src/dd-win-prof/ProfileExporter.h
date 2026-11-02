@@ -17,6 +17,7 @@
 #include "Sample.h"
 #include "Symbolication.h"
 #include "datadog/profiling.h"
+#include "internal/dd-win-rum-private.h"
 #include "pch.h"
 
 class ProfileExporter {
@@ -24,7 +25,9 @@ class ProfileExporter {
   ProfileExporter(
       Configuration* pConfiguration,
       std::span<const SampleValueType> sampleTypeDefinitions,
-      IRumRecordProvider* pRumRecordProvider = nullptr
+      IRumRecordProvider* pRumRecordProvider = nullptr,
+      ProfilingDataCallback callback = {},
+      dd_win_prof::ProfileEncodingApi encodingApi = {}
   );
   ~ProfileExporter();
   bool Initialize();
@@ -36,14 +39,13 @@ class ProfileExporter {
 
   // Check if properly initialized
   bool IsInitialized() const { return _initialized; }
-  const std::string& GetLastError() const { return _lastError; }
 
   // RUM application ID tag (set once by Profiler, emitted per-export)
   void SetRumApplicationId(const std::string& applicationId);
 
   // JSON serialization for RUM records.
   //
-  // The resulting JSON is used two ways:
+  // In HTTP mode, the resulting JSON is used two ways:
   //   1. Optionally written locally as a `.rum-views.json` debug file when
   //      pprof file writing is enabled.
   //   2. Passed to libdatadog through the `optional_internal_metadata_json`
@@ -93,6 +95,33 @@ class ProfileExporter {
   void CleanupExporter();
 
  private:
+  struct EncodedProfileDeleter {
+    void operator()(ddog_prof_EncodedProfile* profile) const;
+  };
+  using EncodedProfilePtr =
+      std::unique_ptr<ddog_prof_EncodedProfile, EncodedProfileDeleter>;
+
+  bool ExportCurrentProfile(
+      bool lastCall, int64_t startUnixTimeMs, int64_t endUnixTimeMs
+  );
+  std::string CollectRumRecordsJson();
+  void DiscardRumRecords();
+  void WriteDebugFiles(
+      const ddog_prof_EncodedProfile* profile,
+      const std::string& rumRecordsJson,
+      int64_t endUnixTimeMs
+  );
+  bool DeliverProfileToCallback(
+      const ddog_ByteSlice& bytes,
+      int64_t startUnixTimeMs,
+      int64_t endUnixTimeMs,
+      bool lastCall
+  );
+  bool DeliverProfilingData(ProfilingData data);
+  bool ReportError(ProfilingErrorCode code, bool lastCall);
+  void LogExport(bool lastCall, int64_t durationMs, size_t profileSize) const;
+  bool FinishExport(std::chrono::system_clock::time_point end, bool lastCall);
+
   // Helper methods for location/function/mapping management
   std::optional<ddog_prof_LocationId> InternLocation(uint64_t address);
   std::optional<ddog_prof_FunctionId> InternFunction(
@@ -187,7 +216,6 @@ class ProfileExporter {
   std::string _runtimeId;
   uint32_t _processId;
   bool _initialized;
-  std::string _lastError;
 
   // Debug pprof file writing configuration
   bool _debugPprofFileWritingEnabled;
@@ -195,6 +223,7 @@ class ProfileExporter {
 
   // Export configuration and state
   bool _exportEnabled;
+  ProfilingDataCallback _profilingDataCallback;
   ddog_prof_ProfileExporter _exporter;  // Value type, not pointer
   std::string _exportUrl;
   std::string _apiKey;
@@ -204,6 +233,7 @@ class ProfileExporter {
   static constexpr int EXPORT_TIMEOUT_MS = 10000;
 
   // libdatadog components
+  dd_win_prof::ProfileEncodingApi _encodingApi;
   ddog_prof_ManagedStringStorage _stringStorage;
   std::unique_ptr<Symbolication> _symbolication;
   std::unique_ptr<dd_win_prof::PprofAggregator> _aggregator;
