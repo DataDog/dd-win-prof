@@ -29,7 +29,7 @@
 #include <string>
 
 #include "dd-win-prof.h"
-#include "dd-win-rum-private.h"
+#include "internal/dd-win-rum-private.h"
 
 namespace {
 
