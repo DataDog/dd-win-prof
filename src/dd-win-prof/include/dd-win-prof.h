@@ -56,18 +56,17 @@ typedef struct _ProfilerConfig {
 } ProfilerConfig;
 
 extern "C" {
+// Start automatic detection of UI hangs for the current profiling session.
+// Returns false unless the profiler is running, or if a window is already monitored.
+DD_WIN_PROF_API bool MonitorWindowHangs(HWND hWnd);
+
 // Configure while stopped, including after StopProfiler() returns.
-// Does not clear SDK-private callback registration. Serialize lifecycle calls.
+// Does not clear SDK-private callback registration. Serialize setup/start/stop calls.
 DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig* pSettings);
 
 // Start profiling manually (returns false if already started or explicitly disabled).
 // May be called again after StopProfiler() returns.
 DD_WIN_PROF_API bool StartProfiler();
-
-// Start automatic detection of UI hangs for the current profiling session.
-// Returns false unless the profiler is running, or if a window is already monitored.
-// Monitoring must be registered again after each start.
-DD_WIN_PROF_API bool MonitorWindowHangs(HWND hWnd);
 
 // Stops collection, waits for the current export and attempts a final export.
 // Does not wait for the upload interval. The final SDK callback runs on this thread.
