@@ -57,9 +57,6 @@ class UiHangDetector {
   HANDLE _stopEvent;
   std::unique_ptr<std::thread> _pWatchdogThread = nullptr;
 
-  // Keep probe acknowledgment and the hang transition mutually exclusive.
-  std::mutex _probeMutex;
-
   // read/write by the watchdog thread and write by the hook
   std::atomic<bool> _isProcessed;
 

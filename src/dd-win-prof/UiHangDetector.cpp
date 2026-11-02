@@ -218,7 +218,6 @@ void UiHangDetector::ProcessHook(int code, WPARAM wParam, LPARAM lParam) {
   if (code == HC_ACTION && wParam == PM_REMOVE) {
     const MSG* m = reinterpret_cast<const MSG*>(lParam);
     if ((m != nullptr) && (m->hwnd == _hWnd) && (m->message == _hangProbeMessageId)) {
-      std::lock_guard<std::mutex> lock(_probeMutex);
       auto now = OpSysTools::GetHighPrecisionTimestamp();
       _processedProbeTimestamp.store(now);
 
@@ -277,21 +276,11 @@ void UiHangDetector::WatchdogLoop() {
         auto now = OpSysTools::GetHighPrecisionTimestamp();
         auto probingDuration = now - _postProbeTimestamp;
         if (probingDuration >= dd_win_prof::kHangThresholdMs) {
-          bool detected = false;
-          {
-            // The hook may acknowledge the probe between the first check and here.
-            std::lock_guard<std::mutex> lock(_probeMutex);
-            if (!_isProcessed.load()) {
-              _state = WatchdogState::Hang;
-              _hangDetectionTimestamp = now;
-              _pThreadInfo->SetHangDetected(true);
-              _initialHangDuration = now - _lastNoHangTimestamp;
-              detected = true;
-            }
-          }
-          if (detected) {
-            AddHangSample(true, now, _initialHangDuration);
-          }
+          _state = WatchdogState::Hang;
+          _hangDetectionTimestamp = now;
+          _pThreadInfo->SetHangDetected(true);
+          _initialHangDuration = now - _lastNoHangTimestamp;
+          AddHangSample(true, now, _initialHangDuration);
         } else {
           _lastNoHangTimestamp = now;
         }
@@ -302,7 +291,11 @@ void UiHangDetector::WatchdogLoop() {
       if (isProcessed) {
         // so, emit a sample for its ending
         std::chrono::nanoseconds timestamp = _processedProbeTimestamp.load();
-        AddHangSample(false, timestamp, timestamp - _hangDetectionTimestamp);
+        auto duration = timestamp - _hangDetectionTimestamp;
+        if (duration < 0ns) {
+          duration = 1ms;
+        }
+        AddHangSample(false, timestamp, duration);
 
         // reset the last timestamp to avoid overcounting the next wait sample duration
         _pThreadInfo->SetLastWaitSampleTimestamp(timestamp);
