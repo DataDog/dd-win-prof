@@ -637,14 +637,16 @@ std::string ToUtf8(const wchar_t* wide) {
     return std::string();
   }
 
+  // count the trailing \0
   const int needed =
       WideCharToMultiByte(CP_UTF8, 0, wide, -1, nullptr, 0, nullptr, nullptr);
   if (needed <= 0) {
     return std::string();
   }
 
+  // the trailing \0 won't be copied
   std::string result(static_cast<size_t>(needed - 1), '\0');
-  WideCharToMultiByte(CP_UTF8, 0, wide, -1, result.data(), needed, nullptr, nullptr);
+  WideCharToMultiByte(CP_UTF8, 0, wide, -1, &result[0], needed - 1, nullptr, nullptr);
   return result;
 }
 
