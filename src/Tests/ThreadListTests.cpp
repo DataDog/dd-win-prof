@@ -406,3 +406,33 @@ TEST(ThreadListTests, AddThread_DuringIteration_IsEventuallyReturned) {
   EXPECT_EQ(threadList.LoopNext(it)->GetThreadId(), 3);  // new one picked up
   EXPECT_EQ(threadList.LoopNext(it)->GetThreadId(), 1);  // wrap
 }
+
+TEST(ThreadListTests, ResetProfilingState_ClearsSessionStateAndIterators) {
+  ThreadList threadList;
+  threadList.AddThread(1, MakeTestHandle());
+
+  auto thread = threadList.GetThread(1);
+  ASSERT_NE(thread, nullptr);
+
+  thread->SetLastWalltimeSampleTimestamp(123ns);
+  thread->SetLastWaitSampleTimestamp(456ns);
+  thread->SetCpuConsumption(std::chrono::milliseconds::max(), 789ns);
+  thread->SetHangDetected(true);
+
+  uint32_t previousSessionIterator = threadList.CreateIterator();
+  ASSERT_NE(threadList.LoopNext(previousSessionIterator), nullptr);
+
+  threadList.ResetProfilingState();
+
+  EXPECT_FALSE(thread->IsHangDetected());
+  EXPECT_EQ(thread->SetLastWalltimeSampleTimestamp(1ns), 0ns);
+  EXPECT_EQ(thread->SetLastWaitSampleTimestamp(1ns), 0ns);
+  EXPECT_EQ(thread->GetCpuTimestamp(), 0ns);
+  EXPECT_NE(thread->GetCpuConsumption(), std::chrono::milliseconds::max());
+
+  // Iterators belong to a StackSamplerLoop session and must not accumulate.
+  EXPECT_EQ(threadList.LoopNext(previousSessionIterator), nullptr);
+  uint32_t nextSessionIterator = threadList.CreateIterator();
+  EXPECT_EQ(nextSessionIterator, 0u);
+  EXPECT_NE(threadList.LoopNext(nextSessionIterator), nullptr);
+}

@@ -18,6 +18,8 @@ add_library(dd-win-prof SHARED
     TagsHelper.cpp
     ThreadInfo.cpp
     ThreadList.cpp
+    UiHangDetector.cpp
+    UiHangProvider.cpp
     Uuid.cpp
     WalltimeProvider.cpp
 
@@ -54,6 +56,8 @@ add_library(dd-win-prof SHARED
     TagsHelper.h
     ThreadInfo.h
     ThreadList.h
+    UiHangDetector.h
+    UiHangProvider.h
     Uuid.h
     version.h
     WalltimeProvider.h

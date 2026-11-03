@@ -210,14 +210,17 @@ void StackSamplerLoop::WalltimeProfilingIteration() {
         pThreadInfo->SetLastWalltimeSampleTimestamp(thisSampleTimestamp);
     auto duration = ComputeWallTime(thisSampleTimestamp, prevSampleTimestamp);
 
-    // check if the thread is waiting and for for which reason
+    // check if the thread is waiting and for which reason
     auto [isWaiting, waitReason, failure] =
         OsSpecificApi::IsWaiting(pThreadInfo->GetOsThreadHandle());
-    if (failure || !isWaiting) {
+    if (failure || !isWaiting || pThreadInfo->IsHangDetected()) {
+      //                                      ^-- during a hang, we don't want to emit
+      // wait sample to avoid double counting the wait time (the hang is already counted
+      // as wait time) but still emit a walltime sample
       waitReason = WAIT_REASON_NONE;
     }
 
-    // get callstack and create sample (possibly mixed with wait information)
+    // get callstack and create sample
     CollectOneThreadSample(
         pThreadInfo, thisSampleTimestamp, duration, PROFILING_TYPE::WallTime, waitReason
     );

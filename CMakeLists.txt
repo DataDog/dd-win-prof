@@ -18,10 +18,11 @@ endif()
 # Development mode: sets the defaults for the options below that only dd-win-prof
 # developers need. ON when top-level, OFF when consumed via FetchContent or
 # add_subdirectory(). Each option can still be set explicitly.
-option(DD_WIN_PROF_DEVELOPMENT "Enable development mode (tests, Runner, injector, obfuscation tools, src/reference staging)" ${DD_WIN_PROF_IS_TOPLEVEL})
+option(DD_WIN_PROF_DEVELOPMENT "Enable development mode (tests, Runner, UIApp, injector, obfuscation tools, src/reference staging)" ${DD_WIN_PROF_IS_TOPLEVEL})
 
 option(DD_WIN_PROF_BUILD_TESTS "Build unit tests (fetches GoogleTest)" ${DD_WIN_PROF_DEVELOPMENT})
 option(DD_WIN_PROF_BUILD_RUNNER "Build the Runner test application" ${DD_WIN_PROF_DEVELOPMENT})
+option(DD_WIN_PROF_BUILD_UIAPP "Build the UIApp test application" ${DD_WIN_PROF_DEVELOPMENT})
 option(DD_WIN_PROF_BUILD_INJECTOR "Build the ProfilerInjector utility" ${DD_WIN_PROF_DEVELOPMENT})
 
 # Obfuscation tools (ObfSymbols) require the DIA SDK and are only needed for symbol

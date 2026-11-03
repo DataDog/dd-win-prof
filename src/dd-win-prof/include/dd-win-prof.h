@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <Windows.h>
 #include <stdint.h>
 
 #ifdef DD_WIN_PROF_STATIC_LINK
@@ -55,6 +56,10 @@ typedef struct _ProfilerConfig {
 } ProfilerConfig;
 
 extern "C" {
+// Start automatic detection of UI hangs for the current profiling session.
+// Returns false unless the profiler is running, or if a window is already monitored.
+DD_WIN_PROF_API bool MonitorWindowHangs(HWND hWnd);
+
 // Configure while stopped, including after StopProfiler() returns.
 // Does not clear SDK-private callback registration. Serialize setup/start/stop calls.
 DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig* pSettings);

@@ -9,6 +9,8 @@ FetchContent_Declare(
     libdatadog
     URL https://github.com/DataDog/libdatadog/releases/download/v19.0.0/libdatadog-x64-windows.zip
     URL_HASH SHA512=548bfe9761625aaa1ce54f42979e75f3a435ca0c1a4280a91b325fff402c4264fb593d203e0f758b68313ff098fa609ed8cef800bbf6a18be7bfed9c489626bd
+    TIMEOUT 120
+    INACTIVITY_TIMEOUT 30
 )
 FetchContent_MakeAvailable(libdatadog)
 
@@ -78,6 +80,8 @@ if(DD_WIN_PROF_BUILD_TESTS)
     FetchContent_Declare(
         googletest
         URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz
+        TIMEOUT 120
+        INACTIVITY_TIMEOUT 30
     )
     set(gtest_force_shared_crt ON)
     # Suppress googletest's install() rules. Without this, `cmake --install`
@@ -92,6 +96,10 @@ add_subdirectory(dd-win-prof)
 
 if(DD_WIN_PROF_BUILD_RUNNER)
     add_subdirectory(Runner)
+endif()
+
+if(DD_WIN_PROF_BUILD_UIAPP)
+    add_subdirectory(UIApp)
 endif()
 
 if(DD_WIN_PROF_BUILD_TESTS)

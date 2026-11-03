@@ -15,8 +15,15 @@ class ThreadList {
   void AddThread(uint32_t tid, HANDLE hThread);
   void RemoveThread(uint32_t tid);
 
+  // returns the ThreadInfo corresponding to the given thread ID or nullptr if not found
+  std::shared_ptr<ThreadInfo> GetThread(uint32_t threadId);
+
   // we can't use a lock in a const method so... don't make it const
   size_t Count();
+
+  // Reset process-scoped ThreadInfo objects and sampling iterators before a
+  // new profiling session starts.
+  void ResetProfilingState();
 
   uint32_t CreateIterator();
   std::shared_ptr<ThreadInfo> LoopNext(uint32_t iterator);
