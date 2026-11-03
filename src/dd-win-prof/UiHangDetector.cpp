@@ -303,8 +303,8 @@ void UiHangDetector::WatchdogLoop() {
         std::chrono::nanoseconds timestamp = _processedProbeTimestamp.load();
         std::chrono::nanoseconds hangDuration = timestamp - _hangDetectionTimestamp;
         if (hangDuration < 0ns) {
-          // handle race condition where the probe message was processed JUST before the hang
-          // detection timestamp was set
+          // handle race condition where the probe message was processed JUST before the
+          // hang detection timestamp was set
           hangDuration = 1ms;
         }
         AddHangSample(false, timestamp, hangDuration);
