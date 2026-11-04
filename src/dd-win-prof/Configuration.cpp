@@ -475,7 +475,6 @@ T Configuration::GetEnvironmentValue(char const* name, T const& defaultValue) {
 bool InitializeConfiguration(
     Configuration* pConfig, const ProfilerConfig* pSettings, ProfileDeliveryMode mode
 ) {
-  // Each setup replaces previous API overrides with defaults and, if allowed, env vars.
   if (pSettings->noEnvVars) {
     pConfig->ResetToDefaults();
   } else {

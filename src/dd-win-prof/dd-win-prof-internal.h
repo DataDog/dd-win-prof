@@ -7,10 +7,8 @@
 #include "Configuration.h"
 #include "dd-win-prof.h"
 
-// Rebuilds configuration from defaults and, unless noEnvVars is set, the current
-// environment, then applies ProfilerConfig fields. Previous API overrides are
-// discarded. HTTP mode requires url and apiKey when noEnvVars is set;
-// callback mode does not.
+// Configures the profiler without keeping settings from previous calls.
+// HTTP mode requires url and apiKey when noEnvVars is set; callback mode does not.
 bool InitializeConfiguration(
     Configuration* pConfig,
     const ProfilerConfig* pSettings,

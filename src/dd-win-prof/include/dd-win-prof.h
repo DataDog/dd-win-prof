@@ -60,10 +60,10 @@ extern "C" {
 // Returns false unless the profiler is running, or if a window is already monitored.
 DD_WIN_PROF_API bool MonitorWindowHangs(HWND hWnd);
 
-// Replaces previous settings with defaults, current environment variables (unless
-// noEnvVars is true), and the supplied overrides. Configure while stopped, including
-// after StopProfiler() returns. Does not clear SDK-private callback registration.
-// Serialize setup/start/stop calls.
+// Configure while stopped, including after StopProfiler() returns.
+// Each call replaces previous settings. Omitted values use environment variables
+// (unless noEnvVars is set) or defaults.
+// Does not clear SDK-private callback registration. Serialize setup/start/stop calls.
 DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig* pSettings);
 
 // Start profiling manually (returns false if already started or explicitly disabled).
