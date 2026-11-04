@@ -10,7 +10,6 @@
 #include "LibDatadogHelper.h"
 #include "PprofAggregator.h"
 #include "ProfileExporter.h"
-#include "UiHangProvider.h"
 #include "WalltimeProvider.h"
 #include "pch.h"
 
@@ -38,14 +37,13 @@ void WriteFixture(const std::string& name, const uint8_t* bytes, size_t size) {
   ASSERT_TRUE(output.good());
 }
 
-std::vector<SampleValueType> ProductionTypes() {
+std::vector<SampleValueType> LegacyTypes() {
   SampleValueTypeProvider registry;
   CpuTimeProvider cpu(registry);
   WallTimeProvider wall(registry);
-  UiHangProvider hang(registry);
+  // Freeze the legacy four-column fixture for strict v19 upgrade replay.
   EXPECT_EQ(cpu.GetValueOffsets(), (std::vector<size_t>{0, 1}));
   EXPECT_EQ(wall.GetValueOffsets(), (std::vector<size_t>{2, 3}));
-  EXPECT_EQ(hang.GetValueOffsets(), wall.GetValueOffsets());
   return registry.GetValueTypes();
 }
 
@@ -113,7 +111,7 @@ class ProfileUpgradeTest : public ::testing::Test {
 };
 
 TEST_F(ProfileUpgradeTest, SerializedWaitTypeSurvivesReset) {
-  const auto types = ProductionTypes();
+  const auto types = LegacyTypes();
   ASSERT_EQ(types.size(), 4u);
   auto storage = ddog_prof_ManagedStringStorage_new();
   ASSERT_EQ(storage.tag, DDOG_PROF_MANAGED_STRING_STORAGE_NEW_RESULT_OK);
@@ -157,7 +155,7 @@ TEST_F(ProfileUpgradeTest, CustomPeriodPreservesWirePair) {
 }
 
 TEST_F(ProfileUpgradeTest, CallbackRetainsWaitAndHangValuesAcrossExports) {
-  const auto types = ProductionTypes();
+  const auto types = LegacyTypes();
   Sample::SetValuesCount(types.size());
   Configuration config;
   config.ResetToDefaults();
@@ -206,7 +204,7 @@ TEST_F(ProfileUpgradeTest, HttpRetainsWaitAndHangValuesAcrossExports) {
   const auto url = Environment("DD_WIN_PROF_UPGRADE_AGENT_URL");
   if (url.empty())
     GTEST_SKIP() << "Run validate_libdatadog_upgrade.py for local HTTP coverage";
-  const auto types = ProductionTypes();
+  const auto types = LegacyTypes();
   Sample::SetValuesCount(types.size());
   Configuration config;
   ASSERT_EQ(config.GetAgentUrl(), url);
@@ -232,7 +230,7 @@ TEST_F(ProfileUpgradeTest, HttpRetainsWaitAndHangValuesAcrossExports) {
 TEST_F(ProfileUpgradeTest, HttpResponseAndTransportPolicy) {
   const auto mode = Environment("DD_WIN_PROF_UPGRADE_HTTP_MODE");
   if (mode.empty()) GTEST_SKIP() << "Run validate_libdatadog_upgrade.py";
-  const auto types = ProductionTypes();
+  const auto types = LegacyTypes();
   Sample::SetValuesCount(types.size());
   Configuration config;
   config.SetApiKey("");

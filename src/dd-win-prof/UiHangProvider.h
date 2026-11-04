@@ -14,8 +14,7 @@ class UiHangProvider : public CollectorBase {
 
   inline void Add(Sample&& sample, std::chrono::nanoseconds hangDuration, bool hang) {
     auto offsets = GetValueOffsets();
-    sample.AddValue(0, offsets[0]);  // no wall time for hang sample
-    sample.AddValue(hangDuration.count(), offsets[1]);
+    sample.AddValue(hangDuration.count(), offsets[0]);
 
     // the "UIHang" label (true/false) is attached at export time in ProfileExporter
     sample.SetUiHangSampleKind(

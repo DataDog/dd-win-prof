@@ -10,7 +10,8 @@ For a directory of .pprof files captured from a single hang kind
   * UIHang=true / UIHang=false samples alternate and form the expected number
     of detected/recovered pairs on the UIApp_Main thread;
   * each detected sample's stack contains the expected blocking frame;
-  * hang samples carry wall-time == 0 and wait-time > 0;
+  * hang samples carry ui-hang-time > 0 and zero CPU/wall/wait values;
+  * ordinary samples carry zero ui-hang-time;
   * detected precedes recovered in time;
   * when expected views are provided, each requested profiling session has one
     complete hang pair carrying its distinct RUM view;
@@ -29,6 +30,7 @@ Usage:
 
 import argparse
 import glob
+import json
 import os
 import sys
 
@@ -38,6 +40,13 @@ import pprof_utils  # noqa: E402
 
 
 UI_THREAD_NAME = "UIApp_Main"
+EXPECTED_TYPES = [
+    ("cpu-time", "nanoseconds"),
+    ("cpu-samples", "count"),
+    ("wall-time", "nanoseconds"),
+    ("wait-time", "nanoseconds"),
+    ("ui-hang-time", "nanoseconds"),
+]
 
 # System/user frames that identify each hang kind in a suspended UI-thread
 # stack. Sleep and WaitForSingleObject bottom out in ntdll under symbolization,
@@ -79,7 +88,10 @@ def _build_samples(profile):
     """Resolve one parsed profile into a list of Sample objects."""
     strings = list(profile.string_table)
 
-    type_names = [strings[vt.type] for vt in profile.sample_type]
+    types = [(strings[vt.type], strings[vt.unit]) for vt in profile.sample_type]
+    if types != EXPECTED_TYPES:
+        raise ValidationError(f"expected production sample types {EXPECTED_TYPES}, got {types}")
+    type_names = [name for name, _ in types]
 
     functions = {fn.id: strings[fn.name] for fn in profile.function}
 
@@ -94,6 +106,8 @@ def _build_samples(profile):
 
     samples = []
     for sample in profile.sample:
+        if len(sample.value) != len(type_names):
+            raise ValidationError("sample value vector width differs from production columns")
         values = {
             type_names[i]: sample.value[i]
             for i in range(len(type_names))
@@ -154,8 +168,23 @@ def validate(
     sampling_ms,
     walltime_threads_threshold,
     expected_views,
+    report_json=None,
 ):
     all_samples, files = _load_all_samples(pprof_dir)
+
+    for sample in all_samples:
+        marker = sample.label("UIHang")
+        if marker is None:
+            if sample.values["ui-hang-time"] != 0:
+                raise ValidationError(f"ordinary sample has hang duration: {_describe(sample)}")
+        elif marker in ("true", "false"):
+            if sample.values["ui-hang-time"] <= 0:
+                raise ValidationError(f"hang duration <= 0: {_describe(sample)}")
+            if any(sample.values[name] != 0 for name in
+                   ("cpu-time", "cpu-samples", "wall-time", "wait-time")):
+                raise ValidationError(f"hang contributes to ordinary columns: {_describe(sample)}")
+        else:
+            raise ValidationError(f"unexpected UIHang marker: {_describe(sample)}")
 
     ui_samples = [s for s in all_samples if s.label("thread_name") == UI_THREAD_NAME]
     if not ui_samples:
@@ -256,20 +285,30 @@ def validate(
                 f"found {observed_view_ids}"
             )
 
+    pair_evidence = []
     for detected, recovered in matching:
-        if detected.values.get("wall-time", -1) != 0:
-            raise ValidationError(f"detected hang wall-time != 0: {_describe(detected)}")
-        if recovered.values.get("wall-time", -1) != 0:
-            raise ValidationError(f"recovered hang wall-time != 0: {_describe(recovered)}")
-        if detected.values.get("wait-time", 0) <= 0:
-            raise ValidationError(f"detected hang wait-time <= 0: {_describe(detected)}")
-        if recovered.values.get("wait-time", 0) <= 0:
-            raise ValidationError(f"recovered hang wait-time <= 0: {_describe(recovered)}")
         if not detected.timestamp_ns < recovered.timestamp_ns:
             raise ValidationError(
                 "detected timestamp not before recovered timestamp: "
                 f"{_describe(detected)} | {_describe(recovered)}"
             )
+        for key in ("process_id", "thread id"):
+            if not detected.label(key) or detected.label(key) != recovered.label(key):
+                raise ValidationError(f"hang pair lost {key}: {_describe(detected)} | {_describe(recovered)}")
+        recovery_ns = recovered.timestamp_ns - detected.timestamp_ns
+        if recovered.values["ui-hang-time"] != recovery_ns:
+            raise ValidationError("recovery duration must cover only the detected-to-recovered interval")
+        total_ns = detected.values["ui-hang-time"] + recovered.values["ui-hang-time"]
+        # Controlled completed hangs allow eight watchdog ticks for probe/scheduling slack.
+        if abs(total_ns - duration_ms * 1_000_000) > 256_000_000:
+            raise ValidationError(f"hang duration {total_ns}ns differs from requested {duration_ms}ms")
+        pair_evidence.append({
+            "detected_timestamp_ns": detected.timestamp_ns,
+            "recovered_timestamp_ns": recovered.timestamp_ns,
+            "detected_duration_ns": detected.values["ui-hang-time"],
+            "recovered_duration_ns": recovered.values["ui-hang-time"],
+            "total_duration_ns": total_ns,
+        })
 
     # -- No ordinary wait accounting during a detected hang -------------------
     # An ordinary wait sample's interval is [end_timestamp - wait-time, end_timestamp].
@@ -306,7 +345,7 @@ def validate(
     # hang boundaries may therefore end just outside the interval. Allow one
     # effective per-thread sampling interval at each boundary, accounting for
     # round-robin sampling when the thread count exceeds the per-iteration limit.
-    for detected, recovered in matching:
+    for evidence, (detected, recovered) in zip(pair_evidence, matching):
         hang_duration_ns = recovered.timestamp_ns - detected.timestamp_ns
         boundary_allowance_ns = min(
             hang_duration_ns, 2 * effective_sampling_ns
@@ -319,6 +358,7 @@ def validate(
             and s.timestamp_ns is not None
             and detected.timestamp_ns < s.timestamp_ns < recovered.timestamp_ns
         )
+        evidence["ordinary_wall_ns"] = walltime_ns
         minimum_walltime_ns = 0.90 * expected_walltime_ns
         if walltime_ns < minimum_walltime_ns:
             raise ValidationError(
@@ -330,20 +370,28 @@ def validate(
             )
 
     # -- CPU attribution during CPU hangs -------------------------------------
-    if kind == "cpu":
-        for detected, recovered in matching:
-            cpu_ns = sum(
-                s.values.get("cpu-time", 0)
-                for s in ui_samples
-                if s.timestamp_ns is not None
-                and detected.timestamp_ns <= s.timestamp_ns <= recovered.timestamp_ns
+    for evidence, (detected, recovered) in zip(pair_evidence, matching):
+        cpu_ns = sum(
+            s.values.get("cpu-time", 0)
+            for s in ui_samples
+            if s.timestamp_ns is not None
+            and detected.timestamp_ns <= s.timestamp_ns <= recovered.timestamp_ns
+        )
+        evidence["ordinary_cpu_ns"] = cpu_ns
+        if kind == "cpu" and cpu_ns <= 0:
+            raise ValidationError(
+                "no cpu-time attributed during CPU hang interval "
+                f"[{detected.timestamp_ns}, {recovered.timestamp_ns}]"
             )
-            if cpu_ns <= 0:
-                raise ValidationError(
-                    "no cpu-time attributed during CPU hang interval "
-                    f"[{detected.timestamp_ns}, {recovered.timestamp_ns}]"
-                )
 
+    if report_json:
+        with open(report_json, "w", encoding="utf-8") as output:
+            json.dump({"kind": kind, "files": files, "types": EXPECTED_TYPES,
+                       "pairs": pair_evidence, "ordinary_waits": len(ordinary_waits),
+                       "ordinary_wait_overlap_count": 0,
+                       "samples": [{"values": s.values, "labels": s.labels, "stack": s.stack}
+                                   for s in all_samples]}, output, indent=2)
+    print(f"Evidence: {pair_evidence}")
     print(
         f"OK: kind={kind} files={len(files)} matching_pairs={len(matching)} "
         f"(expected {cycles}) startup_pairs={len(nonmatching)} "
@@ -354,6 +402,7 @@ def validate(
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pprof-dir", required=True)
+    parser.add_argument("--report-json", help="Retain decoded samples and per-pair isolation/CPU/wall evidence")
     parser.add_argument("--kind", required=True, choices=("sleep", "wait", "cpu"))
     parser.add_argument("--cycles", required=True, type=int)
     parser.add_argument("--duration-ms", required=True, type=int)
@@ -376,6 +425,7 @@ def main():
             args.sampling_ms,
             args.walltime_threads_threshold,
             args.expected_view,
+            args.report_json,
         )
     except ValidationError as err:
         print(f"FAILED: {err}", file=sys.stderr)

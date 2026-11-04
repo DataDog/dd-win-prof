@@ -214,9 +214,7 @@ void StackSamplerLoop::WalltimeProfilingIteration() {
     auto [isWaiting, waitReason, failure] =
         OsSpecificApi::IsWaiting(pThreadInfo->GetOsThreadHandle());
     if (failure || !isWaiting || pThreadInfo->IsHangDetected()) {
-      //                                      ^-- during a hang, we don't want to emit
-      // wait sample to avoid double counting the wait time (the hang is already counted
-      // as wait time) but still emit a walltime sample
+      // Suppress ordinary wait during a detected hang, but keep wall-time samples.
       waitReason = WAIT_REASON_NONE;
     }
 
