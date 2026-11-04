@@ -84,21 +84,6 @@ CPU and wall coverage evidence when artifacts are kept. Windows PowerShell 5.1
 and PowerShell 7 are supported; select the configuration explicitly to avoid
 using an older Debug executable.
 
-For the full local producer contract check (both builds, unit tests, dedicated
-callback/loopback HTTP/reset/partial fixtures, and all four real UIApp cases):
-
-```powershell
-powershell -NoProfile -File scripts/validate-ui-hang-profile.ps1
-```
-
-Results stay in `build/hang-validation/results`. The dedicated
-`UiHangProfileTest` fixtures use the real registry/providers. The existing
-`ProfileUpgradeTest` and `validate_libdatadog_upgrade.py` intentionally retain
-the legacy four-column hang-as-wait format for strict v19 upgrade replay. They
-are not the new production-layout contract. Partial endpoint fixtures exercise
-serialization only, not detector capture failure, unresolved long hangs or the
-recovery-race clamp.
-
 For a quick visual smoke run without validation:
 
 ```powershell
@@ -129,6 +114,33 @@ Validates everything in the local test **plus** that the profile was successfull
 | `test_rum_scenario.ps1` | Runner scenario 5 (local) | Log messages; pprof samples carry expected `rum.view_id` / `trace endpoint` labels; samples without RUM labels exist during "no active view" gaps; `.rum-views.json` files contain view and session records with valid timestamps and durations |
 | `test_rum_scenario_send.ps1` | Runner scenario 5 (with send) | Everything above **plus** successful profile upload to the backend (HTTP 200, no send errors) |
 | `test_ui_hangs.ps1` | UIApp Sleep / Wait / CPU hangs and profiler restart (local) | Per kind: UIApp exits cleanly, final export logged, and `UIHang=true/false` pairs on `UIApp_Main` have the expected reason stack, `ui-hang-time > 0`, zero CPU/wall/wait values, ordered timestamps, no ordinary wait overlapping a detected hang, and (CPU) positive `cpu-time` during the hang. The lifecycle case verifies invalid API calls and one hang pair in each of two session-specific RUM views. |
+
+## Regular regression tests
+
+The provider vector, phase-context, callback/reset and HTTP tests in
+`UiHangProfileTests.cpp` run in the ordinary C++ suite. The real UIApp validator
+above checks the emitted five-column schema, values and per-phase isolation.
+Synthetic partial-flush tests do not simulate detector capture failure, an
+unresolved hang or the recovery-race clamp.
+
+`Tests.exe` (or `ctest --test-dir build/src/Tests -C Release --output-on-failure`) runs
+aggregator custom-type/reset/period, callback ownership/Zstd, and loopback HTTP
+policy/thread-transition tests without credentials, opt-in variables or a Python
+launcher. HTTP traffic stays on an ephemeral loopback port.
+
+Python discovery also decodes the ordinary native tests' output to check exact
+custom names/units, period and post-reset values, plus hang callback/HTTP values
+and partial-flush isolation. On Windows, build Release `Tests.exe` first;
+`DD_WIN_PROF_TESTS_EXE` can select another built configuration. These native wire
+checks run automatically in the existing Release integration CI step; non-Windows
+discovery skips only the native executable cases:
+
+```powershell
+python -m unittest discover -s src/integration-tests -p "test_*.py" -v
+```
+
+Historical v19/v47 A/B results are archived locally. They are not a committed
+migration harness or a release-validation framework.
 
 ## Utilities
 

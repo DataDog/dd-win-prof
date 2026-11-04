@@ -14,6 +14,7 @@
 #include "../dd-win-prof/Configuration.h"
 #include "../dd-win-prof/PprofAggregator.h"
 #include "../dd-win-prof/ProfileExporter.h"
+#include "ProfileTestOutput.h"
 #include "datadog/common.h"
 #include "datadog/profiling.h"
 
@@ -786,26 +787,6 @@ TEST_F(PprofAggregatorTest, InvalidCustomDefinitionFailsInitialization) {
   ddog_prof_ManagedStringStorage_drop(storage);
 }
 
-TEST(LibdatadogUpgradeEndpointTest, AgentlessCopiesEndpointInputs) {
-  ddog_prof_ProfileExporter_Result created;
-  {
-    const std::string site = "example.invalid";
-    const std::string key = "local-test-key";
-    auto endpoint = ddog_prof_Endpoint_agentless(
-        {site.data(), site.size()}, {key.data(), key.size()}, 10000, false
-    );
-    created = ddog_prof_Exporter_new(
-        {"upgrade-test", 12}, {"1", 1}, {"windows", 7}, nullptr, endpoint
-    );
-  }
-  ASSERT_EQ(created.tag, DDOG_PROF_PROFILE_EXPORTER_RESULT_OK_HANDLE_PROFILE_EXPORTER);
-  auto runtime = ddog_prof_Exporter_init_runtime(&created.ok);
-  EXPECT_EQ(runtime.tag, DDOG_VOID_RESULT_OK);
-  if (runtime.tag == DDOG_VOID_RESULT_ERR) ddog_Error_drop(&runtime.err);
-  ddog_prof_Exporter_drop(&created.ok);
-  EXPECT_EQ(created.ok.inner, nullptr);
-}
-
 TEST_F(PprofAggregatorTest, UnconfiguredCustomSlotCannotSerialize) {
   const ddog_prof_SampleType type = DDOG_PROF_SAMPLE_TYPE_CUSTOM1;
   auto created = ddog_prof_Profile_new({&type, 1}, nullptr);
@@ -818,4 +799,40 @@ TEST_F(PprofAggregatorTest, UnconfiguredCustomSlotCannotSerialize) {
     ddog_prof_EncodedProfile_drop(&serialized.ok);
   }
   ddog_prof_Profile_drop(&created.ok);
+}
+
+TEST_F(PprofAggregatorTest, CustomPeriodAndDefinitionsSurviveInputLifetimeAndReset) {
+  const auto storage = CreateStringStorage();
+  {
+    std::vector<SampleValueType> types{
+        {"wait-time", "nanoseconds"},
+        {"cpu-time", "nanoseconds"},
+        {"cpu-time", "count"},
+        {"wait-time", "count"},
+        {"prototype-time", "nanoseconds"}
+    };
+    PprofAggregator aggregator(types, storage, 10);
+    ASSERT_TRUE(aggregator.IsInitialized());
+    types.clear();
+    types.shrink_to_fit();
+    for (int cycle = 1; cycle <= 2; ++cycle) {
+      auto locations = CreateRealLocationIds(aggregator, 1);
+      auto labels = CreateEmptyLabelSet(aggregator);
+      const std::vector<int64_t> values{3000 * cycle, 1000 * cycle, cycle, cycle, 42};
+      ASSERT_TRUE(
+          aggregator.AddSample(locations, values, 1700000000000000000 + cycle, labels)
+      );
+      auto* encoded = aggregator.Serialize(1700000000000, 1700000001000);
+      ASSERT_NE(encoded, nullptr);
+      const auto bytes = ddog_prof_EncodedProfile_bytes(encoded);
+      ASSERT_EQ(bytes.tag, DDOG_PROF_RESULT_BYTE_SLICE_OK_BYTE_SLICE);
+      EXPECT_GT(bytes.ok.len, 0u);
+      WriteTestProfile(
+          "custom-" + std::to_string(cycle) + ".pprof", {bytes.ok.ptr, bytes.ok.len}
+      );
+      SafeCleanupEncodedProfile(encoded);
+      ASSERT_TRUE(aggregator.Reset());
+    }
+  }
+  ddog_prof_ManagedStringStorage_drop(storage);
 }

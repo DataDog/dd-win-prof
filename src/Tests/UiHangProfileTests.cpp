@@ -2,12 +2,12 @@
 // the Apache 2 License. This product includes software developed at Datadog
 // (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
 
-#include <filesystem>
-#include <fstream>
 #include <thread>
 
 #include "CpuTimeProvider.h"
+#include "LocalHttpServer.h"
 #include "ProfileExporter.h"
+#include "ProfileTestOutput.h"
 #include "UiHangProvider.h"
 #include "WalltimeProvider.h"
 #include "pch.h"
@@ -17,24 +17,6 @@ using namespace dd_win_prof;
 namespace {
 constexpr int64_t kStartNs = 1700000000000000000;
 constexpr int64_t kDetectionNs = kStartNs + 100000000;
-
-std::string Environment(const char* name) {
-  auto size = GetEnvironmentVariableA(name, nullptr, 0);
-  if (size == 0) return {};
-  std::string value(size, '\0');
-  size = GetEnvironmentVariableA(name, value.data(), size);
-  value.resize(size);
-  return value;
-}
-
-void WriteFixture(const std::string& name, const ProfilingData& data) {
-  auto directory = Environment("DD_WIN_PROF_HANG_FIXTURE_DIR");
-  if (directory.empty()) return;
-  std::filesystem::create_directories(directory);
-  std::ofstream output(std::filesystem::path(directory) / name, std::ios::binary);
-  output.write(reinterpret_cast<const char*>(data.pprof.data()), data.pprof.size());
-  ASSERT_TRUE(output.good());
-}
 
 class UiHangProfileTest : public ::testing::Test {
  protected:
@@ -178,7 +160,15 @@ TEST_F(UiHangProfileTest, CallbackKeepsWaitAndHangCustomSlotsAcrossTwoFlushes) {
   for (size_t i = 0; i < profiles.size(); ++i) {
     EXPECT_EQ(profiles[i].result, 0u);
     EXPECT_EQ(profiles[i].isLast, i == 1);
-    WriteFixture("callback-" + std::to_string(i + 1) + ".pprof", profiles[i]);
+    ASSERT_GE(profiles[i].pprof.size(), 4u);
+    EXPECT_EQ(
+        (std::vector<uint8_t>(
+            profiles[i].pprof.begin(), profiles[i].pprof.begin() + 4
+        )),
+        (std::vector<uint8_t>{0x28, 0xb5, 0x2f, 0xfd})
+    );
+    EXPECT_LE(profiles[i].startUnixTimeMs, profiles[i].endUnixTimeMs);
+    WriteTestProfile("hang-" + std::to_string(i + 1) + ".pprof", profiles[i].pprof);
   }
 }
 
@@ -203,16 +193,17 @@ TEST_F(UiHangProfileTest, PartialEndpointsAcrossFlushesDoNotInventDurations) {
   ASSERT_EQ(profiles.size(), 3u);
   for (size_t i = 0; i < profiles.size(); ++i) {
     EXPECT_EQ(profiles[i].result, 0u);
-    WriteFixture("partial-" + std::to_string(i + 1) + ".pprof", profiles[i]);
+    EXPECT_EQ(profiles[i].isLast, i == profiles.size() - 1);
+    EXPECT_FALSE(profiles[i].pprof.empty());
+    WriteTestProfile("partial-" + std::to_string(i + 1) + ".pprof", profiles[i].pprof);
   }
 }
 
 TEST_F(UiHangProfileTest, HttpKeepsWaitAndHangCustomSlotsAcrossTwoFlushes) {
-  const auto url = Environment("DD_WIN_PROF_HANG_AGENT_URL");
-  if (url.empty())
-    GTEST_SKIP() << "Run validate_ui_hang_profile.py for local HTTP coverage";
+  LocalHttpServer server;
+  ScopedEnvironment agent("DD_TRACE_AGENT_URL", server.Url());
+  ScopedEnvironment pipe("DD_TRACE_PIPE_NAME", "");
   Configuration config;
-  ASSERT_EQ(config.GetAgentUrl(), url);
   config.SetApiKey("");
   config.SetExportEnabled(true);
   config.SetProfilesOutputDirectory({});
@@ -227,5 +218,18 @@ TEST_F(UiHangProfileTest, HttpKeepsWaitAndHangCustomSlotsAcrossTwoFlushes) {
   periodic.join();
   send(2);
   exporter.Cleanup();
+  EXPECT_TRUE(server.Error().empty()) << server.Error();
+  const auto requests = server.Requests();
+  ASSERT_EQ(requests.size(), 2u);
+  for (size_t i = 0; i < requests.size(); ++i) {
+    EXPECT_NE(
+        requests[i].body.find("profile_seq:" + std::to_string(i)), std::string::npos
+    );
+    EXPECT_NE(requests[i].body.find("\"family\":\"windows\""), std::string::npos);
+    EXPECT_NE(
+        requests[i].body.find(std::string("\x28\xb5\x2f\xfd", 4)), std::string::npos
+    );
+    WriteHttpTestProfile("http-" + std::to_string(i + 1) + ".pprof", requests[i].body);
+  }
 }
 }  // namespace
