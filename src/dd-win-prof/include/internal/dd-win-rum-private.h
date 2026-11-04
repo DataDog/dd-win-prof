@@ -16,7 +16,8 @@
 struct ProfilingData {
   // Zero on success; otherwise a ProfilingErrorCode with no pprof bytes.
   uint32_t result = 0;
-  // LZ4-compressed pprof.
+  // Zstd-compressed pprof (libdatadog v47). Older profiler versions emitted LZ4.
+  // Consumers supporting both versions must detect compression from the frame bytes.
   std::vector<uint8_t> pprof;
   // Wall-clock milliseconds since Unix epoch, not monotonic timestamps.
   int64_t startUnixTimeMs = 0;

@@ -105,14 +105,7 @@ class PprofAggregator {
   // - AddEndpointCount(const std::string& endpoint, int64_t value)
 
  private:
-  /// <summary>
-  /// Converts SampleValueType to libdatadog value types
-  /// </summary>
-  /// <param name="sampleValueTypes">Input sample value types</param>
-  /// <returns>Vector of libdatadog value types</returns>
-  std::vector<ddog_prof_ValueType> ConvertSampleValueTypes(
-      std::span<const SampleValueType> sampleValueTypes
-  );
+  bool ConvertSampleValueTypes(std::span<const SampleValueType> sampleValueTypes);
 
   /// <summary>
   /// Cleans up libdatadog resources
@@ -124,8 +117,8 @@ class PprofAggregator {
   ddog_prof_Profile m_profile;  // libdatadog profile object
   bool m_initialized;           // Initialization status
   int m_periodMs;               // Configured period in milliseconds
-  std::vector<ddog_prof_ValueType>
-      m_valueTypes;  // Storage for value types during profile lifetime
+  std::vector<ddog_prof_SampleType> m_valueTypes;
+  std::vector<SampleValueType> m_customTypes;
 };
 
 }  // namespace dd_win_prof

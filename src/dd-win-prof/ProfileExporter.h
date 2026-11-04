@@ -9,6 +9,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <unordered_map>
 
 #include "Configuration.h"
@@ -49,7 +50,7 @@ class ProfileExporter {
   //   1. Optionally written locally as a `.rum-views.json` debug file when
   //      pprof file writing is enabled.
   //   2. Passed to libdatadog through the `optional_internal_metadata_json`
-  //      parameter of `ddog_prof_Exporter_Request_build`, where it ends up
+  //      parameter of `ddog_prof_Exporter_send_blocking`, where it ends up
   //      embedded in the `internal` field of the profile's `event.json`.
   //
   // Public so unit tests can exercise it directly; not intended for external use.
@@ -62,14 +63,14 @@ class ProfileExporter {
   // Configuration methods for debug file writing
   // These methods allow enabling/disabling writing of pprof files to disk for debugging
   // purposes. When enabled, each exported profile will be written to a timestamped
-  // .pprof.lz4 file. This feature is OFF by default and should only be enabled for
+  // Zstd-compressed .lz4.pprof file (legacy filename). This is OFF by default; use for
   // debugging or development.
   //
   // Example usage:
   //   exporter.SetDebugPprofFileWritingEnabled(true);
   //   exporter.SetDebugPprofPrefix("C:\\temp\\debug_profiles\\myapp_");
   // This would create files like:
-  // C:\temp\debug_profiles\myapp_20241201T143022Z.pprof.lz4
+  // C:\temp\debug_profiles\myapp_20241201T143022Z.lz4.pprof
   void SetDebugPprofFileWritingEnabled(bool enabled) {
     _debugPprofFileWritingEnabled = enabled;
   }
@@ -225,6 +226,7 @@ class ProfileExporter {
   bool _exportEnabled;
   ProfilingDataCallback _profilingDataCallback;
   ddog_prof_ProfileExporter _exporter;  // Value type, not pointer
+  std::thread::id _httpExportThread;
   std::string _exportUrl;
   std::string _apiKey;
   bool _agentMode;  // true for agent, false for agentless

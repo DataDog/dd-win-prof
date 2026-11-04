@@ -9,7 +9,7 @@
 #
 # Prerequisites:
 #   - Runner.exe built (Debug or Release)
-#   - Python 3 with lz4, protobuf, grpcio-tools installed
+#   - Python 3 with lz4, zstandard, protobuf, grpcio-tools installed
 #     (run: pip install -r requirements.txt)
 #
 # Usage:

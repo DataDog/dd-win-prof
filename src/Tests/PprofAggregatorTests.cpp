@@ -27,9 +27,7 @@ class PprofAggregatorTest : public ::testing::Test {
   void SetUp() override {
     // Common setup for all tests
     config = std::make_unique<Configuration>();
-    config->SetExportEnabled(
-        false
-    );  // Disable export for all tests to prevent network calls
+    config->SetExportEnabled(false);  // Prevent network calls
   }
 
   void TearDown() override {
@@ -753,4 +751,71 @@ TEST_F(PprofAggregatorTest, AddSampleWithEmptyLocations) {
 
   // We expect this to succeed since empty locations should be valid
   EXPECT_TRUE(result) << "AddSample should succeed with empty locations";
+}
+
+TEST_F(PprofAggregatorTest, CustomSampleTypesReuseSlotsAndRejectOverflow) {
+  const auto storage = CreateStringStorage();
+  {
+    std::vector<SampleValueType> types;
+    for (int i = 0; i < 5; ++i) {
+      types.push_back({"custom-" + std::to_string(i), "nanoseconds"});
+    }
+    types.push_back(types.front());
+    PprofAggregator reused(types, storage);
+    ASSERT_TRUE(reused.IsInitialized());
+    auto* encoded = reused.Serialize(1700000000000, 1700000001000);
+    ASSERT_NE(encoded, nullptr);
+    SafeCleanupEncodedProfile(encoded);
+
+    types.back() = {"custom-overflow", "nanoseconds"};
+    PprofAggregator overflow(types, storage);
+    EXPECT_FALSE(overflow.IsInitialized());
+    EXPECT_EQ(overflow.GetProfile(), nullptr);
+  }
+  ddog_prof_ManagedStringStorage_drop(storage);
+}
+
+TEST_F(PprofAggregatorTest, InvalidCustomDefinitionFailsInitialization) {
+  const auto storage = CreateStringStorage();
+  {
+    std::vector<SampleValueType> types{{std::string(1, '\xff'), "nanoseconds"}};
+    PprofAggregator aggregator(types, storage);
+    EXPECT_FALSE(aggregator.IsInitialized());
+    EXPECT_EQ(aggregator.GetProfile(), nullptr);
+  }
+  ddog_prof_ManagedStringStorage_drop(storage);
+}
+
+TEST(LibdatadogUpgradeEndpointTest, AgentlessCopiesEndpointInputs) {
+  ddog_prof_ProfileExporter_Result created;
+  {
+    const std::string site = "example.invalid";
+    const std::string key = "local-test-key";
+    auto endpoint = ddog_prof_Endpoint_agentless(
+        {site.data(), site.size()}, {key.data(), key.size()}, 10000, false
+    );
+    created = ddog_prof_Exporter_new(
+        {"upgrade-test", 12}, {"1", 1}, {"windows", 7}, nullptr, endpoint
+    );
+  }
+  ASSERT_EQ(created.tag, DDOG_PROF_PROFILE_EXPORTER_RESULT_OK_HANDLE_PROFILE_EXPORTER);
+  auto runtime = ddog_prof_Exporter_init_runtime(&created.ok);
+  EXPECT_EQ(runtime.tag, DDOG_VOID_RESULT_OK);
+  if (runtime.tag == DDOG_VOID_RESULT_ERR) ddog_Error_drop(&runtime.err);
+  ddog_prof_Exporter_drop(&created.ok);
+  EXPECT_EQ(created.ok.inner, nullptr);
+}
+
+TEST_F(PprofAggregatorTest, UnconfiguredCustomSlotCannotSerialize) {
+  const ddog_prof_SampleType type = DDOG_PROF_SAMPLE_TYPE_CUSTOM1;
+  auto created = ddog_prof_Profile_new({&type, 1}, nullptr);
+  ASSERT_EQ(created.tag, DDOG_PROF_PROFILE_NEW_RESULT_OK);
+  auto serialized = ddog_prof_Profile_serialize(&created.ok, nullptr, nullptr);
+  EXPECT_EQ(serialized.tag, DDOG_PROF_PROFILE_SERIALIZE_RESULT_ERR);
+  if (serialized.tag == DDOG_PROF_PROFILE_SERIALIZE_RESULT_ERR) {
+    ddog_Error_drop(&serialized.err);
+  } else {
+    ddog_prof_EncodedProfile_drop(&serialized.ok);
+  }
+  ddog_prof_Profile_drop(&created.ok);
 }

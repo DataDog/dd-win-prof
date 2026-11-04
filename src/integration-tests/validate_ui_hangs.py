@@ -32,7 +32,7 @@ import glob
 import os
 import sys
 
-# Reuse the existing pprof reader (LZ4 decompress + protobuf parse).
+# Reuse the existing pprof reader (LZ4/Zstd decompress + protobuf parse).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import pprof_utils  # noqa: E402
 

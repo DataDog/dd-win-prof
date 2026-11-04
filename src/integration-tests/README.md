@@ -2,7 +2,7 @@
 
 End-to-end integration tests that run the **Runner** executable and validate the profiler's output (log files and pprof content).
 
-Unlike the unit tests in `src/Tests/` (C++ / Google Test), these tests exercise the full profiling pipeline: profiler setup, sample collection, export, and file output. A Python helper is used to decompress and parse the LZ4-compressed pprof files produced by libdatadog.
+Unlike the unit tests in `src/Tests/` (C++ / Google Test), these tests exercise the full profiling pipeline: profiler setup, sample collection, export, and file output. A Python helper decompresses current Zstd pprof files and historical LZ4 files. Debug files retain the legacy `.lz4.pprof` suffix; detect compression from the bytes, not the filename.
 
 ## Prerequisites
 
@@ -15,7 +15,8 @@ Unlike the unit tests in `src/Tests/` (C++ / Google Test), these tests exercise 
 
 | Package | Purpose |
 |---------|---------|
-| `lz4` | Decompress LZ4-compressed pprof files |
+| `lz4` | Decompress historical LZ4 pprof files |
+| `zstandard` | Decompress current Zstd pprof files |
 | `protobuf` | Parse the Google pprof protobuf format |
 | `grpcio-tools` | Compile `profile.proto` into Python bindings on first run |
 
@@ -109,7 +110,7 @@ Validates everything in the local test **plus** that the profile was successfull
 
 ### `pprof_utils.py`
 
-Python helper for reading LZ4-compressed pprof files.
+Python helper for reading historical LZ4 and current Zstd pprof files.
 
 ```
 python pprof_utils.py labels <file.lz4.pprof>
@@ -132,9 +133,9 @@ On first run it auto-generates `profile_pb2.py` from `profile.proto` using `grpc
 src/integration-tests/
   rum_test_helpers.ps1         # Shared helpers (Assert, Find-Python, Show-TestSummary)
   install-dependencies.ps1     # One-step Python dependency installer
-  requirements.txt             # Python packages: lz4, protobuf, grpcio-tools
+  requirements.txt             # Python packages: lz4, zstandard, protobuf, grpcio-tools
   profile.proto                # Google pprof protobuf definition
-  pprof_utils.py               # LZ4 decompress + protobuf parse + JSON output
+  pprof_utils.py               # LZ4/Zstd decompress + protobuf parse + JSON output
   validate_ui_hangs.py         # UI-hang pprof validator (values, labels, stacks, timing)
   test_rum_scenario.ps1        # RUM scenario 5 integration test (local, no API key)
   test_rum_scenario_send.ps1   # RUM scenario 5 integration test (with backend send)

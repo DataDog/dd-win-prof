@@ -27,8 +27,10 @@ int TestSdkCallback() {
   config.size = sizeof(config);
   config.noEnvVars = true;
   config.uploadIntervalSeconds = 3600;
-  if (!SetupProfiler(&config) || !StartProfiler()) {
-    std::cerr << "Failed to configure or start the profiler\n";
+  const bool configured = SetupProfiler(&config);
+  if (!configured || !StartProfiler()) {
+    std::cerr << "Failed to " << (configured ? "start" : "configure")
+              << " the profiler\n";
     if (!SetupProfilingDataCallback({})) {
       std::cerr << "Failed to unregister the profiling callback\n";
     }
@@ -57,8 +59,10 @@ int TestSdkCallback() {
     std::cerr << "Profile delivered on stop was not marked final\n";
     return 1;
   }
-  if (profile.pprof.empty()) {
-    std::cerr << "Final profile has no pprof bytes\n";
+  if (profile.pprof.size() < 4 || profile.pprof[0] != 0x28 ||
+      profile.pprof[1] != 0xb5 || profile.pprof[2] != 0x2f ||
+      profile.pprof[3] != 0xfd) {
+    std::cerr << "Final profile is not a Zstd frame\n";
     return 1;
   }
   if (profile.startUnixTimeMs <= 0) {
