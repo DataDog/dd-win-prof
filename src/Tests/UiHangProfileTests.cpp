@@ -164,10 +164,9 @@ TEST_F(UiHangProfileTest, CallbackKeepsWaitAndHangCustomSlotsAcrossTwoFlushes) {
   config.SetExportEnabled(false);
   std::vector<ProfilingData> profiles;
   ProfileExporter exporter(
-      &config,
-      registry.GetValueTypes(),
-      nullptr,
-      [&](ProfilingData data) { profiles.push_back(std::move(data)); }
+      &config, registry.GetValueTypes(), nullptr, [&](ProfilingData data) {
+        profiles.push_back(std::move(data));
+      }
   );
   ASSERT_TRUE(exporter.Initialize());
   for (int cycle = 1; cycle <= 2; ++cycle) {
@@ -189,10 +188,9 @@ TEST_F(UiHangProfileTest, PartialEndpointsAcrossFlushesDoNotInventDurations) {
   config.SetExportEnabled(false);
   std::vector<ProfilingData> profiles;
   ProfileExporter exporter(
-      &config,
-      registry.GetValueTypes(),
-      nullptr,
-      [&](ProfilingData data) { profiles.push_back(std::move(data)); }
+      &config, registry.GetValueTypes(), nullptr, [&](ProfilingData data) {
+        profiles.push_back(std::move(data));
+      }
   );
   ASSERT_TRUE(exporter.Initialize());
   ASSERT_TRUE(exporter.Add(Endpoint(1, true)));
