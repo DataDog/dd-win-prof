@@ -106,6 +106,26 @@ Validates everything in the local test **plus** that the profile was successfull
 | `test_rum_scenario_send.ps1` | Runner scenario 5 (with send) | Everything above **plus** successful profile upload to the backend (HTTP 200, no send errors) |
 | `test_ui_hangs.ps1` | UIApp Sleep / Wait / CPU hangs and profiler restart (local) | Per kind: UIApp exits cleanly, final export logged, and `UIHang=true/false` pairs on `UIApp_Main` have the expected reason stack, `wall-time == 0`, `wait-time > 0`, ordered timestamps, no ordinary wait overlapping a detected hang, and (CPU) positive `cpu-time` during the hang. The lifecycle case verifies invalid API calls and one hang pair in each of two session-specific RUM views. |
 
+## Regular regression tests
+
+`Tests.exe` (or `ctest --test-dir build/src/Tests -C Release --output-on-failure`) runs
+aggregator custom-type/reset/period, callback ownership/Zstd, and loopback HTTP
+policy/thread-transition tests without credentials, opt-in variables or a Python
+launcher. HTTP traffic stays on an ephemeral loopback port.
+
+Python discovery also decodes the ordinary native tests' output to check exact
+custom names/units, period and post-reset values. On Windows, build Release
+`Tests.exe` first; `DD_WIN_PROF_TESTS_EXE` can select another built configuration.
+These native wire checks run automatically in the existing Release integration
+CI step; non-Windows discovery skips only the native executable cases:
+
+```powershell
+python -m unittest discover -s src/integration-tests -p "test_*.py" -v
+```
+
+Historical v19/v47 A/B results are archived locally. They are not a committed
+migration harness or a release-validation framework.
+
 ## Utilities
 
 ### `pprof_utils.py`
