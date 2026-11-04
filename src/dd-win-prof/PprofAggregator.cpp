@@ -219,9 +219,7 @@ bool PprofAggregator::ConvertSampleValueTypes(
 
   for (const auto& valueType : sampleValueTypes) {
     auto stable = std::find_if(
-        std::begin(stableTypes),
-        std::end(stableTypes),
-        [&](const auto& type) {
+        std::begin(stableTypes), std::end(stableTypes), [&](const auto& type) {
           return type.name == valueType.Name && type.unit == valueType.Unit;
         }
     );
