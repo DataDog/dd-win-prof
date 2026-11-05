@@ -228,7 +228,7 @@ bool PprofAggregator::ConvertSampleValueTypes(
       continue;
     }
 
-    // wait-time is not a stable libdatadog type. Preserve its exact wire pair.
+    // libdatadog v47 has no WaitTime enum. Preserve its exact wire pair.
     auto custom =
         std::find_if(m_customTypes.begin(), m_customTypes.end(), [&](const auto& type) {
           return type.Name == valueType.Name && type.Unit == valueType.Unit;

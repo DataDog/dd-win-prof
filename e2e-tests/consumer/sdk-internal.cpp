@@ -6,8 +6,17 @@
 #include "internal/dd-win-rum-private.h"
 // clang-format on
 
+#include <cstdint>
 #include <iostream>
 #include <utility>
+#include <vector>
+
+namespace {
+bool HasZstdMagic(const std::vector<std::uint8_t>& bytes) {
+  return bytes.size() >= 4 && bytes[0] == 0x28 && bytes[1] == 0xb5 &&
+         bytes[2] == 0x2f && bytes[3] == 0xfd;
+}
+}  // namespace
 
 int TestSdkCallback() {
   std::vector<ProfilingData> results;
@@ -59,9 +68,7 @@ int TestSdkCallback() {
     std::cerr << "Profile delivered on stop was not marked final\n";
     return 1;
   }
-  if (profile.pprof.size() < 4 || profile.pprof[0] != 0x28 ||
-      profile.pprof[1] != 0xb5 || profile.pprof[2] != 0x2f ||
-      profile.pprof[3] != 0xfd) {
+  if (!HasZstdMagic(profile.pprof)) {
     std::cerr << "Final profile is not a Zstd frame\n";
     return 1;
   }
