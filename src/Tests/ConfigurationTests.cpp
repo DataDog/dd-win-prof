@@ -481,16 +481,18 @@ TEST_F(ConfigurationTest, InitConfig_RepeatedSetup_DiscardsPreviousOverrides) {
   SetTestEnvVar(EnvironmentVariables::Site, "datadoghq.eu");
   UnsetTestEnvVar(EnvironmentVariables::AgentUrl);
 
+  // The second setup must fall back to DD_VERSION when set, or defaults when unset.
   for (const char* version : {"env-version", static_cast<const char*>(nullptr)}) {
     SetTestEnvVar(EnvironmentVariables::Version, version);
     const Configuration baseline;
 
-    for (bool noEnvVars : {false, true}) {
-      SCOPED_TRACE(noEnvVars);
+    // Only the first setup varies; the second always allows environment variables.
+    for (bool firstNoEnvVars : {false, true}) {
+      SCOPED_TRACE(firstNoEnvVars);
       SCOPED_TRACE(baseline.GetVersion());
       Configuration config;
       auto first = MakeProfilerConfig();
-      first.noEnvVars = noEnvVars;
+      first.noEnvVars = firstNoEnvVars;
       first.url = "datadoghq.com";
       first.apiKey = "first-key";
       first.serviceName = "first-service";
@@ -507,6 +509,7 @@ TEST_F(ConfigurationTest, InitConfig_RepeatedSetup_DiscardsPreviousOverrides) {
       ASSERT_EQ(config.GetVersion(), "1.2.3");
 
       auto second = MakeProfilerConfig();
+      second.noEnvVars = false;
       second.serviceName = "second-service";
       ASSERT_TRUE(InitializeConfiguration(&config, &second));
 
