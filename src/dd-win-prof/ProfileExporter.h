@@ -59,17 +59,8 @@ class ProfileExporter {
   );
   static void EscapeJsonString(std::ostream& out, const std::string& s);
 
-  // Configuration methods for debug file writing
-  // These methods allow enabling/disabling writing of pprof files to disk for debugging
-  // purposes. When enabled, each exported profile will be written to a timestamped
-  // Zstd-compressed .lz4.pprof file (legacy filename). This is OFF by default; use for
-  // debugging or development.
-  //
-  // Example usage:
-  //   exporter.SetDebugPprofFileWritingEnabled(true);
-  //   exporter.SetDebugPprofPrefix("C:\\temp\\debug_profiles\\myapp_");
-  // This would create files like:
-  // C:\temp\debug_profiles\myapp_20241201T143022Z.lz4.pprof
+  // Write Zstd-compressed pprof files for debugging; disabled by default.
+  // Filenames retain the legacy .lz4.pprof suffix.
   void SetDebugPprofFileWritingEnabled(bool enabled) {
     _debugPprofFileWritingEnabled = enabled;
   }
