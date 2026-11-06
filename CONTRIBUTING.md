@@ -133,6 +133,7 @@ dd-win-prof/
 │   ├── CMakeLists.txt              # Dependencies (libdatadog, spdlog, googletest via FetchContent)
 │   ├── dd-win-prof/                # Main profiler DLL
 │   ├── Runner/                     # Example app for testing the profiler
+│   ├── UIApp/                      # UI-hang test application
 │   ├── Tests/                      # Unit tests (Google Test)
 │   ├── integration-tests/          # Runner integration tests
 │   ├── ProfilerInjector/           # Utility to inject profiler into a target process
@@ -158,6 +159,7 @@ After building, the key artifacts are:
 | `dd-win-prof.dll` / `.lib` / `.pdb` | `build\src\dd-win-prof\<Config>\` |
 | `datadog_profiling_ffi.dll` (unit-test dependency) | `build\_deps\libdatadog-src\release\dynamic\` |
 | `Runner.exe` | `build\src\Runner\<Config>\` |
+| `UIApp.exe` | `build\src\UIApp\<Config>\` |
 | `Tests.exe` | `build\src\Tests\<Config>\` |
 | `ProfilerInjector.exe` | `build\src\ProfilerInjector\<Config>\` |
 | `dd-win-prof.h` (staged public header) | `src\reference\` (copied before compilation) |
@@ -175,7 +177,8 @@ Instructions live beside the tests:
 
 - [Unit tests](src/Tests/README.md)
 - [Runner build and CLI examples](src/Runner/README.md)
-- [RUM integration tests](src/integration-tests/README.md)
+- [RUM and UI-hang integration tests](src/integration-tests/README.md)
+  (Python 3.9+ and the listed dependencies; the UI-hang test requires PowerShell 7.0+)
 - [Runner profile/symbol checks, consumer checks, and Vulkan tests](e2e-tests/README.md)
 
 [`.github/workflows/test.yml`](.github/workflows/test.yml) is the primary CI

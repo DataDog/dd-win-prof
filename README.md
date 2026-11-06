@@ -14,8 +14,10 @@ Implementation of a Windows CPU and wall-time profiler
 
 In your project, you need the following files:
 
-- **dd-win-prof.h**: header containing the declaration of the `StartProfiler` and `StopProfiler` functions to be called when the application starts and when it stops.
-- **dd-win-prof.lib**: library containing the stub for the two functions pointing to **dd-win-prof.dll**
+- **dd-win-prof.h**: public API and configuration declarations.
+- **dd-win-prof.lib**: import library for **dd-win-prof.dll**
+
+Use the headers and import library supplied with the DLL.
 
 Deploy **dd-win-prof.dll** next to your application's executable. It links
 libdatadog statically for profile serialization and upload.
@@ -72,6 +74,12 @@ install(FILES "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/dd-win-prof.h" 
 The profiler can be configured in two main ways: **code-based** (via `ProfilerConfig` and `SetupProfiler`) or **environment variables**. Code-based settings override environment variables when both are provided.
 
 ### Option 1: Code-based configuration
+
+Each `SetupProfiler()` call replaces the previous configuration: it starts from
+defaults and the current environment (unless `noEnvVars=true`), then applies the
+supplied overrides. Omitted fields do not retain previous API overrides.
+`StopProfiler()` preserves configuration for a later `StartProfiler()` call
+without another setup.
 
 Define your configuration in a `ProfilerConfig` instance and pass it to `SetupProfiler` before calling `StartProfiler`:
 
@@ -157,6 +165,11 @@ $env:DD_ENV = "production"
 ```
 
 Call [StartProfiler](./src/dd-win-prof/include/dd-win-prof.h) when ready; [StopProfiler](./src/dd-win-prof/include/dd-win-prof.h) when done. With environment-based configuration, use `DD_PROFILING_ENABLED=0` to disable profiling even if `StartProfiler` is called.
+
+Call `StopProfiler()` before process exit to export the final profile. During
+process termination, the DLL skips profiler cleanup because Windows may already
+have terminated threads holding its locks. This does not add support for dynamic
+DLL unloading with `FreeLibrary()`.
 
 **NOTE:** Method names are obfuscated by default. Add `DD_PROFILING_INTERNAL_SYMBOLIZE_CALLSTACKS=1` to enable symbolization.
 
