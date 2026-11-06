@@ -8,6 +8,8 @@
 #include "dd-win-prof.h"
 
 // Configures the profiler without keeping settings from previous calls.
+// When pSettings->noEnvVars is true, resets all fields to defaults
+// before overriding with pSettings values.
 // HTTP mode requires url and apiKey when noEnvVars is set; callback mode does not.
 bool InitializeConfiguration(
     Configuration* pConfig,
