@@ -184,7 +184,7 @@ Configuration is managed in `Configuration.cpp`. Values come from two sources, w
 
 1. **Environment variables** (`EnvironmentVariables.h`): sampling period (default 20ms), threads to sample (default 5 for walltime, 64 for CPU), upload period (default 60s), service metadata, API key, agent URL, etc.
 
-2. **`SetupProfiler(const ProfilerConfig*)`** (`dd-win-prof.cpp`): Callers pass a `ProfilerConfig` struct; `InitializeConfiguration()` applies its fields to the shared `Configuration` instance.
+2. **`SetupProfiler(const ProfilerConfig*)`** (`dd-win-prof.cpp`): Each call to `InitializeConfiguration()` rebuilds the shared `Configuration` from defaults and the current environment (unless `noEnvVars` is true), then applies the supplied `ProfilerConfig` overrides. Omitted fields do not retain previous API overrides. `StopProfiler()` preserves configuration for a later `StartProfiler()` without another setup.
 
 **Compatibility**: The public lifecycle API retains C linkage: `bool SetupProfiler(const ProfilerConfig*)`, `bool StartProfiler()` and `void StopProfiler()`. The SDK-private callback is supported only as a source-build dependency with compatible compiler, standard library and CRT settings. No callback API/ABI compatibility is guaranteed across versions or independent builds.
 
