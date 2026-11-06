@@ -120,7 +120,7 @@ Outputs are also staged into `src/reference` in development mode, or whenever th
 
 A project that only needs the profiler library can therefore just do `FetchContent_MakeAvailable(dd-win-prof)`: it won't download GoogleTest, define test/tool targets, write into dd-win-prof's source tree, or add install rules. Consumers that need the runtime DLLs next to their own binaries should use `dd_win_prof_copy_runtime_deps()` rather than reading `src/reference`, which is no longer populated for them. Opting a consumer into `DD_WIN_PROF_BUILD_TESTS=ON` also brings in GoogleTest and CTest's cache entries.
 
-Only `src/dd-win-prof/include/` (which holds the public `dd-win-prof.h`) is on the include path of projects that link the `dd-win-prof` target; keep anything else out of that directory. The helper targets are namespaced (`dd_win_prof_spdlog`, `dd_win_prof_libdatadog_static`, `dd_win_prof_libdatadog_dynamic`) so they can't collide with a consumer's own. The CI job "Consume as dependency" (`scripts/test-consumer.ps1`) builds a small project against dd-win-prof, exports and installs the target as the README describes, builds a second project against that installed export, and fails if any of this regresses; run it locally with `.\scripts\test-consumer.ps1`.
+Only `src/dd-win-prof/include/` is on the include path of projects that link the `dd-win-prof` target. It holds the public `dd-win-prof.h` and SDK-private headers under `internal/`; those private APIs are only supported for compatible source builds, not as a stable API/ABI. The helper targets are namespaced (`dd_win_prof_spdlog`, `dd_win_prof_libdatadog_static`, `dd_win_prof_libdatadog_dynamic`) so they can't collide with a consumer's own. The CI job "Consume as dependency" (`scripts/test-consumer.ps1`) builds a small project against dd-win-prof, exports and installs the target as the README describes, builds a second project against that installed export, and fails if any of this regresses; run it locally with `.\scripts\test-consumer.ps1`.
 
 ### Project structure and build outputs
 
@@ -133,6 +133,7 @@ dd-win-prof/
 │   ├── CMakeLists.txt              # Dependencies (libdatadog, spdlog, googletest via FetchContent)
 │   ├── dd-win-prof/                # Main profiler DLL
 │   ├── Runner/                     # Example app for testing the profiler
+│   ├── UIApp/                      # UI-hang test application
 │   ├── Tests/                      # Unit tests (Google Test)
 │   ├── integration-tests/          # Runner integration tests
 │   ├── ProfilerInjector/           # Utility to inject profiler into a target process
@@ -158,6 +159,7 @@ After building, the key artifacts are:
 | `dd-win-prof.dll` / `.lib` / `.pdb` | `build\src\dd-win-prof\<Config>\` |
 | `datadog_profiling_ffi.dll` (unit-test dependency) | `build\_deps\libdatadog-src\release\dynamic\` |
 | `Runner.exe` | `build\src\Runner\<Config>\` |
+| `UIApp.exe` | `build\src\UIApp\<Config>\` |
 | `Tests.exe` | `build\src\Tests\<Config>\` |
 | `ProfilerInjector.exe` | `build\src\ProfilerInjector\<Config>\` |
 | `dd-win-prof.h` (staged public header) | `src\reference\` (copied before compilation) |
@@ -175,7 +177,8 @@ Instructions live beside the tests:
 
 - [Unit tests](src/Tests/README.md)
 - [Runner build and CLI examples](src/Runner/README.md)
-- [RUM integration tests](src/integration-tests/README.md)
+- [RUM and UI-hang integration tests](src/integration-tests/README.md)
+  (Python 3.9+ and the listed dependencies; the UI-hang test requires PowerShell 7.0+)
 - [Runner profile/symbol checks, consumer checks, and Vulkan tests](e2e-tests/README.md)
 
 [`.github/workflows/test.yml`](.github/workflows/test.yml) is the primary CI
