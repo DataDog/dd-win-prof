@@ -31,6 +31,7 @@ PprofAggregator::PprofAggregator(
   memset(&m_profile, 0, sizeof(m_profile));  // probably not needed
 
   if (!ConvertSampleValueTypes(sampleValueTypes)) {
+    Log::Error("Failed to convert profile sample value types");
     return;
   }
 
@@ -228,7 +229,8 @@ bool PprofAggregator::ConvertSampleValueTypes(
       continue;
     }
 
-    // libdatadog v47 has no WaitTime enum. Preserve its exact wire pair.
+    // Preserve unmapped name/unit pairs on the wire using custom slots.
+    // TODO: Normalize wait-time/nanoseconds in libdatadog's sample type registry.
     auto custom =
         std::find_if(m_customTypes.begin(), m_customTypes.end(), [&](const auto& type) {
           return type.Name == valueType.Name && type.Unit == valueType.Unit;
