@@ -9,7 +9,6 @@
 #include <span>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <unordered_map>
 
 #include "Configuration.h"
@@ -226,7 +225,6 @@ class ProfileExporter {
   bool _exportEnabled;
   ProfilingDataCallback _profilingDataCallback;
   ddog_prof_ProfileExporter _exporter;  // Value type, not pointer
-  std::thread::id _httpExportThread;
   std::string _exportUrl;
   std::string _apiKey;
   bool _agentMode;  // true for agent, false for agentless

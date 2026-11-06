@@ -1503,16 +1503,9 @@ bool ProfileExporter::ExportProfile(
     return false;
   }
 
-  const auto thread = std::this_thread::get_id();
-  if (!_exporter.inner ||
-      (_httpExportThread != std::thread::id{} && _httpExportThread != thread)) {
-    // v47's blocking runtime has thread affinity. Final export can run after join.
-    CleanupExporter();
-    if (!InitializeExporter()) {
-      return false;
-    }
+  if (!_exporter.inner && !InitializeExporter()) {
+    return false;
   }
-  _httpExportThread = thread;
 
   // Prepare additional tags (per-export metadata)
   ddog_Vec_Tag additionalTags = ddog_Vec_Tag_new();
@@ -1666,5 +1659,4 @@ void ProfileExporter::CleanupExporter() {
     ddog_prof_Exporter_drop(&_exporter);
     _exporter.inner = nullptr;
   }
-  _httpExportThread = {};
 }
