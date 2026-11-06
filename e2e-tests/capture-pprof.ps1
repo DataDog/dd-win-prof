@@ -2,9 +2,8 @@
 # Used both locally (to bootstrap expected_profile.json files) and in CI
 # (to feed the prof-correctness analyzer).
 #
-# Defaults: symbolize on, upload off — set as env vars so Runner picks
-# them up without extra flags. Per-scenario config (e.g. RUM IDs) lives
-# in runner-scenarios/scenario_<N>/.env and is auto-loaded.
+# Defaults: symbolize on, upload off; loaded env files can override both.
+# Per-scenario settings come from runner-scenarios/scenario_<N>/scenario.env.
 #
 # Usage:
 #   .\capture-pprof.ps1                                      # scenario 1, 3 iterations

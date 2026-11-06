@@ -1,18 +1,17 @@
 # Test Runner
 
-An example C++ application for testing the Datadog Windows profiler. It exercises the profiler through four scenarios with configurable iterations, and supports both environment-variable and code-only (`noEnvVars`) configuration modes.
+An example C++ application for testing the Datadog Windows profiler. It exercises the profiler through five scenarios with configurable iterations, and supports both environment-variable and code-only (`noEnvVars`) configuration modes.
 
 ## Building
 
-```cmd
-msbuild src\Runner\Runner.vcxproj /p:Configuration=Debug /p:Platform=x64
-```
+After [configuring CMake](../../CONTRIBUTING.md#development-setup), run from the repository root:
 
-Or with CMake:
-
-```cmd
+```powershell
 cmake --build build --target Runner --config Debug
 ```
+
+The executable is `build\src\Runner\Debug\Runner.exe`. Run the CLI examples from
+that directory, or use its full path. Replace `Debug` with `Release` as needed.
 
 ## CLI Reference
 
@@ -39,18 +38,20 @@ Runner.exe --scenario <1-5> --iterations <num> [options]
 
 | Flag | Description |
 |------|-------------|
-| `--noenvvars` | Ignore all environment variables; use only explicit flags |
-| `--url <url>` | Datadog intake URL (mandatory with `--noenvvars`) |
+| `--noenvvars` | Use explicit flags and defaults for profiler settings; logging remains environment-configured |
+| `--url <site>` | Datadog site, such as `datadoghq.com` (mandatory with `--noenvvars`) |
 | `--apikey <key>` | Datadog API key (mandatory with `--noenvvars`) |
 
 ### RUM Context Options (scenario 5)
 
 | Flag | Description |
 |------|-------------|
-| `--rum-app-id <uuid>` | RUM application ID (required for scenario 5) |
-| `--rum-session-id <uuid>` | RUM session ID (required for scenario 5) |
+| `--rum-app-id <uuid>` | RUM application ID (required for scenario 5, or set `DD_RUM_APPLICATION_ID`) |
+| `--rum-session-id <uuid>` | Optional session ID; falls back to `DD_RUM_SESSION_ID`, then a generated UUID |
 
-Scenario 5 walks through three views across two sessions: views 1-2 use the session ID passed via `--rum-session-id` (S1), then a session rotation occurs and view 3 uses a hardcoded second session ID (S2: `99999999-2222-3333-4444-555555555555`).
+Scenario 5 produces four view records per iteration. HomePage, SettingsPage, and
+ProfilePage use the initial session (S1). After session rotation, a fourth view
+(HomePage) uses S2: `99999999-2222-3333-4444-555555555555`.
 
 When `--pprofdir` is set, scenario 5 also produces `.rum-views.json` files alongside the `.lz4.pprof` files. Each JSON file contains a `{"views":[...],"sessions":[...]}` object with view and session timeline records.
 
@@ -68,8 +69,8 @@ When `--pprofdir` is set, scenario 5 also produces `.rum-views.json` files along
 ```cmd
 Runner.exe --scenario 1 --iterations 5
 Runner.exe --scenario 3 --iterations 1 --name myApp --env staging --symbolize
-Runner.exe --scenario 2 --iterations 10 --noenvvars --url https://intake.datadoghq.com --apikey DD_API_KEY --name testApp
-Runner.exe --scenario 4 --iterations 2 --noenvvars --url https://intake.datadoghq.com --apikey DD_API_KEY --pprofdir C:\temp\pprof
+Runner.exe --scenario 2 --iterations 10 --noenvvars --url datadoghq.com --apikey YOUR_KEY --name testApp
+Runner.exe --scenario 4 --iterations 2 --noenvvars --url datadoghq.com --apikey YOUR_KEY --pprofdir C:\temp\pprof
 Runner.exe --scenario 5 --iterations 1 --rum-app-id aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee --rum-session-id 11111111-2222-3333-4444-555555555555 --pprofdir C:\temp\rum-test --symbolize
 ```
 
@@ -91,16 +92,23 @@ Environment variables (`DD_AGENT_HOST`, `DD_API_KEY`, `DD_ENV`, etc.) are read b
 
 ### `run-noenvvars.ps1` -- No-env-vars mode
 
-All configuration comes from flags. `-Url` and `-ApiKey` are mandatory.
+Profiler settings come from flags and defaults. `-Url` (a Datadog site name, not a
+full URL) and `-ApiKey` are mandatory. Logging is still configured by environment.
 
 ```powershell
-.\run-noenvvars.ps1 -Url https://intake.datadoghq.com -ApiKey YOUR_KEY
-.\run-noenvvars.ps1 -Url https://intake.datadoghq.com -ApiKey YOUR_KEY -Name myApp -Env prod -Symbolize
+.\run-noenvvars.ps1 -Url datadoghq.com -ApiKey YOUR_KEY
+.\run-noenvvars.ps1 -Url datadoghq.com -ApiKey YOUR_KEY -Name myApp -Env prod -Symbolize
 ```
 
 ### `run-local-debug.ps1` -- Local debugging
 
-Uses `--noenvvars` with a placeholder URL/apikey. Pprof files are written locally (default: `%TEMP%\dd-profiler-debug\pprof`). No backend upload.
+Uses `--noenvvars` with placeholder endpoint credentials and writes pprof files
+locally (default: `%TEMP%\dd-profiler-debug\pprof`). It does not disable exports;
+failed upload attempts may appear in the logs.
+
+For capture with uploads disabled by default, use
+[`e2e-tests/capture-pprof.ps1`](../../e2e-tests/capture-pprof.ps1). See the
+[profile correctness guide](../../e2e-tests/README.md#runner-profile-correctness).
 
 ```powershell
 .\run-local-debug.ps1

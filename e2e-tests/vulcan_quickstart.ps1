@@ -27,7 +27,7 @@ param(
     [switch]$ForceReconfigure,  # Force CMake reconfiguration
     [switch]$ForceDependencies,  # Force dependency re-setup
     [switch]$EnableProfiler,     # Enable Datadog profiler integration
-    [string]$ProfilerDllDir = "",  # Optional: folder containing dd-win-prof.dll (defaults to src/x64/Release)
+    [string]$ProfilerDllDir = "",  # Optional: DLL folder; searches src/reference, then build/src/dd-win-prof/Release
     [string]$RepoRef = "",        # Optional: git ref/commit/tag to checkout for Vulkan examples cache keying
     [string[]]$BuildTargets = @("triangle", "computeheadless", "gears")  # Vulkan examples to build
 )
