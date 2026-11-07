@@ -17,7 +17,7 @@
 # Prerequisites:
 #   - UIApp.exe built (Debug or Release):
 #       cmake --build build --config Debug --target UIApp
-#   - Python 3 with lz4, protobuf, grpcio-tools installed:
+#   - Python 3 with lz4, zstandard, protobuf, grpcio-tools installed:
 #       pip install -r src/integration-tests/requirements.txt
 #
 # Usage (local):

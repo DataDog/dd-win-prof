@@ -14,6 +14,7 @@
 #include "../dd-win-prof/Configuration.h"
 #include "../dd-win-prof/PprofAggregator.h"
 #include "../dd-win-prof/ProfileExporter.h"
+#include "ProfileTestOutput.h"
 #include "datadog/common.h"
 #include "datadog/profiling.h"
 
@@ -27,9 +28,7 @@ class PprofAggregatorTest : public ::testing::Test {
   void SetUp() override {
     // Common setup for all tests
     config = std::make_unique<Configuration>();
-    config->SetExportEnabled(
-        false
-    );  // Disable export for all tests to prevent network calls
+    config->SetExportEnabled(false);  // Prevent network calls
   }
 
   void TearDown() override {
@@ -753,4 +752,87 @@ TEST_F(PprofAggregatorTest, AddSampleWithEmptyLocations) {
 
   // We expect this to succeed since empty locations should be valid
   EXPECT_TRUE(result) << "AddSample should succeed with empty locations";
+}
+
+TEST_F(PprofAggregatorTest, CustomSampleTypesReuseSlotsAndRejectOverflow) {
+  const auto storage = CreateStringStorage();
+  {
+    std::vector<SampleValueType> types;
+    for (int i = 0; i < 5; ++i) {
+      types.push_back({"custom-" + std::to_string(i), "nanoseconds"});
+    }
+    types.push_back(types.front());
+    PprofAggregator reused(types, storage);
+    ASSERT_TRUE(reused.IsInitialized());
+    auto* encoded = reused.Serialize(1700000000000, 1700000001000);
+    ASSERT_NE(encoded, nullptr);
+    SafeCleanupEncodedProfile(encoded);
+
+    types.back() = {"custom-overflow", "nanoseconds"};
+    PprofAggregator overflow(types, storage);
+    EXPECT_FALSE(overflow.IsInitialized());
+    EXPECT_EQ(overflow.GetProfile(), nullptr);
+  }
+  ddog_prof_ManagedStringStorage_drop(storage);
+}
+
+TEST_F(PprofAggregatorTest, InvalidCustomDefinitionFailsInitialization) {
+  const auto storage = CreateStringStorage();
+  {
+    std::vector<SampleValueType> types{{std::string(1, '\xff'), "nanoseconds"}};
+    PprofAggregator aggregator(types, storage);
+    EXPECT_FALSE(aggregator.IsInitialized());
+    EXPECT_EQ(aggregator.GetProfile(), nullptr);
+  }
+  ddog_prof_ManagedStringStorage_drop(storage);
+}
+
+TEST_F(PprofAggregatorTest, UnconfiguredCustomSlotCannotSerialize) {
+  const ddog_prof_SampleType type = DDOG_PROF_SAMPLE_TYPE_CUSTOM1;
+  auto created = ddog_prof_Profile_new({&type, 1}, nullptr);
+  ASSERT_EQ(created.tag, DDOG_PROF_PROFILE_NEW_RESULT_OK);
+  auto serialized = ddog_prof_Profile_serialize(&created.ok, nullptr, nullptr);
+  EXPECT_EQ(serialized.tag, DDOG_PROF_PROFILE_SERIALIZE_RESULT_ERR);
+  if (serialized.tag == DDOG_PROF_PROFILE_SERIALIZE_RESULT_ERR) {
+    ddog_Error_drop(&serialized.err);
+  } else {
+    ddog_prof_EncodedProfile_drop(&serialized.ok);
+  }
+  ddog_prof_Profile_drop(&created.ok);
+}
+
+TEST_F(PprofAggregatorTest, CustomPeriodAndDefinitionsSurviveInputLifetimeAndReset) {
+  const auto storage = CreateStringStorage();
+  {
+    std::vector<SampleValueType> types{
+        {"wait-time", "nanoseconds"},
+        {"cpu-time", "nanoseconds"},
+        {"cpu-time", "count"},
+        {"wait-time", "count"},
+        {"prototype-time", "nanoseconds"}
+    };
+    PprofAggregator aggregator(types, storage, 10);
+    ASSERT_TRUE(aggregator.IsInitialized());
+    types.clear();
+    types.shrink_to_fit();
+    for (int cycle = 1; cycle <= 2; ++cycle) {
+      auto locations = CreateRealLocationIds(aggregator, 1);
+      auto labels = CreateEmptyLabelSet(aggregator);
+      const std::vector<int64_t> values{3000 * cycle, 1000 * cycle, cycle, cycle, 42};
+      ASSERT_TRUE(
+          aggregator.AddSample(locations, values, 1700000000000000000 + cycle, labels)
+      );
+      auto* encoded = aggregator.Serialize(1700000000000, 1700000001000);
+      ASSERT_NE(encoded, nullptr);
+      const auto bytes = ddog_prof_EncodedProfile_bytes(encoded);
+      ASSERT_EQ(bytes.tag, DDOG_PROF_RESULT_BYTE_SLICE_OK_BYTE_SLICE);
+      EXPECT_GT(bytes.ok.len, 0u);
+      WriteTestProfile(
+          "custom-" + std::to_string(cycle) + ".pprof", {bytes.ok.ptr, bytes.ok.len}
+      );
+      SafeCleanupEncodedProfile(encoded);
+      ASSERT_TRUE(aggregator.Reset());
+    }
+  }
+  ddog_prof_ManagedStringStorage_drop(storage);
 }

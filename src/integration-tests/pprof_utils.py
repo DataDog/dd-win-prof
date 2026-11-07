@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Utility for reading LZ4-compressed pprof files and extracting sample labels.
+"""Utility for reading LZ4/Zstd-compressed pprof files and extracting sample labels.
 
 Usage:
-    python pprof_utils.py labels <file.lz4.pprof>
+    python pprof_utils.py labels <file.pprof>
 
 Outputs a JSON array of samples with their resolved string labels.
 """
 
+import io
 import json
 import os
 import subprocess
@@ -53,7 +54,7 @@ def decompress_lz4(data: bytes) -> bytes:
 
 
 def parse_pprof(path: str):
-    """Parse an LZ4-compressed pprof file, return the Profile protobuf object."""
+    """Parse a compressed pprof file, return the Profile protobuf object."""
     _ensure_profile_pb2()
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -65,7 +66,12 @@ def parse_pprof(path: str):
     with open(path, "rb") as f:
         raw = f.read()
 
-    decompressed = decompress_lz4(raw)
+    if raw.startswith(b"\x28\xb5\x2f\xfd"):
+        import zstandard
+        with zstandard.ZstdDecompressor().stream_reader(io.BytesIO(raw)) as reader:
+            decompressed = reader.read()
+    else:
+        decompressed = decompress_lz4(raw)
 
     profile = profile_pb2.Profile()
     profile.ParseFromString(decompressed)
@@ -104,14 +110,14 @@ def cmd_labels(path: str):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: pprof_utils.py labels <file.lz4.pprof>", file=sys.stderr)
+        print("Usage: pprof_utils.py labels <file.pprof>", file=sys.stderr)
         sys.exit(1)
 
     command = sys.argv[1]
 
     if command == "labels":
         if len(sys.argv) < 3:
-            print("Usage: pprof_utils.py labels <file.lz4.pprof>", file=sys.stderr)
+            print("Usage: pprof_utils.py labels <file.pprof>", file=sys.stderr)
             sys.exit(1)
         cmd_labels(sys.argv[2])
     else:

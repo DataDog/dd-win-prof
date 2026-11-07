@@ -57,7 +57,10 @@ jobs:
 
     - name: Run integration tests
       if: matrix.configuration == 'Release'
-      run: pwsh src/integration-tests/test_rum_scenario.ps1 -Config Release
+      run: |
+        python -m unittest discover -s src/integration-tests -p "test_*.py" -v
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        pwsh src/integration-tests/test_rum_scenario.ps1 -Config Release
       shell: pwsh
 
     - name: Run UI-hang integration tests
