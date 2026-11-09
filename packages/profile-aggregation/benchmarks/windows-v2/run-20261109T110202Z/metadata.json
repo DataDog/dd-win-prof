@@ -1,0 +1,80 @@
+﻿{
+    "run":  "run-20261109T110202Z",
+    "utc":  "2026-11-09T11:02:02.1411095Z",
+    "seed":  16457,
+    "requestedAffinityMask":  4,
+    "affinityAndQpcResults":  "Per-process *-platform.csv; zero mask inherits OS affinity, no pinning",
+    "replicates":  7,
+    "samples":  100000,
+    "latencySamples":  100000,
+    "latencyReplicates":  3,
+    "diagnosticSamples":  100000,
+    "fixtureSamples":  6000,
+    "computer":  "DESKTOP-FND75JS",
+    "processorCount":  20,
+    "os":  {
+               "Caption":  "Microsoft Windows 11 Pro",
+               "Version":  "10.0.26200",
+               "BuildNumber":  "26200",
+               "OSArchitecture":  "64-bit"
+           },
+    "cpu":  {
+                "Name":  "12th Gen Intel(R) Core(TM) i9-12900H",
+                "NumberOfCores":  14,
+                "NumberOfLogicalProcessors":  20,
+                "MaxClockSpeed":  2500
+            },
+    "memory":  {
+                   "TotalPhysicalMemory":  34014814208
+               },
+    "powershell":  "5.1.26100.9711",
+    "cmake":  "cmake version 4.5.0-rc1\r\n\r\nCMake suite maintained and supported by Kitware (kitware.com/cmake).",
+    "powerScheme":  "Power Scheme GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (Balanced)",
+    "packageRoot":  "C:\\Repos\\dd-win-prof-c-aggregation\\packages\\profile-aggregation",
+    "buildRoot":  "C:\\Repos\\dd-win-prof-c-aggregation\\build-perf-v2",
+    "baselineRoot":  "C:\\Repos\\dd-win-prof\\build\\_deps\\libdatadog-src",
+    "baselineLibrary":  "C:\\Repos\\dd-win-prof\\build\\_deps\\libdatadog-src\\release\\static\\datadog_profiling_ffi.lib",
+    "visualStudio":  "[\r\n  {\r\n    \"instanceId\": \"8a1aae85\",\r\n    \"installDate\": \"2026-10-19T11:39:19Z\",\r\n    \"installationName\": \"VisualStudio/17.14.44+37827.9\",\r\n    \"installationPath\": \"C:\\\\Program Files (x86)\\\\Microsoft Visual Studio\\\\2022\\\\BuildTools\",\r\n    \"installationVersion\": \"17.14.37827.9\",\r\n    \"productId\": \"Microsoft.VisualStudio.Product.BuildTools\",\r\n    \"productPath\": \"C:\\\\Program Files (x86)\\\\Microsoft Visual Studio\\\\2022\\\\BuildTools\\\\Common7\\\\Tools\\\\LaunchDevCmd.bat\",\r\n    \"state\": 4294967295,\r\n    \"isComplete\": true,\r\n    \"isLaunchable\": true,\r\n    \"isPrerelease\": false,\r\n    \"isRebootRequired\": false,\r\n    \"displayName\": \"Visual Studio Build Tools 2022\",\r\n    \"description\": \"The Visual Studio Build Tools allows you to build native and managed MSBuild-based applications without requiring the Visual Studio IDE. There are options to install the Visual C++ compilers and libraries, MFC, ATL, and C++/CLI support.\",\r\n    \"channelId\": \"VisualStudio.17.Release\",\r\n    \"channelUri\": \"https://aka.ms/vs/17/release/channel\",\r\n    \"enginePath\": \"C:\\\\Program Files (x86)\\\\Microsoft Visual Studio\\\\Installer\\\\resources\\\\app\\\\ServiceHub\\\\Services\\\\Microsoft.VisualStudio.Setup.Service\",\r\n    \"installChannelUri\": \"https://aka.ms/vs/17/release/106029314_-1743038111/channel\",\r\n    \"installedChannelId\": \"VisualStudio.17.Release\",\r\n    \"installedChannelUri\": \"https://aka.ms/vs/17/release/channel\",\r\n    \"releaseNotes\": \"https://docs.microsoft.com/en-us/visualstudio/releases/2022/release-notes-v17.14#17.14.44\",\r\n    \"resolvedInstallationPath\": \"C:\\\\Program Files (x86)\\\\Microsoft Visual Studio\\\\2022\\\\BuildTools\",\r\n    \"thirdPartyNotices\": \"https://go.microsoft.com/fwlink/?LinkId=661288\",\r\n    \"updateDate\": \"2026-11-02T05:09:24.8291506Z\",\r\n    \"catalog\": {\r\n      \"buildBranch\": \"d17.14\",\r\n      \"buildVersion\": \"17.14.37827.9\",\r\n      \"id\": \"VisualStudio/17.14.44+37827.9\",\r\n      \"localBuild\": \"build-lab\",\r\n      \"manifestName\": \"VisualStudio\",\r\n      \"manifestType\": \"installer\",\r\n      \"productDisplayVersion\": \"17.14.44\",\r\n      \"productLine\": \"Dev17\",\r\n      \"productLineVersion\": \"2022\",\r\n      \"productMilestone\": \"RTW\",\r\n      \"productMilestoneIsPreRelease\": \"False\",\r\n      \"productName\": \"Visual Studio\",\r\n      \"productPatchVersion\": \"44\",\r\n      \"productPreReleaseMilestoneSuffix\": \"1.0\",\r\n      \"productSemanticVersion\": \"17.14.44+37827.9\",\r\n      \"requiredEngineVersion\": \"3.14.2094.42856\"\r\n    },\r\n    \"properties\": {\r\n      \"campaignId\": \"\",\r\n      \"channelManifestId\": \"VisualStudio.17.Release/17.14.44+37827.9\",\r\n      \"includeRecommended\": \"0\",\r\n      \"nickname\": \"\",\r\n      \"setupEngineFilePath\": \"C:\\\\Program Files (x86)\\\\Microsoft Visual Studio\\\\Installer\\\\setup.exe\"\r\n    }\r\n  }\r\n]\r\n",
+    "hashes":  [
+                   {
+                       "Path":  "C:\\Repos\\dd-win-prof-c-aggregation\\packages\\profile-aggregation\\benchmarks\\harness\\driver.cpp",
+                       "Hash":  "7DDD49AF08207761B97F23F413E52309CA86DD124733D1606AD80A48BBFE0667"
+                   },
+                   {
+                       "Path":  "C:\\Repos\\dd-win-prof-c-aggregation\\packages\\profile-aggregation\\benchmarks\\harness\\CMakeLists.txt",
+                       "Hash":  "F9513341E0E74897F9D1270A4C7C95F251A06C0FD87435250368BF7B2E47794E"
+                   },
+                   {
+                       "Path":  "C:\\Repos\\dd-win-prof-c-aggregation\\packages\\profile-aggregation\\benchmarks\\harness\\run-windows.ps1",
+                       "Hash":  "A87D2532566C78ADA6D2C5B913FEEBC908845C112FF62B69FFB5B68A1FDB0578"
+                   },
+                   {
+                       "Path":  "C:\\Repos\\dd-win-prof-c-aggregation\\packages\\profile-aggregation\\benchmarks\\harness\\compression_hooks.h",
+                       "Hash":  "3DDFB464C9D019554E97476B2925D075AF7A515B802884141E8DF804C4871B54"
+                   },
+                   {
+                       "Path":  "C:\\Repos\\dd-win-prof-c-aggregation\\packages\\profile-aggregation\\include\\profile_aggregation.h",
+                       "Hash":  "4B1D00F78120591E87EB8EBE6C004A9266D201A22282A82769664A1B07DFE8D0"
+                   },
+                   {
+                       "Path":  "C:\\Repos\\dd-win-prof-c-aggregation\\packages\\profile-aggregation\\src\\profile_aggregation.c",
+                       "Hash":  "0AF8420DCE8CEE595DBFC8DE28D4A8BA1B8585930D63829838912577C67668AE"
+                   },
+                   {
+                       "Path":  "C:\\Repos\\dd-win-prof-c-aggregation\\packages\\profile-aggregation\\vendor\\zstd.c",
+                       "Hash":  "565342017A86E53CFE6CA3812FBDCDF40D88432950274864EE7F003B3BB7F325"
+                   },
+                   {
+                       "Path":  "C:\\Repos\\dd-win-prof\\build\\_deps\\libdatadog-src\\include\\datadog\\profiling.h",
+                       "Hash":  "8E0A2F2421D74418AF4CC8ECA4AF92609230FB05D62643EC756F1539DD0785BD"
+                   },
+                   {
+                       "Path":  "C:\\Repos\\dd-win-prof\\build\\_deps\\libdatadog-src\\include\\datadog\\common.h",
+                       "Hash":  "2542DE65ED24BDBF61D08A1697FF768F0863803C9E301846BDC46FE8339E82CE"
+                   },
+                   {
+                       "Path":  "C:\\Repos\\dd-win-prof\\build\\_deps\\libdatadog-src\\release\\static\\datadog_profiling_ffi.lib",
+                       "Hash":  "7216F7A24EEF31AB8E1282F6691467861E7973204C300BFE4740FAF5E95EDDA8"
+                   }
+               ]
+}

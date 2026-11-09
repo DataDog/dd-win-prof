@@ -1,5 +1,9 @@
 Component,Origin,License,Copyright
 spdlog,https://github.com/gabime/spdlog,MIT,Copyright (c) 2016 Gabi Melman
 fmt (via spdlog),https://github.com/fmtlib/fmt,MIT,Copyright (c) 2012 - present Victor Zverovich
-libdatadog,https://github.com/DataDog/libdatadog,Apache-2.0,Copyright 2021-2025 Datadog Inc.
 Google Test,https://github.com/google/googletest,BSD-3-Clause,Copyright 2008 Google Inc.
+Verstable v2.2.1,https://github.com/JacksonAllan/Verstable,MIT,Copyright (c) 2023-2025 Jackson L. Allan
+rapidhash V3,https://github.com/Nicoshev/rapidhash,MIT,Copyright (c) 2025 Nicolas De Carli
+nanopb 0.4.9.2,https://github.com/nanopb/nanopb,Zlib,Copyright (c) 2011 Petteri Aimonen
+Zstandard 1.5.7,https://github.com/facebook/zstd,BSD-3-Clause,Copyright (c) Meta Platforms Inc. and affiliates
+Google pprof schema,https://github.com/google/pprof,Apache-2.0,Copyright 2016 Google Inc.

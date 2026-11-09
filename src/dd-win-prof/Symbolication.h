@@ -5,37 +5,34 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <optional>
-#include <unordered_map>
+#include <string>
+#include <string_view>
+#include <unordered_set>
 
-#include "datadog/profiling.h"
 #include "pch.h"
 
-// Boost-style hash_combine for combining hash values
-inline void hash_combine(uint64_t& seed, uint64_t value) {
-  seed ^= value + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
-}
-
 /// <summary>
-/// Symbolication result using libdatadog string IDs
-/// This version stores string IDs that can be reused across function creation
+/// Symbolication result borrowing immutable strings owned by the engine
+/// This version stores strings that can be reused across function creation
 /// </summary>
 struct CachedSymbolInfo {
-  ddog_prof_ManagedStringId FunctionNameId;  // Interned function name ID
-  ddog_prof_ManagedStringId FileNameId;      // Interned filename ID
-  ddog_prof_ManagedStringId ModuleNameId;    // Interned module name ID
-  ddog_prof_ManagedStringId BuildIdId;       // Interned build ID (PDB GUID + Age)
-  uint64_t ModuleBaseAddress;                // Module base address (for mapping)
-  uint32_t ModuleSize;                       // Module size in bytes (for mapping)
+  std::string_view FunctionName;  // Borrowed from Symbolication string pool
+  std::string_view FileName;      // Borrowed from Symbolication string pool
+  std::string_view ModuleName;    // Borrowed from Symbolication string pool
+  std::string_view BuildId;       // Opaque PDB GUID + Age, borrowed from pool
+  uint64_t ModuleBaseAddress;     // Module base address (for mapping)
+  uint32_t ModuleSize;            // Module size in bytes (for mapping)
   uint64_t displacement;
   uint32_t lineNumber;
   bool isValid;
 
   CachedSymbolInfo()
-      : FunctionNameId{0},
-        FileNameId{0},
-        ModuleNameId{0},
-        BuildIdId{0},
+      : FunctionName{},
+        FileName{},
+        ModuleName{},
+        BuildId{},
         ModuleBaseAddress(0),
         ModuleSize(0),
         displacement(0),
@@ -47,13 +44,12 @@ struct CachedSymbolInfo {
 /// Cached module information to avoid repeated PE header parsing
 /// </summary>
 struct CachedModuleInfo {
-  ddog_prof_ManagedStringId ModuleNameId;  // Interned module name ID
-  ddog_prof_ManagedStringId BuildIdId;     // Interned build ID from PE header
-  uint64_t ModuleBaseAddress;              // Module base address
-  uint32_t ModuleSize;                     // Module size in bytes
+  std::string_view ModuleName;  // Borrowed from Symbolication string pool
+  std::string_view BuildId;     // Borrowed build ID from PE header
+  uint64_t ModuleBaseAddress;   // Module base address
+  uint32_t ModuleSize;          // Module size in bytes
 
-  CachedModuleInfo()
-      : ModuleNameId{0}, BuildIdId{0}, ModuleBaseAddress(0), ModuleSize(0) {}
+  CachedModuleInfo() : ModuleName{}, BuildId{}, ModuleBaseAddress(0), ModuleSize(0) {}
 };
 
 class Symbolication {
@@ -62,17 +58,16 @@ class Symbolication {
   virtual ~Symbolication();
 
   // Initialize the symbolication engine
-  bool Initialize(ddog_prof_ManagedStringStorage& stringStorage, bool symbolizeFrames);
+  bool Initialize(bool symbolizeFrames);
 
   // Cleanup resources
   void Cleanup();
 
-  // Symbolicate a single address and intern strings into libdatadog's managed storage
-  // Returns cached symbol info with string IDs that can be reused, or nullopt if
-  // symbolication fails
-  std::optional<CachedSymbolInfo> SymbolicateAndIntern(
-      uint64_t address, ddog_prof_ManagedStringStorage& stringStorage
-  );
+  // Views in results are valid until ClearCaches/Cleanup/destruction; caller must not
+  // retain them beyond the engine lifetime. Only distinct strings allocate. Returns
+  // cached symbol info with strings that can be reused, or nullopt if symbolication
+  // fails
+  std::optional<CachedSymbolInfo> SymbolicateAndIntern(uint64_t address);
 
   // Check if symbolication is initialized
   bool IsInitialized() const { return _isInitialized; }
@@ -80,33 +75,37 @@ class Symbolication {
   // Refresh the module list to pick up dynamically loaded modules
   bool RefreshModules();
 
+  // Invalidates borrowed cached strings; caller must first discard symbol results.
+  void ClearCaches();
+
  private:
   bool _isInitialized;
   bool _symbolizeFrames;
 
-  // empty symbol
-  ddog_prof_ManagedStringId _emptyStringId;
+  // Views remain valid until ClearCaches/Cleanup/destruction. Rehash never invalidates
+  // them.
+  struct StringHash {
+    using is_transparent = void;
+    size_t operator()(std::string_view s) const {
+      return std::hash<std::string_view>{}(s);
+    }
+  };
+  std::unordered_set<std::string, StringHash, std::equal_to<>> _strings;
+  std::string_view Store(std::string_view value);
+  std::string_view _emptyStringId;
 
-  // Module cache - key is hash of (BaseOfImage, ImageSize)
-  std::unordered_map<uint64_t, CachedModuleInfo> _moduleCache;
+  // Structural key: module base and size, not a hash treated as identity.
+  std::map<std::pair<uint64_t, uint32_t>, CachedModuleInfo> _moduleCache;
 
   // Helper methods
   bool InitializeSymbolHandler();
   void CleanupSymbolHandler();
-  CachedSymbolInfo CreateUnknownSymbol(
-      uint64_t address, ddog_prof_ManagedStringStorage& stringStorage
-  );
-
   // Module information extraction
   std::optional<CachedModuleInfo> GetOrCreateModuleInfo(
-      uint64_t baseAddress,
-      uint32_t moduleSize,
-      const char* imageName,
-      ddog_prof_ManagedStringStorage& stringStorage
+      uint64_t baseAddress, uint32_t moduleSize, const char* imageName
   );
   std::optional<std::string> ExtractBuildIdFromPEHeader(uint64_t baseAddress);
   bool ExtractBuildIdFromPEHeaderRaw(
       uint64_t baseAddress, char* buildIdBuffer, size_t bufferSize
   );
-  uint64_t ComputeModuleCacheKey(uint64_t baseAddress, uint32_t moduleSize) const;
 };

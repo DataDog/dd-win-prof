@@ -1,838 +1,216 @@
-// Unless explicitly stated otherwise all files in this repository are licensed under
-// the Apache 2 License. This product includes software developed at Datadog
-// (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
-
-#include <gtest/gtest.h>
-
+// Copyright 2026 Datadog, Inc. SPDX-License-Identifier: Apache-2.0
+#include "PprofAggregator.h"
+#include "ProfileExporter.h"
 #include "pch.h"
-
-// Include libdatadog headers FIRST to get complete type definitions
-#include <iostream>
-#include <memory>
-#include <vector>
-
-#include "../dd-win-prof/Configuration.h"
-#include "../dd-win-prof/PprofAggregator.h"
-#include "../dd-win-prof/ProfileExporter.h"
 #include "ProfileTestOutput.h"
-#include "datadog/common.h"
-#include "datadog/profiling.h"
-
 using namespace dd_win_prof;
-
-// Forward declaration of test function from SymbolicationTests.cpp
-extern void GlobalTestFunction();
-
 class PprofAggregatorTest : public ::testing::Test {
  protected:
-  void SetUp() override {
-    // Common setup for all tests
-    config = std::make_unique<Configuration>();
-    config->SetExportEnabled(false);  // Prevent network calls
+  std::vector<SampleValueType> types{
+      {"cpu-time", "nanoseconds"}, {"wall-time", "nanoseconds"}
+  };
+  pa_id Labels(PprofAggregator& a) {
+    pa_id id = 0;
+    EXPECT_EQ(pa_intern_labels(a.GetProfile(), nullptr, 0, &id), PA_OK);
+    return id;
   }
-
-  void TearDown() override {
-    // Common cleanup for all tests
-    config.reset();
+  std::vector<pa_id> Locations(PprofAggregator& a) {
+    pa_id name = 0, function = 0, location = 0;
+    EXPECT_EQ(pa_intern_string(a.GetProfile(), "Worker", 6, &name), PA_OK);
+    pa_function f{name, name, 0, 42};
+    EXPECT_EQ(pa_intern_function(a.GetProfile(), &f, &function), PA_OK);
+    pa_location l{0, function, 0x123456789ULL, 43};
+    EXPECT_EQ(pa_intern_location(a.GetProfile(), &l, &location), PA_OK);
+    return {location};
   }
-
-  std::unique_ptr<Configuration> config;
-
-  // Helper method to create string storage for tests
-  ddog_prof_ManagedStringStorage CreateStringStorage() {
-    auto result = ddog_prof_ManagedStringStorage_new();
-    if (result.tag != DDOG_PROF_MANAGED_STRING_STORAGE_NEW_RESULT_OK) {
-      std::cout << "Failed to create string storage for test" << std::endl;
-      // Return a default-constructed storage (will be invalid but tests should handle
-      // this)
-      return ddog_prof_ManagedStringStorage{};
-    }
-    return result.ok;
+  bool Record(PprofAggregator& a) {
+    auto locations = Locations(a);
+    int64_t values[] = {7, 11};
+    return a.AddSample(locations, values, 123456789, Labels(a));
   }
-
-  // Helper method to create default sample types for testing
-  std::vector<SampleValueType> CreateDefaultSampleTypes() {
-    std::vector<SampleValueType> types;
-    types.push_back({"cpu-samples", "count"});
-    types.push_back({"cpu-time", "nanoseconds"});
-    types.push_back({"wall-time", "nanoseconds"});
-    return types;
-  }
-
-  // Helper method to create a single sample type for minimal testing
-  std::vector<SampleValueType> CreateMinimalSampleTypes() {
-    std::vector<SampleValueType> types;
-    types.push_back({"cpu-time", "nanoseconds"});
-    types.push_back({"cpu-samples", "count"});
-    std::cout << "CreateMinimalSampleTypes: Created " << types.size() << " sample types"
-              << std::endl;
-    return types;
-  }
-
-  // Helper method to create sample value type definitions for ProfileExporter
-  std::vector<SampleValueType> CreateSampleValueTypeDefinitions() {
-    std::vector<SampleValueType> definitions;
-    definitions.push_back({"cpu-samples", "count"});
-    definitions.push_back({"cpu-time", "nanoseconds"});
-    definitions.push_back({"wall-time", "nanoseconds"});
-    return definitions;
-  }
-
-  // Helper method to create minimal sample value type definitions
-  std::vector<SampleValueType> CreateMinimalSampleValueTypeDefinitions() {
-    std::vector<SampleValueType> definitions;
-    definitions.push_back({"cpu-time", "nanoseconds"});
-    definitions.push_back({"cpu-samples", "count"});
-    return definitions;
-  }
-
-  // Helper method to safely clean up encoded profiles
-  void SafeCleanupEncodedProfile(ddog_prof_EncodedProfile* profile) {
-    if (profile) {
-      ddog_prof_EncodedProfile_drop(profile);
-      delete profile;
-    }
-  }
-
-  // Helper method to create real location IDs using ProfileExporter
-  std::vector<ddog_prof_LocationId> CreateRealLocationIds(
-      PprofAggregator& aggregator, size_t count
-  ) {
-    std::vector<ddog_prof_LocationId> locationIds;
-
-    // Get the profile from the aggregator
-    auto* profile = aggregator.GetProfile();
-    if (!profile) {
-      std::cout << "CreateRealLocationIds: Failed to get profile" << std::endl;
-      return locationIds;  // Return empty vector if no profile
-    }
-
-    // Create some realistic function names and addresses
-    std::vector<std::string> functionNames = {
-        "main", "ProcessRequest", "AllocateMemory", "ComputeHash", "NetworkCall"
-    };
-
-    std::cout << "CreateRealLocationIds: Creating " << count << " location IDs"
-              << std::endl;
-
-    for (size_t i = 0; i < count && i < functionNames.size(); ++i) {
-      // Intern function name as string
-      auto functionNameResult = ddog_prof_Profile_intern_string(
-          profile, {functionNames[i].c_str(), functionNames[i].length()}
-      );
-      if (functionNameResult.tag !=
-          DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
-        std::cout << "CreateRealLocationIds: Failed to intern function name '"
-                  << functionNames[i] << "' (tag: " << functionNameResult.tag << ")"
-                  << std::endl;
-        continue;  // Skip this one if it fails
-      }
-
-      // Create empty string for system name and filename
-      auto emptyStringId = ddog_prof_Profile_interned_empty_string();
-
-      // Intern function
-      auto functionResult = ddog_prof_Profile_intern_function(
-          profile, functionNameResult.ok, emptyStringId, emptyStringId
-      );
-      if (functionResult.tag !=
-          DDOG_PROF_FUNCTION_ID_RESULT_OK_GENERATIONAL_ID_FUNCTION_ID) {
-        std::cout << "CreateRealLocationIds: Failed to intern function (tag: "
-                  << functionResult.tag << ")" << std::endl;
-        continue;  // Skip this one if it fails
-      }
-
-      // Create location with realistic address (use a static function as base)
-      uint64_t address = reinterpret_cast<uint64_t>(GlobalTestFunction) + (i * 0x100);
-      auto locationResult = ddog_prof_Profile_intern_location(
-          profile, functionResult.ok, address, static_cast<int64_t>(i + 1)
-      );
-      if (locationResult.tag ==
-          DDOG_PROF_LOCATION_ID_RESULT_OK_GENERATIONAL_ID_LOCATION_ID) {
-        locationIds.push_back(locationResult.ok);
-        std::cout << "CreateRealLocationIds: Successfully created location ID for '"
-                  << functionNames[i] << "' at address 0x" << std::hex << address
-                  << std::dec << std::endl;
-      } else {
-        std::cout << "CreateRealLocationIds: Failed to intern location (tag: "
-                  << locationResult.tag << ")" << std::endl;
-      }
-    }
-
-    std::cout << "CreateRealLocationIds: Created " << locationIds.size()
-              << " location IDs" << std::endl;
-    return locationIds;
-  }
-
-  // Helper method to create sample values matching the sample types
-  std::vector<int64_t> CreateSampleValues(std::span<const SampleValueType> types) {
-    std::vector<int64_t> values;
-    for (const auto& type : types) {
-      if (type.Name == "cpu-samples" && type.Unit == "count") {
-        values.push_back(1);  // 1 sample
-      } else if (type.Name == "cpu-time" && type.Unit == "nanoseconds") {
-        values.push_back(1000000);  // 1ms in nanoseconds
-      } else if (type.Name == "wall-time" && type.Unit == "nanoseconds") {
-        values.push_back(2000000);  // 2ms in nanoseconds
-      } else if (type.Name == "alloc-samples" && type.Unit == "count") {
-        values.push_back(5);  // 5 allocations
-      } else if (type.Name == "alloc-space" && type.Unit == "bytes") {
-        values.push_back(1024);  // 1KB allocated
-      } else {
-        values.push_back(100);  // Default value for unknown types
-      }
-    }
-    return values;
-  }
-
-  // Helper method to create an empty labelset for testing
-  ddog_prof_LabelSetId CreateEmptyLabelSet(PprofAggregator& aggregator) {
-    auto* profile = aggregator.GetProfile();
-    if (!profile) {
-      std::cout << "CreateEmptyLabelSet: Failed to get profile" << std::endl;
-      return ddog_prof_LabelSetId{};
-    }
-
-    // Create empty label set
-    ddog_prof_Slice_LabelId empty_label_slice = {.ptr = nullptr, .len = 0};
-
-    auto labelset_result =
-        ddog_prof_Profile_intern_labelset(profile, empty_label_slice);
-    if (labelset_result.tag !=
-        DDOG_PROF_LABEL_SET_ID_RESULT_OK_GENERATIONAL_ID_LABEL_SET_ID) {
-      std::cout << "CreateEmptyLabelSet: Failed to intern empty labelset (tag: "
-                << labelset_result.tag << ")" << std::endl;
-      return ddog_prof_LabelSetId{};
-    }
-
-    return labelset_result.ok;
+  void Encoded(const std::vector<uint8_t>& bytes) {
+    ASSERT_GT(bytes.size(), 4u);
+    EXPECT_EQ(
+        std::vector<uint8_t>(bytes.begin(), bytes.begin() + 4),
+        (std::vector<uint8_t>{0x28, 0xb5, 0x2f, 0xfd})
+    );
   }
 };
-
 TEST_F(PprofAggregatorTest, InitializationWithValidSampleTypes) {
-  // Arrange
-  auto sampleTypes = CreateDefaultSampleTypes();
-  auto stringStorage = CreateStringStorage();
-
-  // Act
-  PprofAggregator aggregator(sampleTypes, stringStorage);
-
-  // Assert
-  EXPECT_TRUE(aggregator.IsInitialized())
-      << "Aggregator should be initialized with valid sample types";
-  EXPECT_NE(aggregator.GetProfile(), nullptr)
-      << "Profile should be accessible after initialization";
+  PprofAggregator a(types);
+  EXPECT_TRUE(a.IsInitialized());
 }
-
 TEST_F(PprofAggregatorTest, InitializationWithMinimalSampleTypes) {
-  // Arrange
-  auto sampleTypes = CreateMinimalSampleTypes();
-  auto stringStorage = CreateStringStorage();
-
-  // Act
-  PprofAggregator aggregator(sampleTypes, stringStorage);
-
-  // Assert
-  EXPECT_TRUE(aggregator.IsInitialized())
-      << "Aggregator should be initialized with minimal sample types";
+  std::vector<SampleValueType> t{{"cpu", "ns"}};
+  PprofAggregator a(t);
+  EXPECT_TRUE(a.IsInitialized());
 }
-
 TEST_F(PprofAggregatorTest, InitializationWithEmptySampleTypes) {
-  // Arrange
-  std::vector<SampleValueType> emptySampleTypes;
-  auto stringStorage = CreateStringStorage();
-
-  // Act
-  PprofAggregator aggregator(emptySampleTypes, stringStorage);
-
-  // Assert
-  EXPECT_FALSE(aggregator.IsInitialized())
-      << "Aggregator should not be initialized with empty sample types";
-  EXPECT_EQ(aggregator.GetProfile(), nullptr)
-      << "Profile should not be accessible when initialization fails";
+  PprofAggregator a({});
+  EXPECT_FALSE(a.IsInitialized());
 }
-
 TEST_F(PprofAggregatorTest, InitializationWithPeriod) {
-  // Arrange
-  auto sampleTypes = CreateDefaultSampleTypes();
-  auto stringStorage = CreateStringStorage();
-  int periodMs = 1000;  // 1 second in milliseconds
-
-  // Act
-  PprofAggregator aggregator(sampleTypes, stringStorage, periodMs);
-
-  // Assert
-  EXPECT_TRUE(aggregator.IsInitialized())
-      << "Aggregator should be initialized with valid sample types and period";
+  PprofAggregator a(types, 10);
+  EXPECT_TRUE(a.IsInitialized());
 }
-
 TEST_F(PprofAggregatorTest, AddSampleWithRealLocationIds) {
-  // Arrange
-  auto sampleTypes = CreateMinimalSampleTypes();
-  auto stringStorage = CreateStringStorage();
-  PprofAggregator aggregator(sampleTypes, stringStorage);
-  ASSERT_TRUE(aggregator.IsInitialized())
-      << "Precondition: aggregator must be initialized";
-
-  auto locationIds = CreateRealLocationIds(aggregator, 3);  // Stack with 3 frames
-  ASSERT_GT(locationIds.size(), 0) << "Should have created at least one location ID";
-
-  auto values = CreateSampleValues(sampleTypes);
-  int64_t timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                          std::chrono::system_clock::now().time_since_epoch()
-  )
-                          .count();
-
-  // Act
-  auto labelsetId = CreateEmptyLabelSet(aggregator);
-  bool result = aggregator.AddSample(locationIds, values, timestamp, labelsetId);
-  std::cout << "AddSampleWithRealLocationIds: AddSample result: " << result
-            << std::endl;
-  // Assert
-  EXPECT_TRUE(result) << "AddSample should succeed with real location IDs";
+  PprofAggregator a(types);
+  EXPECT_TRUE(Record(a));
 }
-
 TEST_F(PprofAggregatorTest, AddSampleWithMismatchedValueCount) {
-  // Arrange
-  auto sampleTypes = CreateDefaultSampleTypes();  // 3 sample types
-  auto stringStorage = CreateStringStorage();
-  PprofAggregator aggregator(sampleTypes, stringStorage);
-  ASSERT_TRUE(aggregator.IsInitialized())
-      << "Precondition: aggregator must be initialized";
-
-  auto locationIds = CreateRealLocationIds(aggregator, 2);
-  std::vector<int64_t> wrongValues = {100};  // Only 1 value instead of 3
-  int64_t timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                          std::chrono::system_clock::now().time_since_epoch()
-  )
-                          .count();
-
-  // Act
-  auto labelsetId = CreateEmptyLabelSet(aggregator);
-  bool result = aggregator.AddSample(locationIds, wrongValues, timestamp, labelsetId);
-
-  // Assert
-  EXPECT_FALSE(result) << "AddSample should fail with mismatched value count";
+  PprofAggregator a(types);
+  int64_t value = 1;
+  EXPECT_FALSE(a.AddSample({}, std::span(&value, 1), 1, Labels(a)));
 }
-
 TEST_F(PprofAggregatorTest, AddSampleToUninitializedAggregator) {
-  // Arrange
-  std::vector<SampleValueType> emptySampleTypes;
-  auto stringStorage = CreateStringStorage();
-  PprofAggregator aggregator(emptySampleTypes, stringStorage);
-  ASSERT_FALSE(aggregator.IsInitialized())
-      << "Precondition: aggregator must not be initialized";
-
-  // Create a temporary initialized aggregator just to get location IDs
-  auto tempSampleTypes = CreateMinimalSampleTypes();
-  auto tempStringStorage = CreateStringStorage();
-  PprofAggregator tempAggregator(tempSampleTypes, tempStringStorage);
-  auto locationIds = CreateRealLocationIds(tempAggregator, 2);
-
-  std::vector<int64_t> values = {100};
-  int64_t timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                          std::chrono::system_clock::now().time_since_epoch()
-  )
-                          .count();
-
-  // Act
-  auto labelsetId = CreateEmptyLabelSet(aggregator);
-  bool result = aggregator.AddSample(locationIds, values, timestamp, labelsetId);
-
-  // Assert
-  EXPECT_FALSE(result) << "AddSample should fail on uninitialized aggregator";
+  PprofAggregator a({});
+  EXPECT_FALSE(a.AddSample({}, {}, 1, 0));
 }
-
 TEST_F(PprofAggregatorTest, AddMultipleSamples) {
-  // Arrange
-  auto sampleTypes = CreateMinimalSampleTypes();
-  auto stringStorage = CreateStringStorage();
-  PprofAggregator aggregator(sampleTypes, stringStorage);
-  ASSERT_TRUE(aggregator.IsInitialized())
-      << "Precondition: aggregator must be initialized";
-
-  auto locationIds1 = CreateRealLocationIds(aggregator, 2);
-  auto locationIds2 = CreateRealLocationIds(aggregator, 3);
-  auto values = CreateSampleValues(sampleTypes);
-  int64_t baseTimestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                              std::chrono::system_clock::now().time_since_epoch()
-  )
-                              .count();
-
-  // Act
-  auto labelsetId = CreateEmptyLabelSet(aggregator);
-  bool result1 = aggregator.AddSample(locationIds1, values, baseTimestamp, labelsetId);
-  bool result2 = aggregator.AddSample(
-      locationIds2, values, baseTimestamp + 1000000, labelsetId
-  );  // 1ms later
-
-  // Assert
-  EXPECT_TRUE(result1) << "First AddSample should succeed";
-  EXPECT_TRUE(result2) << "Second AddSample should succeed";
+  PprofAggregator a(types);
+  for (int i = 0; i < 100; i++) ASSERT_TRUE(Record(a));
 }
-
 TEST_F(PprofAggregatorTest, IntegrationWithProfileExporterAndDebugFileWriting) {
-  // Arrange
-  auto sampleValueTypeDefs = CreateMinimalSampleValueTypeDefinitions();
-  Sample::SetValuesCount(sampleValueTypeDefs.size());
-  ProfileExporter exporter(config.get(), sampleValueTypeDefs);
-  ASSERT_TRUE(exporter.Initialize())
-      << "ProfileExporter should initialize successfully";
-
-  // Configure debug file writing (OFF by default when no output directory is
-  // configured)
-  EXPECT_FALSE(exporter.IsDebugPprofFileWritingEnabled())
-      << "Debug file writing should be OFF by default";
-
-  // Enable debug file writing with a test prefix (using current directory)
+  Configuration config;
+  config.SetExportEnabled(false);
+  auto dir = fs::temp_directory_path() / "dd-prof-c-aggregation-test";
+  fs::remove_all(dir);
+  fs::create_directories(dir);
+  ProfileExporter exporter(&config, types);
   exporter.SetDebugPprofFileWritingEnabled(true);
-  exporter.SetDebugPprofPrefix(".\\test_profile_");
-
-  // todo: add some settings on this to avoid flooding the disk
-  EXPECT_TRUE(exporter.IsDebugPprofFileWritingEnabled())
-      << "Debug file writing should be enabled";
-  EXPECT_EQ(exporter.GetDebugPprofPrefix(), ".\\test_profile_")
-      << "Debug prefix should be set correctly";
-
-  // Create a Sample object and add it to the ProfileExporter
-  // This will go into the ProfileExporter's internal aggregator
-  int64_t timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                          std::chrono::system_clock::now().time_since_epoch()
-  )
-                          .count();
-  std::chrono::nanoseconds sampleTimestamp(timestamp);
-
-  // Create a valid ThreadInfo with a real handle
-  HANDLE hThread;
-  ::DuplicateHandle(
-      ::GetCurrentProcess(),
-      ::GetCurrentThread(),
-      ::GetCurrentProcess(),
-      &hThread,
-      0,
-      FALSE,
-      DUPLICATE_SAME_ACCESS
-  );
-  auto threadInfo = std::make_shared<ThreadInfo>(::GetCurrentThreadId(), hThread);
-
-  // weird addresses, todo: make these more realistic
-  // uint64_t callstack[] = {0x1234567890ABCDEF, 0xFEDCBA0987654321,
-  // 0x0000000012345678};
-  uint64_t callstack[] = {reinterpret_cast<uint64_t>(&GlobalTestFunction)};
-  auto sample = std::make_shared<Sample>(sampleTimestamp, threadInfo, callstack, 1);
-  sample->AddValue(10000000, 0);  // cpu-time in nanoseconds
-  sample->AddValue(1, 1);         // cpu-samples count
-
-  // Add the sample to the ProfileExporter - this uses the exporter's internal
-  // aggregator
-  bool addToExporterResult = exporter.Add(sample);
-  EXPECT_TRUE(addToExporterResult) << "Should be able to add sample to ProfileExporter";
-
-  // Test ProfileExporter export functionality with debug file writing
-  // This will serialize the profile (with the samples we just added) and write debug
-  // files if enabled
-  EXPECT_TRUE(exporter.Export())
-      << "Export should succeed (debug file writing failure is non-fatal)";
-
-  // Disable debug file writing and test again
-  exporter.SetDebugPprofFileWritingEnabled(false);
-  EXPECT_FALSE(exporter.IsDebugPprofFileWritingEnabled())
-      << "Debug file writing should be disabled";
+  exporter.SetDebugPprofPrefix((dir / "profile_").string());
+  ASSERT_TRUE(exporter.Initialize());
+  ASSERT_TRUE(exporter.Export(true));
+  exporter.Cleanup();
+  bool found = false;
+  for (const auto& f : fs::directory_iterator(dir))
+    found |= f.path().filename().string().ends_with(".zst.pprof");
+  EXPECT_TRUE(found);
+  fs::remove_all(dir);
 }
-
 TEST_F(PprofAggregatorTest, CreateEmptyPprof) {
-  // Arrange
-  auto sampleTypes = CreateDefaultSampleTypes();
-  auto stringStorage = CreateStringStorage();
-  PprofAggregator aggregator(sampleTypes, stringStorage);
-  ASSERT_TRUE(aggregator.IsInitialized())
-      << "Precondition: aggregator must be initialized";
-
-  // Act
-  auto startMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                     std::chrono::system_clock::now().time_since_epoch()
-                 )
-                     .count() -
-                 60000;  // 1 minute ago
-  auto endMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                   std::chrono::system_clock::now().time_since_epoch()
-  )
-                   .count();
-  auto encodedProfile = aggregator.Serialize(startMs, endMs);
-
-  // Assert
-  EXPECT_NE(encodedProfile, nullptr)
-      << "Serialize should return a valid encoded profile";
-
-  // Cleanup
-  SafeCleanupEncodedProfile(encodedProfile);
+  PprofAggregator a(types);
+  std::vector<uint8_t> bytes;
+  ASSERT_TRUE(a.Serialize(1, 2, bytes));
+  Encoded(bytes);
 }
-
 TEST_F(PprofAggregatorTest, SerializeProfileWithSamples) {
-  // Arrange
-  auto sampleTypes = CreateMinimalSampleTypes();
-  auto stringStorage = CreateStringStorage();
-  PprofAggregator aggregator(sampleTypes, stringStorage);
-  ASSERT_TRUE(aggregator.IsInitialized())
-      << "Precondition: aggregator must be initialized";
-
-  // Add some samples
-  auto locationIds = CreateRealLocationIds(aggregator, 2);
-  auto values = CreateSampleValues(sampleTypes);
-  int64_t timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                          std::chrono::system_clock::now().time_since_epoch()
-  )
-                          .count();
-
-  auto labelsetId = CreateEmptyLabelSet(aggregator);
-  ASSERT_TRUE(aggregator.AddSample(locationIds, values, timestamp, labelsetId))
-      << "Precondition: sample must be added";
-
-  // Act
-  auto startMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                     std::chrono::system_clock::now().time_since_epoch()
-                 )
-                     .count() -
-                 60000;
-  auto endMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                   std::chrono::system_clock::now().time_since_epoch()
-  )
-                   .count();
-  auto encodedProfile = aggregator.Serialize(startMs, endMs);
-
-  // Assert
-  EXPECT_NE(encodedProfile, nullptr)
-      << "Serialize should return a valid encoded profile with samples";
-
-  // Cleanup
-  SafeCleanupEncodedProfile(encodedProfile);
+  PprofAggregator a(types);
+  ASSERT_TRUE(Record(a));
+  std::vector<uint8_t> bytes;
+  ASSERT_TRUE(a.Serialize(1, 2, bytes));
+  Encoded(bytes);
 }
-
 TEST_F(PprofAggregatorTest, CreateEmptyPprofWithCustomTimes) {
-  // Arrange
-  auto sampleTypes = CreateMinimalSampleTypes();
-  auto stringStorage = CreateStringStorage();
-  PprofAggregator aggregator(sampleTypes, stringStorage);
-  ASSERT_TRUE(aggregator.IsInitialized())
-      << "Precondition: aggregator must be initialized";
-
-  auto startMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                     std::chrono::system_clock::now().time_since_epoch()
-                 )
-                     .count() -
-                 60000;  // 1 minute ago
-  auto endMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                   std::chrono::system_clock::now().time_since_epoch()
-  )
-                   .count();
-
-  // Act
-  auto encodedProfile = aggregator.Serialize(startMs, endMs);
-
-  // Assert
-  EXPECT_NE(encodedProfile, nullptr)
-      << "Serialize should return a valid encoded profile with custom times";
-
-  // Cleanup
-  SafeCleanupEncodedProfile(encodedProfile);
+  PprofAggregator a(types);
+  std::vector<uint8_t> bytes;
+  EXPECT_TRUE(a.Serialize(-1000, 1234, bytes));
+  EXPECT_FALSE(a.Serialize(2, 1, bytes));
 }
-
 TEST_F(PprofAggregatorTest, SerializeUninitializedAggregator) {
-  // Arrange
-  std::vector<SampleValueType> emptySampleTypes;
-  auto stringStorage = CreateStringStorage();
-  PprofAggregator aggregator(emptySampleTypes, stringStorage);
-  ASSERT_FALSE(aggregator.IsInitialized())
-      << "Precondition: aggregator must not be initialized";
-
-  // Act
-  auto startMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                     std::chrono::system_clock::now().time_since_epoch()
-                 )
-                     .count() -
-                 60000;
-  auto endMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                   std::chrono::system_clock::now().time_since_epoch()
-  )
-                   .count();
-  auto encodedProfile = aggregator.Serialize(startMs, endMs);
-
-  // Assert
-  EXPECT_EQ(encodedProfile, nullptr)
-      << "Serialize should return nullptr for uninitialized aggregator";
-
-  // No cleanup needed since encodedProfile is nullptr
+  PprofAggregator a({});
+  std::vector<uint8_t> bytes;
+  EXPECT_FALSE(a.Serialize(1, 2, bytes));
 }
-
 TEST_F(PprofAggregatorTest, ResetProfile) {
-  // Arrange
-  auto sampleTypes = CreateDefaultSampleTypes();
-  auto stringStorage = CreateStringStorage();
-  PprofAggregator aggregator(sampleTypes, stringStorage);
-  ASSERT_TRUE(aggregator.IsInitialized())
-      << "Precondition: aggregator must be initialized";
-
-  // Add a sample before reset
-  auto locationIds = CreateRealLocationIds(aggregator, 2);
-  auto values = CreateSampleValues(sampleTypes);
-  int64_t timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                          std::chrono::system_clock::now().time_since_epoch()
-  )
-                          .count();
-  auto labelsetId = CreateEmptyLabelSet(aggregator);
-  aggregator.AddSample(locationIds, values, timestamp, labelsetId);
-
-  // Act
-  EXPECT_TRUE(aggregator.Reset());
-
-  // Assert
-  EXPECT_TRUE(aggregator.IsInitialized())
-      << "Aggregator should remain initialized after reset";
-
-  // Verify we can still add samples after reset - need to create NEW location IDs since
-  // old ones are invalid
-  auto newLocationIds = CreateRealLocationIds(aggregator, 2);
-  auto newLabelsetId = CreateEmptyLabelSet(aggregator);
-  bool addResult =
-      aggregator.AddSample(newLocationIds, values, timestamp + 1000000, newLabelsetId);
-  EXPECT_TRUE(addResult) << "Should be able to add samples after reset";
+  PprofAggregator a(types);
+  auto labels = Labels(a);
+  ASSERT_TRUE(Record(a));
+  ASSERT_TRUE(a.Reset());
+  int64_t values[] = {1, 1};
+  EXPECT_FALSE(a.AddSample({}, values, 1, labels));
+  ASSERT_TRUE(Record(a));
 }
-
 TEST_F(PprofAggregatorTest, ResetUninitializedAggregator) {
-  // Arrange
-  std::vector<SampleValueType> emptySampleTypes;
-  auto stringStorage = CreateStringStorage();
-  PprofAggregator aggregator(emptySampleTypes, stringStorage);
-  ASSERT_FALSE(aggregator.IsInitialized())
-      << "Precondition: aggregator must not be initialized";
-
-  // Act
-  EXPECT_FALSE(aggregator.Reset());
-
-  // Assert
-  EXPECT_FALSE(aggregator.IsInitialized())
-      << "Uninitialized aggregator should remain uninitialized after reset";
+  PprofAggregator a({});
+  EXPECT_FALSE(a.Reset());
 }
-
 TEST_F(PprofAggregatorTest, MultipleSerializations) {
-  // Arrange
-  auto sampleTypes = CreateDefaultSampleTypes();
-  auto stringStorage = CreateStringStorage();
-  PprofAggregator aggregator(sampleTypes, stringStorage);
-  ASSERT_TRUE(aggregator.IsInitialized())
-      << "Precondition: aggregator must be initialized";
-
-  // Act & Assert - First serialization
-  auto startMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                     std::chrono::system_clock::now().time_since_epoch()
-                 )
-                     .count() -
-                 60000;
-  auto endMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                   std::chrono::system_clock::now().time_since_epoch()
-  )
-                   .count();
-  auto encodedProfile1 = aggregator.Serialize(startMs, endMs);
-  EXPECT_NE(encodedProfile1, nullptr) << "First serialization should succeed";
-
-  // Act & Assert - Second serialization (should work after reset during serialization)
-  auto encodedProfile2 = aggregator.Serialize(startMs, endMs);
-  EXPECT_NE(encodedProfile2, nullptr) << "Second serialization should succeed";
-
-  // Cleanup
-  SafeCleanupEncodedProfile(encodedProfile1);
-  SafeCleanupEncodedProfile(encodedProfile2);
-}
-
-// Test to ensure the aggregator handles different sample types
-TEST_F(PprofAggregatorTest, InitializationWithAllocationSampleTypes) {
-  // Arrange
-  std::vector<SampleValueType> allocationTypes;
-  allocationTypes.push_back({"alloc-samples", "count"});
-  allocationTypes.push_back({"alloc-space", "bytes"});
-
-  // Act
-  auto stringStorage = CreateStringStorage();
-  PprofAggregator aggregator(allocationTypes, stringStorage);
-
-  // Assert
-  EXPECT_TRUE(aggregator.IsInitialized())
-      << "Aggregator should be initialized with allocation sample types";
-}
-
-TEST_F(PprofAggregatorTest, AddAllocationSamples) {
-  // Arrange
-  std::vector<SampleValueType> allocationTypes;
-  allocationTypes.push_back({"alloc-samples", "count"});
-  allocationTypes.push_back({"alloc-space", "bytes"});
-
-  auto stringStorage = CreateStringStorage();
-  PprofAggregator aggregator(allocationTypes, stringStorage);
-  ASSERT_TRUE(aggregator.IsInitialized())
-      << "Precondition: aggregator must be initialized";
-
-  auto locationIds = CreateRealLocationIds(aggregator, 3);
-  auto values = CreateSampleValues(allocationTypes);
-  int64_t timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                          std::chrono::system_clock::now().time_since_epoch()
-  )
-                          .count();
-
-  // Act
-  auto labelsetId = CreateEmptyLabelSet(aggregator);
-  bool result = aggregator.AddSample(locationIds, values, timestamp, labelsetId);
-
-  // Assert
-  EXPECT_TRUE(result) << "AddSample should succeed with allocation sample types";
-}
-
-TEST_F(PprofAggregatorTest, SerializeAfterAddingSamples) {
-  // Arrange
-  auto sampleTypes = CreateDefaultSampleTypes();
-  auto stringStorage = CreateStringStorage();
-  PprofAggregator aggregator(sampleTypes, stringStorage);
-  ASSERT_TRUE(aggregator.IsInitialized())
-      << "Precondition: aggregator must be initialized";
-
-  // Add multiple samples
-  auto locationIds1 = CreateRealLocationIds(aggregator, 2);
-  auto locationIds2 = CreateRealLocationIds(aggregator, 4);
-  auto values = CreateSampleValues(sampleTypes);
-  int64_t baseTimestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                              std::chrono::system_clock::now().time_since_epoch()
-  )
-                              .count();
-
-  auto labelsetId = CreateEmptyLabelSet(aggregator);
-  ASSERT_TRUE(aggregator.AddSample(locationIds1, values, baseTimestamp, labelsetId));
-  ASSERT_TRUE(
-      aggregator.AddSample(locationIds2, values, baseTimestamp + 1000000, labelsetId)
-  );
-
-  // Act
-  auto startMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                     std::chrono::system_clock::now().time_since_epoch()
-                 )
-                     .count() -
-                 60000;
-  auto endMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                   std::chrono::system_clock::now().time_since_epoch()
-  )
-                   .count();
-  auto encodedProfile = aggregator.Serialize(startMs, endMs);
-
-  // Assert
-  EXPECT_NE(encodedProfile, nullptr) << "Serialize should succeed after adding samples";
-
-  // Cleanup
-  SafeCleanupEncodedProfile(encodedProfile);
-}
-
-TEST_F(PprofAggregatorTest, AddSampleWithEmptyLocations) {
-  // Initialize with minimal sample types
-  auto sampleTypes = CreateMinimalSampleTypes();
-  auto stringStorage = CreateStringStorage();
-  PprofAggregator aggregator(sampleTypes, stringStorage);
-  ASSERT_TRUE(aggregator.IsInitialized())
-      << "Precondition: aggregator must be initialized";
-
-  // Create empty locations vector
-  std::vector<ddog_prof_LocationId> emptyLocations;
-
-  // Create sample values (2 values to match sample types)
-  std::vector<int64_t> values = {100, 1};  // Simple values for CPU time and samples
-
-  // Use a simple timestamp
-  int64_t timestamp = 1000000;  // 1ms in nanoseconds
-
-  // Try to add the sample
-  std::cout << "Attempting to add sample with empty locations" << std::endl;
-  auto labelsetId = CreateEmptyLabelSet(aggregator);
-  bool result = aggregator.AddSample(emptyLocations, values, timestamp, labelsetId);
-
-  // We expect this to succeed since empty locations should be valid
-  EXPECT_TRUE(result) << "AddSample should succeed with empty locations";
-}
-
-TEST_F(PprofAggregatorTest, CustomSampleTypesReuseSlotsAndRejectOverflow) {
-  const auto storage = CreateStringStorage();
-  {
-    std::vector<SampleValueType> types;
-    for (int i = 0; i < 5; ++i) {
-      types.push_back({"custom-" + std::to_string(i), "nanoseconds"});
-    }
-    types.push_back(types.front());
-    PprofAggregator reused(types, storage);
-    ASSERT_TRUE(reused.IsInitialized());
-    auto* encoded = reused.Serialize(1700000000000, 1700000001000);
-    ASSERT_NE(encoded, nullptr);
-    SafeCleanupEncodedProfile(encoded);
-
-    types.back() = {"custom-overflow", "nanoseconds"};
-    PprofAggregator overflow(types, storage);
-    EXPECT_FALSE(overflow.IsInitialized());
-    EXPECT_EQ(overflow.GetProfile(), nullptr);
+  PprofAggregator a(types);
+  std::vector<uint8_t> owned;
+  for (int i = 0; i < 5; i++) {
+    ASSERT_TRUE(Record(a));
+    std::vector<uint8_t> bytes;
+    ASSERT_TRUE(a.Serialize(i, i + 1, bytes));
+    ASSERT_TRUE(a.Reset());
+    if (!i) owned = bytes;
+    Encoded(owned);
   }
-  ddog_prof_ManagedStringStorage_drop(storage);
+}
+TEST_F(PprofAggregatorTest, InitializationWithAllocationSampleTypes) {
+  std::vector<SampleValueType> t{{"alloc-samples", "count"}, {"alloc-space", "bytes"}};
+  PprofAggregator a(t);
+  EXPECT_TRUE(a.IsInitialized());
+}
+TEST_F(PprofAggregatorTest, AddAllocationSamples) {
+  std::vector<SampleValueType> t{{"alloc-samples", "count"}, {"alloc-space", "bytes"}};
+  PprofAggregator a(t);
+  EXPECT_TRUE(Record(a));
+}
+TEST_F(PprofAggregatorTest, SerializeAfterAddingSamples) {
+  std::vector<uint8_t> owned;
+  {
+    PprofAggregator a(types);
+    ASSERT_TRUE(Record(a));
+    ASSERT_TRUE(a.Serialize(1, 2, owned));
+  }
+  Encoded(owned);
+}
+TEST_F(PprofAggregatorTest, AddSampleWithEmptyLocations) {
+  PprofAggregator a(types);
+  int64_t values[] = {7, 11};
+  EXPECT_TRUE(a.AddSample({}, values, 0, Labels(a)));
+}
+TEST_F(PprofAggregatorTest, MillisecondsOverflowClearsOutput) {
+  PprofAggregator a(types);
+  std::vector<uint8_t> bytes{1, 2, 3};
+  EXPECT_FALSE(a.Serialize(INT64_MAX, INT64_MAX, bytes));
+  EXPECT_TRUE(bytes.empty());
+}
+
+TEST_F(PprofAggregatorTest, CustomSampleTypesPreserveRepeatedAndDistinctDefinitions) {
+  std::vector<SampleValueType> definitions;
+  for (int i = 0; i < 6; ++i) {
+    definitions.push_back({"custom-" + std::to_string(i), "nanoseconds"});
+  }
+  definitions.push_back(definitions.front());
+  PprofAggregator aggregator(definitions);
+  ASSERT_TRUE(aggregator.IsInitialized());
+  std::vector<uint8_t> bytes;
+  ASSERT_TRUE(aggregator.Serialize(1700000000000, 1700000001000, bytes));
+  Encoded(bytes);
 }
 
 TEST_F(PprofAggregatorTest, InvalidCustomDefinitionFailsInitialization) {
-  const auto storage = CreateStringStorage();
-  {
-    std::vector<SampleValueType> types{{std::string(1, '\xff'), "nanoseconds"}};
-    PprofAggregator aggregator(types, storage);
-    EXPECT_FALSE(aggregator.IsInitialized());
-    EXPECT_EQ(aggregator.GetProfile(), nullptr);
-  }
-  ddog_prof_ManagedStringStorage_drop(storage);
-}
-
-TEST_F(PprofAggregatorTest, UnconfiguredCustomSlotCannotSerialize) {
-  const ddog_prof_SampleType type = DDOG_PROF_SAMPLE_TYPE_CUSTOM1;
-  auto created = ddog_prof_Profile_new({&type, 1}, nullptr);
-  ASSERT_EQ(created.tag, DDOG_PROF_PROFILE_NEW_RESULT_OK);
-  auto serialized = ddog_prof_Profile_serialize(&created.ok, nullptr, nullptr);
-  EXPECT_EQ(serialized.tag, DDOG_PROF_PROFILE_SERIALIZE_RESULT_ERR);
-  if (serialized.tag == DDOG_PROF_PROFILE_SERIALIZE_RESULT_ERR) {
-    ddog_Error_drop(&serialized.err);
-  } else {
-    ddog_prof_EncodedProfile_drop(&serialized.ok);
-  }
-  ddog_prof_Profile_drop(&created.ok);
+  std::vector<SampleValueType> definitions{{std::string(1, '\xff'), "nanoseconds"}};
+  PprofAggregator aggregator(definitions);
+  EXPECT_FALSE(aggregator.IsInitialized());
+  EXPECT_EQ(aggregator.GetProfile(), nullptr);
 }
 
 TEST_F(PprofAggregatorTest, CustomPeriodAndDefinitionsSurviveInputLifetimeAndReset) {
-  const auto storage = CreateStringStorage();
-  {
-    std::vector<SampleValueType> types{
-        {"wait-time", "nanoseconds"},
-        {"cpu-time", "nanoseconds"},
-        {"cpu-time", "count"},
-        {"wait-time", "count"},
-        {"prototype-time", "nanoseconds"}
-    };
-    PprofAggregator aggregator(types, storage, 10);
-    ASSERT_TRUE(aggregator.IsInitialized());
-    types.clear();
-    types.shrink_to_fit();
-    for (int cycle = 1; cycle <= 2; ++cycle) {
-      auto locations = CreateRealLocationIds(aggregator, 1);
-      auto labels = CreateEmptyLabelSet(aggregator);
-      const std::vector<int64_t> values{3000 * cycle, 1000 * cycle, cycle, cycle, 42};
-      ASSERT_TRUE(
-          aggregator.AddSample(locations, values, 1700000000000000000 + cycle, labels)
-      );
-      auto* encoded = aggregator.Serialize(1700000000000, 1700000001000);
-      ASSERT_NE(encoded, nullptr);
-      const auto bytes = ddog_prof_EncodedProfile_bytes(encoded);
-      ASSERT_EQ(bytes.tag, DDOG_PROF_RESULT_BYTE_SLICE_OK_BYTE_SLICE);
-      EXPECT_GT(bytes.ok.len, 0u);
-      WriteTestProfile(
-          "custom-" + std::to_string(cycle) + ".pprof", {bytes.ok.ptr, bytes.ok.len}
-      );
-      SafeCleanupEncodedProfile(encoded);
-      ASSERT_TRUE(aggregator.Reset());
-    }
+  std::vector<SampleValueType> definitions{
+      {"wait-time", "nanoseconds"},
+      {"cpu-time", "nanoseconds"},
+      {"cpu-time", "count"},
+      {"wait-time", "count"},
+      {"prototype-time", "nanoseconds"}
+  };
+  PprofAggregator aggregator(definitions, 10);
+  ASSERT_TRUE(aggregator.IsInitialized());
+  definitions.clear();
+  definitions.shrink_to_fit();
+  for (int cycle = 1; cycle <= 2; ++cycle) {
+    auto locations = Locations(aggregator);
+    auto labels = Labels(aggregator);
+    const std::vector<int64_t> values{3000 * cycle, 1000 * cycle, cycle, cycle, 42};
+    ASSERT_TRUE(
+        aggregator.AddSample(locations, values, 1700000000000000000 + cycle, labels)
+    );
+    std::vector<uint8_t> bytes;
+    ASSERT_TRUE(aggregator.Serialize(1700000000000, 1700000001000, bytes));
+    Encoded(bytes);
+    WriteTestProfile("custom-" + std::to_string(cycle) + ".pprof", bytes);
+    ASSERT_TRUE(aggregator.Reset());
   }
-  ddog_prof_ManagedStringStorage_drop(storage);
 }

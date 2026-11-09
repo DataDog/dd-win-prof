@@ -326,10 +326,9 @@ TEST_F(ProfileExporterExportTests, ExporterWithDebugOutputDir) {
   }
 }
 
-TEST_F(ProfileExporterExportTests, ExporterInitializesWithDefaultsAndExportEnabled) {
-  // Validates the full InitializeExporter / BuildExportUrl / tag preparation path.
-  // Agent mode with localhost:8126 -- the exporter object is created without
-  // connecting.
+TEST_F(ProfileExporterExportTests, UnsupportedStandaloneExportIsRejected) {
+  // v19 cannot consume external encoded bytes. Do not silently pretend HTTP
+  // delivery works, even if the configured endpoint is syntactically valid.
   auto agentConfig = std::make_unique<Configuration>();
   agentConfig->ResetToDefaults();
   agentConfig->SetExportEnabled(true);
@@ -340,8 +339,8 @@ TEST_F(ProfileExporterExportTests, ExporterInitializesWithDefaultsAndExportEnabl
   Sample::SetValuesCount(types.size());
 
   auto exp = std::make_unique<ProfileExporter>(agentConfig.get(), types);
-  ASSERT_TRUE(exp->Initialize());
-  EXPECT_TRUE(exp->IsInitialized());
+  EXPECT_FALSE(exp->Initialize());
+  EXPECT_FALSE(exp->IsInitialized());
 
   // Explicit cleanup before destruction to avoid potential deadlocks
   exp->Cleanup();

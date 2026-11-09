@@ -1,0 +1,234 @@
+{
+  "result": "PASS",
+  "matched": {
+    "sample_types": [
+      [
+        "cpu-time",
+        "nanoseconds"
+      ],
+      [
+        "wall-time",
+        "nanoseconds"
+      ]
+    ],
+    "period_type": [
+      "cpu-time",
+      "nanoseconds"
+    ],
+    "period": 10000000,
+    "start": 1000000000,
+    "duration": 1000000000,
+    "samples": [
+      {
+        "stack": [
+          [
+            [
+              5368709120,
+              5369757696,
+              4096,
+              "native.dll",
+              "ABCDEF01234567891"
+            ],
+            4886718345,
+            [
+              [
+                [
+                  "Worker",
+                  "Worker",
+                  "worker.cpp"
+                ],
+                43
+              ]
+            ]
+          ],
+          [
+            [
+              5368709120,
+              5369757696,
+              4096,
+              "native.dll",
+              "ABCDEF01234567891"
+            ],
+            4886718345,
+            [
+              [
+                [
+                  "Worker",
+                  "Worker",
+                  "worker.cpp"
+                ],
+                43
+              ]
+            ]
+          ]
+        ],
+        "values": [
+          21,
+          33
+        ],
+        "labels": [
+          [
+            "process_id",
+            "123",
+            ""
+          ],
+          [
+            "rum.view_id",
+            "view-1",
+            ""
+          ],
+          [
+            "thread id",
+            0,
+            "count"
+          ]
+        ]
+      },
+      {
+        "stack": [
+          [
+            [
+              5368709120,
+              5369757696,
+              4096,
+              "native.dll",
+              "ABCDEF01234567891"
+            ],
+            4886718345,
+            [
+              [
+                [
+                  "Worker",
+                  "Worker",
+                  "worker.cpp"
+                ],
+                43
+              ]
+            ]
+          ],
+          [
+            [
+              5368709120,
+              5369757696,
+              4096,
+              "native.dll",
+              "ABCDEF01234567891"
+            ],
+            4886718345,
+            [
+              [
+                [
+                  "Worker",
+                  "Worker",
+                  "worker.cpp"
+                ],
+                43
+              ]
+            ]
+          ]
+        ],
+        "values": [
+          7,
+          11
+        ],
+        "labels": [
+          [
+            "end_timestamp_ns",
+            1234567890123456789,
+            ""
+          ],
+          [
+            "process_id",
+            "123",
+            ""
+          ],
+          [
+            "rum.view_id",
+            "view-1",
+            ""
+          ],
+          [
+            "thread id",
+            0,
+            "count"
+          ]
+        ]
+      },
+      {
+        "stack": [
+          [
+            [
+              5368709120,
+              5369757696,
+              4096,
+              "native.dll",
+              "ABCDEF01234567891"
+            ],
+            4886718345,
+            [
+              [
+                [
+                  "Worker",
+                  "Worker",
+                  "worker.cpp"
+                ],
+                43
+              ]
+            ]
+          ],
+          [
+            [
+              5368709120,
+              5369757696,
+              4096,
+              "native.dll",
+              "ABCDEF01234567891"
+            ],
+            4886718345,
+            [
+              [
+                [
+                  "Worker",
+                  "Worker",
+                  "worker.cpp"
+                ],
+                43
+              ]
+            ]
+          ]
+        ],
+        "values": [
+          7,
+          11
+        ],
+        "labels": [
+          [
+            "end_timestamp_ns",
+            1234567890123456789,
+            ""
+          ],
+          [
+            "process_id",
+            "123",
+            ""
+          ],
+          [
+            "rum.view_id",
+            "view-1",
+            ""
+          ],
+          [
+            "thread id",
+            0,
+            "count"
+          ]
+        ]
+      }
+    ]
+  },
+  "extensions_checked_separately": [
+    "Explicit epoch-zero observation retained by C API; v19 timestamp API cannot represent present zero.",
+    "C function start_line=42 extension checked by core test; v19 interning API has no start-line input.",
+    "Unreferenced mapping/stack metadata excluded from semantic sample comparison."
+  ]
+}

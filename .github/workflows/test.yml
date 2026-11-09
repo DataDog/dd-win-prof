@@ -139,8 +139,6 @@ jobs:
           src/reference/dd-win-prof.dll
           src/reference/dd-win-prof.lib
           src/reference/dd-win-prof.pdb
-          src/reference/datadog_profiling_ffi.dll
-          src/reference/datadog_profiling_ffi.pdb
           build/src/ProfilerInjector/${{ matrix.configuration }}/ProfilerInjector.exe
           build/src/ProfilerInjector/${{ matrix.configuration }}/ProfilerInjector.pdb
           build/src/Runner/${{ matrix.configuration }}/Runner.exe

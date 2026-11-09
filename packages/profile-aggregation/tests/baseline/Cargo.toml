@@ -1,0 +1,10 @@
+[package]
+name = "prof-16455-v19-baseline"
+version = "0.1.0"
+edition = "2021"
+[workspace]
+[dependencies]
+datadog-profiling = { path = "LIBDATADOG_SOURCE/datadog-profiling" }
+lz4_flex = { version = "0.9", default-features = false, features = ["std", "safe-encode", "frame"] }
+[profile.release]
+debug = false

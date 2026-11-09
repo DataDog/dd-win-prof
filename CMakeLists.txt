@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(WindowsProfiler LANGUAGES CXX RC)
+project(WindowsProfiler LANGUAGES C CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -68,6 +68,7 @@ endif()
 include(cmake/asan.cmake)
 dd_win_prof_setup_asan()
 
+add_subdirectory(packages/profile-aggregation)
 add_subdirectory(src)
 
 if(DD_WIN_PROF_BUILD_OBFUSCATION)
@@ -81,13 +82,14 @@ include(cmake/clang-format.cmake)
 # and zips the resulting tree. Per-target file rules live with the targets
 # (src/dd-win-prof, obfuscation/ObfSymbols); these rules cover the
 # repo-level licensing files that must accompany every binary distribution.
-# Apache 2.0 attribution for our own code and libdatadog is provided by
+# Apache 2.0 attribution for our own code and pprof schema is provided by
 # the root LICENSE + NOTICE; third-party components (spdlog, bundled fmt)
 # are enumerated in LICENSE-3rdparty.csv with their license types, and the
 # corresponding license texts live under licenses/.
 if(DD_WIN_PROF_BUILD_INSTALL)
     install(FILES LICENSE NOTICE LICENSE-3rdparty.csv DESTINATION .)
     install(DIRECTORY licenses/ DESTINATION licenses)
+    install(DIRECTORY packages/profile-aggregation/licenses/ DESTINATION licenses/profile-aggregation)
 endif()
 
 # Helper function for consuming projects to copy dd-win-prof runtime
@@ -102,9 +104,7 @@ endif()
 #
 # This function adds a POST_BUILD command that copies:
 #   - dd-win-prof.dll (always)
-#   - datadog_profiling_ffi.dll (always)
 #   - dd-win-prof.pdb (if INCLUDE_PDBS specified)
-#   - datadog_profiling_ffi.pdb (if INCLUDE_PDBS specified)
 #
 function(dd_win_prof_copy_runtime_deps TARGET_NAME)
     if(NOT TARGET dd-win-prof)
@@ -116,16 +116,10 @@ function(dd_win_prof_copy_runtime_deps TARGET_NAME)
     set(options INCLUDE_PDBS)
     cmake_parse_arguments(ARG "${options}" "" "" ${ARGN})
 
-    # Determine libdatadog DLL directory based on build configuration
-    set(_ld_dyn "${DD_WIN_PROF_LIBDATADOG_DIR}/${DD_WIN_PROF_LIBDATADOG_CONFIG_DIR}/dynamic")
-
     # Copy DLLs (always)
     add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:dd-win-prof>
-            $<TARGET_FILE_DIR:${TARGET_NAME}>
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${_ld_dyn}/datadog_profiling_ffi.dll"
             $<TARGET_FILE_DIR:${TARGET_NAME}>
         VERBATIM
         COMMENT "Copying dd-win-prof runtime DLLs to ${TARGET_NAME} output directory"
@@ -136,9 +130,6 @@ function(dd_win_prof_copy_runtime_deps TARGET_NAME)
         add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 $<TARGET_PDB_FILE:dd-win-prof>
-                $<TARGET_FILE_DIR:${TARGET_NAME}>
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${_ld_dyn}/datadog_profiling_ffi.pdb"
                 $<TARGET_FILE_DIR:${TARGET_NAME}>
             VERBATIM
             COMMENT "Copying dd-win-prof debug symbols (PDBs) to ${TARGET_NAME} output directory"

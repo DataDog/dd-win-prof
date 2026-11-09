@@ -128,15 +128,15 @@ This is a Windows native profiler that performs CPU sampling and exports profile
 
 **`ProfileExporter.cpp/.h`** - Profile export manager
 - Receives samples from `SamplesCollector`
-- Manages libdatadog profile creation with labels/values and export
+- Adapts Windows metadata/labels to the pure C aggregation package; delivers owned Zstd bytes
 - Generates unique runtime IDs for profile identification
 
-**`PprofAggregator.cpp/.h`** - libdatadog integration
-- C++ wrapper around libdatadog profiling APIs
+**`PprofAggregator.cpp/.h`** - pure C aggregation adapter
+- C++ wrapper around `packages/profile-aggregation`
 - Handles profile initialization with sample types
 - Supports multiple sample types: CPU_SAMPLES, CPU_TIME_NS, WALL_TIME_NS, etc.
 - Provides profile serialization to pprof format
-- Manages libdatadog resource lifecycle
+- Manages C profile ownership and reset generations
 
 ### Utility and Platform Components
 
@@ -168,7 +168,7 @@ This is a Windows native profiler that performs CPU sampling and exports profile
 6. **Collection**: `SamplesCollector` worker thread collects samples every 60ms
 7. **Aggregation**: `PprofAggregator` aggregate samples into a lobdatadog profile
 8. **Export**: `SamplesCollector` exporter thread triggers profile export every 60s
-9. **Upload**: `ProfileExporter` serialize profile into pprof format and upload it to Datadog via libdatadog
+9. **Delivery**: `ProfileExporter` streams Zstd pprof through the C core and delivers SDK callback bytes or local debug files. Standalone HTTP is explicitly unsupported in this experiment
 
 ### Threading Model
 

@@ -7,6 +7,10 @@
 // clang-format on
 
 #include <cstdint>
+#include <chrono>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <utility>
 #include <vector>
@@ -46,6 +50,10 @@ int TestSdkCallback() {
     return 1;
   }
 
+  // Capture actual CPU/wall observations, not just an empty final profile.
+  const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  volatile uint64_t work = 0;
+  while (std::chrono::steady_clock::now() < until) work = work * 1664525 + 1013904223;
   StopProfiler();
   const bool unregistered = SetupProfilingDataCallback({});
   if (!unregistered) {
@@ -79,6 +87,22 @@ int TestSdkCallback() {
   if (profile.endUnixTimeMs < profile.startUnixTimeMs) {
     std::cerr << "Final profile ends before it starts\n";
     return 1;
+  }
+  if (profile.pprof.size() < 4 || profile.pprof[0] != 0x28 ||
+      profile.pprof[1] != 0xb5 || profile.pprof[2] != 0x2f ||
+      profile.pprof[3] != 0xfd) {
+    std::cerr << "Expected Zstandard pprof, not LZ4\n";
+    return 1;
+  }
+  if (const char* directory = std::getenv("DD_C_AGGREGATION_CAPTURE_DIR")) {
+    std::filesystem::create_directories(directory);
+    std::ofstream output(
+        std::filesystem::path(directory) / "callback.zst.pprof", std::ios::binary
+    );
+    output.write(
+        reinterpret_cast<const char*>(profile.pprof.data()), profile.pprof.size()
+    );
+    if (!output) return 1;
   }
   return 0;
 }
