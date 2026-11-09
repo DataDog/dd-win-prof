@@ -15,9 +15,13 @@ Implementation of a Windows CPU profiler
 Aggregation, interning and streaming Zstd pprof encoding now use the separate
 [pure C package](packages/profile-aggregation/README.md) in both delivery modes.
 SDK callback bytes are **Zstd, not LZ4**. No libdatadog runtime is required.
-Standalone local-debug capture works with HTTP export disabled; enabling standalone
-HTTP export is explicitly rejected until a supported byte-input exporter API exists.
-See package documentation for validation, licensing and the external SDK install gate.
+Standalone HTTP now uses an [experimental pure-C WinHTTP exporter](packages/profile-exporter/README.md).
+It sends the existing Zstd bytes synchronously, without Rust or a second compression pass.
+Existing agent/agentless settings apply. Callback delivery does not create or invoke the
+HTTP exporter; MSVC delay-loads the system WinHTTP DLL only when HTTP is used.
+Local-debug capture also works with HTTP export disabled. This transport is not
+production-qualified. Real intake acceptance and backend indexing still require validation.
+See package documentation for tests, limitations and licensing.
 
 
 ## Usage : how to profile your 64-bit Windows application

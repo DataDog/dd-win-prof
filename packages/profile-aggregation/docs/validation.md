@@ -118,7 +118,7 @@ The SDK receiver at `dd-sdk-cpp/src/datadog/impl/profiling/profiling.cpp` passes
 
 Remaining integration gates:
 
-- Standalone HTTP is explicitly unsupported until a supported upstream byte-input request builder exists. Enabling it must fail, not silently discard uploads.
+- Standalone HTTP now uses the separate experimental [C exporter](../../profile-exporter/README.md). Host Release/UBSan protocol tests and an independent review pass; Windows runtime, real intake and indexing still require validation. Historical captures below did not use this transport.
 - The external dirty dd-sdk-cpp checkout has an obsolete libdatadog target install rule. Required removal is documented in the package README; that checkout was not edited. Source consumer installation is not proof of full SDK package installation.
 - Live SDK intake/receiving-path compatibility and backend indexing are not validated by copying opaque bytes.
 - Windows capture and lifetime evidence covers the fixtures below, not a full SDK live upload.

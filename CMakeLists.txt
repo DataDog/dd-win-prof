@@ -69,6 +69,7 @@ include(cmake/asan.cmake)
 dd_win_prof_setup_asan()
 
 add_subdirectory(packages/profile-aggregation)
+add_subdirectory(packages/profile-exporter)
 add_subdirectory(src)
 
 if(DD_WIN_PROF_BUILD_OBFUSCATION)

@@ -6,3 +6,8 @@ Datadog
 Copyright 2025 Datadog, Inc.
 
 This product includes software developed at Datadog (https://www.datadoghq.com/).
+
+The experimental profile-exporter protocol and WinHTTP flow are adapted from
+DataDog/dd-trace-dotnet PR #9252, shared/src/datadog-profiling-poc/src/exporter_win.c,
+revision 832190564416d0d703f6dc4e97a5eaeead563fc6 (Apache License 2.0).
+Copyright Datadog, Inc.

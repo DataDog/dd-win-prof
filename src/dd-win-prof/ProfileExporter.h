@@ -12,6 +12,7 @@
 #include "Sample.h"
 #include "Symbolication.h"
 #include "internal/dd-win-rum-private.h"
+#include "profile_exporter.h"
 class ProfileExporter {
  public:
   ProfileExporter(
@@ -38,6 +39,8 @@ class ProfileExporter {
   const std::string& GetDebugPprofPrefix() const { return _debugPprofPrefix; }
 
  private:
+  bool InitializeHttpExporter();
+  bool SendHttp(const std::vector<uint8_t>&, const std::string&, int64_t, int64_t);
   bool InternSampleLabels();
   std::optional<pa_id> InternLocation(uint64_t);
   std::optional<pa_id> CreateLabelSet(
@@ -47,6 +50,10 @@ class ProfileExporter {
   bool DeliverProfilingData(ProfilingData);
   std::string CollectRumRecordsJson(bool discard);
   void WriteDebugFiles(const std::vector<uint8_t>&, const std::string&, int64_t);
+  std::unique_ptr<pe_exporter, decltype(&pe_exporter_destroy)> _httpExporter{
+      nullptr, pe_exporter_destroy
+  };
+  tags _httpTags;
   Configuration* _pConfiguration;
   std::vector<SampleValueType> _sampleTypeDefinitions;
   ProfilingDataCallback _profilingDataCallback;

@@ -168,7 +168,7 @@ This is a Windows native profiler that performs CPU sampling and exports profile
 6. **Collection**: `SamplesCollector` worker thread collects samples every 60ms
 7. **Aggregation**: `PprofAggregator` aggregate samples into a lobdatadog profile
 8. **Export**: `SamplesCollector` exporter thread triggers profile export every 60s
-9. **Delivery**: `ProfileExporter` streams Zstd pprof through the C core and delivers SDK callback bytes or local debug files. Standalone HTTP is explicitly unsupported in this experiment
+9. **Delivery**: `ProfileExporter` streams Zstd pprof through the C core and delivers SDK callback bytes or local debug files. Standalone HTTP uses the experimental `packages/profile-exporter` WinHTTP backend, borrowing the already-compressed bytes through synchronous send
 
 ### Threading Model
 

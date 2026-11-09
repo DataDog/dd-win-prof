@@ -515,7 +515,8 @@ TEST(ProfilingDataExportTests, ResultIsFirstAggregateFieldAndDefaultsToSuccess) 
 TEST(ProfilingDataExportTests, CallbackBypassesHttpAndOwnsBytes) {
   Configuration config;
   config.ResetToDefaults();
-  config.SetApiKey("unused");
+  config.SetApiKey("invalid\r\nkey");
+  config.SetEndpoint("not a site");
   std::vector<ProfilingData> results;
   ProfilingDataCallback callback = [&](ProfilingData data) {
     results.push_back(std::move(data));

@@ -7,6 +7,9 @@
 #include <sstream>
 
 #include "Log.h"
+#include "OsSpecificApi.h"
+#include "Uuid.h"
+#include "version.h"
 namespace {
 int64_t ToUnixTimeMs(std::chrono::system_clock::time_point t) {
   return std::chrono::duration_cast<std::chrono::milliseconds>(t.time_since_epoch())
@@ -44,6 +47,8 @@ ProfileExporter::ProfileExporter(
 ProfileExporter::~ProfileExporter() { Cleanup(); }
 void ProfileExporter::Cleanup(bool) {
   _initialized = false;
+  _httpExporter.reset();
+  _httpTags.clear();
   _aggregator.reset();
   _symbolication.reset();
   _persistentSymbolCache.clear();
@@ -52,16 +57,9 @@ void ProfileExporter::Cleanup(bool) {
 }
 bool ProfileExporter::Initialize() {
   if (_initialized) return true;
-  // v19 Request_build cannot consume externally encoded bytes. Fail explicitly
-  // rather than create fake Rust EncodedProfiles or replay samples through Rust.
-  if (_exportEnabled && !_profilingDataCallback) {
-    Log::Error(
-        "Standalone HTTP export unsupported: libdatadog v19 lacks a supported "
-        "encoded-byte request API; disable export or register the SDK callback"
-    );
-    return false;
-  }
   try {
+    if (_exportEnabled && !_profilingDataCallback && !InitializeHttpExporter())
+      return false;
     _symbolication = std::make_unique<Symbolication>();
     if (!_symbolication->Initialize(
             _pConfiguration && _pConfiguration->AreCallstacksSymbolized()
@@ -78,6 +76,129 @@ bool ProfileExporter::Initialize() {
     Log::Error("Profile initialization failed: ", e.what());
     return false;
   }
+}
+namespace {
+pe_slice Bytes(std::string_view s) { return {s.data(), s.size()}; }
+}  // namespace
+bool ProfileExporter::InitializeHttpExporter() {
+  if (!_pConfiguration || !_pConfiguration->ValidateTransportConfig()) return false;
+  const auto& c = *_pConfiguration;
+  std::string endpoint = c.IsAgentless() ? c.GetSite() : c.GetAgentUrl();
+  if (!c.IsAgentless() && endpoint.empty()) {
+    if (c.GetAgentPort() < 1 || c.GetAgentPort() > 65535) return false;
+    auto host = c.GetAgentHost();
+    if (host.find(':') != std::string::npos && !host.starts_with("["))
+      host = "[" + host + "]";
+    endpoint = "http://" + host + ":" + std::to_string(c.GetAgentPort());
+  }
+  pe_config config{
+      Bytes(endpoint),
+      Bytes(c.GetApiKey()),
+      Bytes(DLL_NAME),
+      Bytes(PROFILER_VERSION_STRING),
+      10000,
+      c.IsAgentless()
+  };
+  pe_exporter* exporter = nullptr;
+  pe_result result{};
+  if (pe_exporter_create(&config, &exporter, &result) != PE_OK) {
+    Log::Error(
+        "Experimental HTTP exporter initialization failed: ",
+        result.status,
+        ", system error: ",
+        result.system_error
+    );
+    return false;
+  }
+  _httpExporter.reset(exporter);
+  _httpTags = {
+      {"language", "native"},
+      {"runtime-id", ddprof::Uuid().to_string()},
+      {"profiler_version", PROFILER_VERSION_STRING},
+      {"remote_symbols", "yes"},
+      {"runtime_os", "windows"}
+  };
+  auto add = [&](std::string key, std::string value) {
+    if (!value.empty()) _httpTags.emplace_back(std::move(key), std::move(value));
+  };
+  add("service", c.GetServiceName());
+  add("env", c.GetEnvironment());
+  add("version", c.GetVersion());
+  add("host", c.GetHostname());
+  using namespace OsSpecificApi;
+  int physical = 0, logical = 0;
+  if (GetCpuCores(physical, logical)) {
+    add("number_of_cpu_cores", std::to_string(physical));
+    add("number_of_logical_cores", std::to_string(logical));
+  }
+  add("cpu_vendor", GetCpuVendor());
+  add("cpu_desc", GetCpuModel());
+  add("cpu_arch", GetCpuArchitecture());
+  std::string description, driverVersion, date, name, chip;
+  uint64_t ram = 0;
+  int device = 0;
+  while (
+      GetGpuFromRegistry(device, description, driverVersion, date, name, chip, ram)
+  ) {
+    const auto index = std::to_string(device++);
+    if (description.empty() && name.empty()) continue;
+    add("gpu_driver_desc_" + index, description);
+    add("gpu_driver_version_" + index, driverVersion);
+    add("gpu_driver_date_" + index, date);
+    add("gpu_name_" + index, name);
+    add("gpu_chip_" + index, chip);
+    if (ram) add("gpu_ram_" + index, std::to_string(ram));
+  }
+  add("gpu_count", std::to_string(device));
+  uint64_t total = 0, available = 0;
+  uint32_t load = 0;
+  if (GetMemoryInfo(total, available, load)) add("ram_size", std::to_string(total));
+  _httpTags.insert(_httpTags.end(), c.GetUserTags().begin(), c.GetUserTags().end());
+  return true;
+}
+bool ProfileExporter::SendHttp(
+    const std::vector<uint8_t>& bytes,
+    const std::string& rum,
+    int64_t start,
+    int64_t end
+) {
+  try {
+    auto tags = _httpTags;
+    tags.emplace_back("profile_seq", std::to_string(_currentExportId));
+    tags.emplace_back("pid", std::to_string(::GetCurrentProcessId()));
+    if (!_rumApplicationId.empty())
+      tags.emplace_back("rum.application_id", _rumApplicationId);
+    std::vector<pe_tag> borrowed;
+    borrowed.reserve(tags.size());
+    for (const auto& [key, value] : tags)
+      borrowed.push_back({Bytes(key), Bytes(value)});
+    pe_profile profile{
+        {bytes.data(), bytes.size()},
+        start,
+        end,
+        borrowed.data(),
+        borrowed.size(),
+        Bytes(rum),
+        nullptr,
+        0
+    };
+    pe_result result{};
+    if (pe_exporter_send(_httpExporter.get(), &profile, &result) == PE_OK) {
+      Log::Info("Experimental HTTP export succeeded, HTTP: ", result.http_status);
+      return true;
+    }
+    Log::Error(
+        "Experimental HTTP export failed: ",
+        result.status,
+        ", HTTP: ",
+        result.http_status,
+        ", system error: ",
+        result.system_error
+    );
+  } catch (const std::exception& e) {
+    Log::Error("HTTP export failed: ", e.what());
+  }
+  return false;
 }
 bool ProfileExporter::InternSampleLabels() {
   auto* p = _aggregator->GetProfile();
@@ -236,6 +357,8 @@ bool ProfileExporter::Export(bool last) {
       data.endUnixTimeMs = endMs;
       data.isLast = last;
       success = DeliverProfilingData(std::move(data));
+    } else if (_httpExporter) {
+      success = SendHttp(bytes, rum, startMs, endMs);
     }
   }
   // Recovery remains explicit even after encoding, sink or callback failures.

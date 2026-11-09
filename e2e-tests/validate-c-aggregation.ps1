@@ -1,5 +1,5 @@
 # Self-contained Windows validation. Run from the mirrored experimental checkout.
-# No credentials, HTTP uploads, shared worker edits or SDK source changes.
+# No credentials, external HTTP uploads, shared worker edits or SDK source changes.
 param([string]$Configuration = 'Release')
 $ErrorActionPreference = 'Stop'
 $pwsh = Get-Command pwsh.exe -CommandType Application -ErrorAction SilentlyContinue
@@ -27,16 +27,17 @@ foreach ($dir in @($stage, $capture)) {
 Run 'cmake' @('-S', $root, '-B', $build, '-G', 'Visual Studio 17 2022', '-A', 'x64',
     '-DDD_WIN_PROF_DEVELOPMENT=OFF', '-DDD_WIN_PROF_BUILD_TESTS=ON', '-DDD_WIN_PROF_BUILD_RUNNER=ON', '-DDD_WIN_PROF_BUILD_UIAPP=ON',
     '-DDD_WIN_PROF_BUILD_INJECTOR=OFF', '-DDD_WIN_PROF_BUILD_OBFUSCATION=OFF', '-DDD_WIN_PROF_BUILD_INSTALL=ON',
-    '-DPA_BUILD_TESTS=ON', '-DPA_BUILD_BENCHMARK=ON')
+    '-DPA_BUILD_TESTS=ON', '-DPA_BUILD_BENCHMARK=ON', '-DPE_BUILD_TESTS=ON')
 # Repair only the known file artifact from the early runtime-copy bug. Never
 # remove an existing output directory or any unrelated path.
 $runnerOutput = Join-Path $build "src/Runner/$Configuration"
 if (Test-Path $runnerOutput -PathType Leaf) { Remove-Item $runnerOutput -Force }
-Run 'cmake' @('--build', $build, '--config', $Configuration, '--target', 'Tests', 'Runner', 'UIApp', 'aggregation_tests', 'aggregation_collision_tests', 'aggregation_bench', '--parallel', '4')
+Run 'cmake' @('--build', $build, '--config', $Configuration, '--target', 'Tests', 'Runner', 'UIApp', 'aggregation_tests', 'aggregation_collision_tests', 'aggregation_bench', 'exporter_protocol_tests', 'exporter_probe', '--parallel', '4')
 $uiAppOutput = Join-Path $build "src/UIApp/$Configuration"
 NoRustFiles $uiAppOutput
 Run (Join-Path $build "packages/profile-aggregation/$Configuration/aggregation_tests.exe") @((Join-Path $capture 'core-native.zst.pprof'))
 Run (Join-Path $build "packages/profile-aggregation/$Configuration/aggregation_collision_tests.exe") @()
+Run (Join-Path $build "packages/profile-exporter/$Configuration/exporter_protocol_tests.exe") @()
 Run (Join-Path $build "src/Tests/$Configuration/Tests.exe") @('--gtest_color=no')
 Run (Join-Path $build "packages/profile-aggregation/$Configuration/aggregation_bench.exe") @('100000')
 Run 'cmake' @('--install', $build, '--config', $Configuration, '--prefix', $stage)
@@ -45,7 +46,7 @@ NoRustFiles $stage
 # retains callback bytes after StopProfiler and records a real busy-thread capture.
 Run 'cmake' @('-S', (Join-Path $root 'e2e-tests/consumer'), '-B', $consumer, '-G', 'Visual Studio 17 2022', '-A', 'x64',
     "-DDD_WIN_PROF_SOURCE_DIR=$root", '-DDD_WIN_PROF_DEVELOPMENT=OFF', '-DDD_WIN_PROF_BUILD_INSTALL=OFF',
-    '-DPA_BUILD_TESTS=OFF', '-DPA_BUILD_BENCHMARK=OFF')
+    '-DPA_BUILD_TESTS=OFF', '-DPA_BUILD_BENCHMARK=OFF', '-DPE_BUILD_TESTS=OFF')
 Run 'cmake' @('--build', $consumer, '--config', $Configuration, '--target', 'consumer', '--parallel', '4')
 $env:DD_C_AGGREGATION_CAPTURE_DIR = $capture
 try { Run (Join-Path $consumer "$Configuration/consumer.exe") @() }
@@ -92,6 +93,10 @@ $pythonEnv = Join-Path $root 'build-c-aggregation-python'
 Run 'python' @('-m', 'venv', $pythonEnv)
 $python = Join-Path $pythonEnv 'Scripts/python.exe'
 Run $python @('-m', 'pip', 'install', '-r', (Join-Path $root 'src/integration-tests/requirements.txt'))
+$mock = Join-Path $root 'packages/profile-exporter/tests/mock_intake.py'
+$received = Join-Path $capture 'winhttp-received.zst.pprof'
+Run $python @($mock, '--probe', (Join-Path $build "packages/profile-exporter/$Configuration/exporter_probe.exe"), '--output', $received)
+Run $python @($mock, '--decode', $received)
 $previousPath = $env:PATH
 $env:PATH = (Join-Path $pythonEnv 'Scripts') + ';' + $env:PATH
 try {
@@ -101,5 +106,5 @@ try {
         '-Config', $Configuration, '-UIAppPath', (Join-Path $uiAppOutput 'UIApp.exe'),
         '-OutputRoot', (Join-Path $capture 'ui-hangs'), '-KeepArtifacts')
 } finally { $env:PATH = $previousPath }
-Write-Host "PASS: Windows core, behavioral tests, callback lifecycle/capture, local standalone/RUM/UI-hang capture and restart, existing consumer isolation, install/export/import inventories. Artifacts: $capture"
-Write-Host 'NOT VALIDATED: dd-sdk-cpp dirty checkout install rules, live SDK intake, standalone HTTP (unsupported), integrated memory budget.'
+Write-Host "PASS: Windows core, behavioral tests, callback lifecycle/capture, WinHTTP loopback/rejection/redirect/timeout/refusal and decoded pprof, local standalone/RUM/UI-hang capture and restart, existing consumer isolation, install/export/import inventories. Artifacts: $capture"
+Write-Host 'NOT VALIDATED: dd-sdk-cpp dirty checkout install rules, live SDK intake, real standalone intake/backend indexing, integrated memory budget.'
