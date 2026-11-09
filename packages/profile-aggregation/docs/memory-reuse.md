@@ -84,4 +84,4 @@ These are allocator-requested bytes, **not** process RSS, working set or private
 5. Continuous new-string churn must not cause unbounded retained storage. Allocation failures must leave the profile valid and destroy must release everything.
 6. Compare ingestion/serialization/latency against the existing matched Windows matrix and repeat full Windows integration checks.
 
-The former target of 307 requested bytes after each reset is superseded. Implementation and host checks are complete; independent review and Windows validation remain pending.
+The former target of 307 requested bytes after each reset is superseded. Implementation, independent core/integration review, host Release/UBSan suites and the 51-run harness passed. Windows passed the 312-run matched matrix with all 60 strict fixtures, then the rebased full integration: 220 behavioral tests, both core suites, 101 RUM and 23 UI-hang assertions. See the [measured retention report](../benchmarks/windows-v2/README.md) for allocation counts, memory cost, recovery and remaining limits.

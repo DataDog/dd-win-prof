@@ -2,6 +2,8 @@
 
 AppGate required. Uploaded to staging Chonk, folder `profiling`.
 
+These links contain the historical packed-stack experiment, before retained storage and cross-export string caching. The [current retention report](README.md) includes the newer measurements; the original uploads were not changed.
+
 - [Readable HTML report](https://chonk.us1.staging.dog/v2/get/chonk-uploads/profiling/e1c61415-fcf6-48e7-937e-704868d6d400)
 - [Before/after evidence and methodology ZIP](https://chonk.us1.staging.dog/v2/get/chonk-uploads/profiling/72ee13e4-8fb4-4e03-8d58-01f95057f7f7)
 

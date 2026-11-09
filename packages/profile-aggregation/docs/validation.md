@@ -1,5 +1,19 @@
 # Validation and remaining gates
 
+## Current retained-storage validation
+
+The current implementation retains normal working storage and caches strings across exports. Three consecutive unused completed exports expire a string; failed/repeated serialization does not advance multiple cycles. The historical 307-byte reset measurements below predate this policy.
+
+- Parent reran Release and UBSan normal/forced-collision suites: **2/2 each**, plus the **51-run** host harness with independent decode, warmed zero-allocation/free checks and spike recovery. Added untimed numeric-label sum-map growth/OOM/atomic-retry/trimming coverage passes.
+- Windows memory-policy matrix `20261109T145706Z-run-script-dd-win-prof-a5b0acf5`: **312 complete runs**, all manifest/phase/percentile/allocation/affinity/CRT checks, **20 groups / 60 strict fixtures** compared with v19 CFFI. Exact measured core/header sources and metadata are archived in `benchmarks/windows-v2/run-20261109T145716Z/`.
+- Rebased onto upstream `11eae539`, preserving UI-hang detection and configuration/session reset behavior. Windows integration `20261109T151035Z-run-script-dd-win-prof-ea675e2d`: **220 behavioral tests**, both core suites, callback ownership, source/installed/downstream consumers, consumer isolation/import inventories, **101 RUM assertions** and **23 UI-hang assertions**. UI cases cover sleep/wait/CPU and two-session restart.
+- Eight returned core/native/standalone/UI captures, **8,508 observations**, independently decoded and metadata-reference checked on the host. See `windows-memory-reuse-validation.json` for per-file hashes/counts.
+- Independent read-only reviews of the core and upstream integration found no blockers. Windows runtime checks subsequently passed.
+- Fresh small-app job `20261109T151820Z-run-script-dd-win-prof-4a2f0bbf` covers five sequential 45-second states. Enabled C versus no profiler linked adds **6.18 MiB working set / 3.05 MiB private commit** in the small phase, **6.45 / 3.31 MiB** in recovery. Both enabled variants deliver nine profiles, one final callback and no errors; all 18 captures independently decode. Snapshot: `benchmarks/windows-small-app/run-20261109T151820Z/`.
+- A subsequent namespace audit found and prefixed `g_debuglevel` plus two MSVC-emitted Zstd helpers. Windows job `20261109T152926Z-run-script-dd-win-prof-2743f3c2` rebuilt and passed both core suites, all 220 behavioral tests and the 297-definition archive audit. Host audit finds 233 definitions, all `pa_`/`ddpa_`, with no benchmark hooks. The Windows validation script now checks defined archive symbols. Performance/memory cohorts predate these identifier-only changes; their exact measured sources remain preserved.
+
+The [current Windows report](../benchmarks/windows-v2/README.md) records allocation reductions, retained memory, stable short-run recovery and remaining cold-growth stalls. The original baseline and packed-stack matrices remain historical evidence, not measurements of the new policy. Live intake, full-SDK/long-soak residency and Windows ASan remain open.
+
 ## Portable core, macOS arm64
 
 Executed on the host with AppleClang 17, C11, Release:
@@ -86,7 +100,7 @@ V2 compiles one shared workload driver against the unchanged C API and the exist
 
 A third, diagnostic-only C target privately compiles compression hooks and counts uncompressed protobuf bytes. Its non-compression serialization remainder includes sizing/emission/allocations/sink work, not pure encoding. No production API or wire-format changes are introduced. Normal/timed/allocator-instrumented C fixture identity, stage/percentile invariants and independent recipe/pprof semantic checks are host-tested. The final matched Windows matrix passed **312 cases**, seven primary repetitions and three latency repetitions per configuration, with independently checked phase/allocation/percentile/affinity/CRT invariants and **20 fixture groups / 60 files** compared with v19 CFFI. Production core suites still pass with hooks disabled.
 
-See the [Windows v2 before/after report and preserved evidence](../benchmarks/windows-v2/README.md). Packed location IDs plus cached stack payload sizes reduce timestamped deep equivalent flushing from **449.059 to 179.231 ms** per 100k records, versus **329.025 ms** for v19. Untimed churn flush falls from **81.633 to 66.836 ms**, close to v19's **68.498 ms**. Both 312-case matrices and their exact measured source versions are preserved. Ingestion medians vary slightly between cohorts; no universal unchanged-ingestion claim is made. C still has higher populated working set and reproducible growth-associated multi-millisecond latency tails. Requested core allocation/count/live/peak/reset statistics are unchanged in all ten diagnostic scenarios, retaining 307 bytes after reset. That is not an RSS or full-SDK budget claim.
+Historical packed-stack result, before memory reuse: see the [packed report and preserved evidence](../benchmarks/windows-v2/packed.md). Packed location IDs plus cached stack payload sizes reduce timestamped deep equivalent flushing from **449.059 to 179.231 ms** per 100k records, versus **329.025 ms** for v19. Untimed churn flush falls from **81.633 to 66.836 ms**, close to v19's **68.498 ms**. Both 312-case matrices and their exact measured source versions are preserved. Ingestion medians vary slightly between cohorts; no universal unchanged-ingestion claim is made. C still has higher populated working set and reproducible growth-associated multi-millisecond latency tails. Requested core allocation/count/live/peak/reset statistics are unchanged in all ten diagnostic scenarios, retaining 307 bytes after reset. That is not an RSS or full-SDK budget claim.
 
 The new packed-wire assertions fail against an isolated original-serializer build. A 16,384-frame regression checks multi-byte packed IDs/lengths, staging boundaries, repeated serialization and metadata growth after cache initialization. Host Release/UBSan normal and forced-collision suites pass. Full Windows validation after packing, job `20261109T112114Z-run-script-dd-win-prof-75f066a6`, passed 206 behavioral tests, both core suites, consumer/isolation/install/import checks and 101 RUM assertions. No public API, additional allocation or retained encoded-stack byte buffer was introduced.
 
@@ -110,7 +124,9 @@ Remaining integration gates:
 - Windows capture and lifetime evidence covers the fixtures below, not a full SDK live upload.
 - Full-SDK residency/queue/export overlap, cold-start transients, CPU overhead and a long-duration Windows churn soak remain unvalidated. Host ASan did not execute tests.
 
-## Windows small-application residency
+## Historical Windows small-application residency
+
+These measurements predate retained storage. Do not apply their memory deltas to the current implementation; the [current report](../benchmarks/windows-v2/README.md) records subsequent evidence.
 
 Worker job `20261109T094201Z-run-script-dd-win-prof-68839bbc` ran matched baseline/C-core enabled and disabled applications. Job `20261109T095845Z-run-script-dd-win-prof-3f7053a2` added a third application build that does not link/load the profiler. Source and reproduction are in `e2e-tests/c-aggregation-small-app/`; raw measurements and summaries are in `benchmarks/windows-small-app/`.
 
