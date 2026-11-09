@@ -60,7 +60,7 @@ class ProfileExporter {
   static void EscapeJsonString(std::ostream& out, const std::string& s);
 
   // Write Zstd-compressed pprof files for debugging; disabled by default.
-  // Filenames retain the legacy .lz4.pprof suffix.
+  // Filenames use the .zstd.pprof suffix.
   void SetDebugPprofFileWritingEnabled(bool enabled) {
     _debugPprofFileWritingEnabled = enabled;
   }

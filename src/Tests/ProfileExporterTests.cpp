@@ -5,6 +5,7 @@
 #include <Windows.h>
 #include <gtest/gtest.h>
 
+#include <filesystem>
 #include <memory>
 #include <thread>
 #include <vector>
@@ -42,8 +43,14 @@ class ProfileExporterExportTests : public ::testing::Test {
     exporter.reset();
     config.reset();
     Sample::SetValuesCount(previousValuesCount);
+    if (!debugOutputDirectory.empty()) {
+      std::error_code error;
+      std::filesystem::remove_all(debugOutputDirectory, error);
+      EXPECT_FALSE(error) << error.message();
+    }
   }
 
+  std::filesystem::path debugOutputDirectory;
   size_t previousValuesCount;
   std::unique_ptr<Configuration> config;
   std::vector<SampleValueType> sampleTypes;
@@ -62,6 +69,27 @@ TEST_F(ProfileExporterExportTests, ExportWithoutSamples) {
 
   // Export should succeed even with no samples
   EXPECT_TRUE(exporter->Export());
+}
+
+TEST_F(ProfileExporterExportTests, DebugProfileUsesZstdSuffix) {
+  debugOutputDirectory =
+      std::filesystem::temp_directory_path() /
+      ("dd-win-prof-debug-" + std::to_string(::GetCurrentProcessId()) + "-" +
+       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  ASSERT_TRUE(std::filesystem::create_directory(debugOutputDirectory));
+  exporter->SetDebugPprofPrefix((debugOutputDirectory / "profile_").string());
+  exporter->SetDebugPprofFileWritingEnabled(true);
+  ASSERT_TRUE(exporter->Initialize());
+  ASSERT_TRUE(exporter->Export());
+
+  std::vector<std::filesystem::path> profiles;
+  for (const auto& entry : std::filesystem::directory_iterator(debugOutputDirectory)) {
+    if (entry.path().extension() == ".pprof") {
+      profiles.push_back(entry.path());
+    }
+  }
+  ASSERT_EQ(profiles.size(), 1);
+  EXPECT_TRUE(profiles.front().filename().string().ends_with(".zstd.pprof"));
 }
 
 TEST_F(ProfileExporterExportTests, ExportWithSamples) {

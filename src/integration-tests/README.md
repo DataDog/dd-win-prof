@@ -2,7 +2,7 @@
 
 End-to-end integration tests that run the **Runner** executable and validate the profiler's output (log files and pprof content).
 
-Unlike the unit tests in `src/Tests/` (C++ / Google Test), these tests exercise the full profiling pipeline: profiler setup, sample collection, export, and file output. A Python helper decompresses current Zstd pprof files and historical LZ4 files. Debug files retain the legacy `.lz4.pprof` suffix; detect compression from the bytes, not the filename.
+Unlike the unit tests in `src/Tests/` (C++ / Google Test), these tests exercise the full profiling pipeline: profiler setup, sample collection, export, and file output. A Python helper decompresses current Zstd pprof files and historical LZ4 files. New debug files use the `.zstd.pprof` suffix. Historical files may use `.lz4.pprof`; detect compression from the bytes, not the filename.
 
 ## Prerequisites
 
@@ -149,7 +149,7 @@ migration harness or a release-validation framework.
 Python helper for reading historical LZ4 and current Zstd pprof files.
 
 ```
-python pprof_utils.py labels <file.lz4.pprof>
+python pprof_utils.py labels <file.zstd.pprof>
 ```
 
 Outputs a JSON array of samples with their resolved string labels:

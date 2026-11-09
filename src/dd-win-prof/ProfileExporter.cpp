@@ -1205,12 +1205,12 @@ bool ProfileExporter::CreatePprofFile(const ddog_Timespec& startTime, int* fd) {
 
   std::strftime(time_start, std::size(time_start), "%Y%m%dT%H%M%SZ", &tm_storage);
 
-  // Preserve the legacy filename suffix; the payload is Zstd-compressed.
+  // Keep .pprof last for existing profile-discovery globs.
   char filename[MAX_PATH];
   std::snprintf(
       filename,
       std::size(filename),
-      "%s%s.lz4.pprof",
+      "%s%s.zstd.pprof",
       _debugPprofPrefix.c_str(),
       time_start
   );
