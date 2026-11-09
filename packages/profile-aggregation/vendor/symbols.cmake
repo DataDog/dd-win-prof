@@ -187,6 +187,8 @@ set(PA_VENDOR_SYMBOLS
   ZSTD_resetCStream=ddpa_ZSTD_resetCStream
   ZSTD_resetSeqStore=ddpa_ZSTD_resetSeqStore
   ZSTD_reset_compressedBlockState=ddpa_ZSTD_reset_compressedBlockState
+  ZSTD_resolveExternalRepcodeSearch=ddpa_ZSTD_resolveExternalRepcodeSearch
+  ZSTD_resolveExternalSequenceValidation=ddpa_ZSTD_resolveExternalSequenceValidation
   ZSTD_selectBlockCompressor=ddpa_ZSTD_selectBlockCompressor
   ZSTD_selectEncodingType=ddpa_ZSTD_selectEncodingType
   ZSTD_seqToCodes=ddpa_ZSTD_seqToCodes
@@ -200,6 +202,7 @@ set(PA_VENDOR_SYMBOLS
   ZSTD_versionString=ddpa_ZSTD_versionString
   ZSTD_writeLastEmptyBlock=ddpa_ZSTD_writeLastEmptyBlock
   ZSTD_writeSkippableFrame=ddpa_ZSTD_writeSkippableFrame
+  g_debuglevel=ddpa_g_debuglevel
   pb_default_field_callback=ddpa_pb_default_field_callback
   pb_encode=ddpa_pb_encode
   pb_encode_ex=ddpa_pb_encode_ex

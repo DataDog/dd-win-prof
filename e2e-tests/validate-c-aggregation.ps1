@@ -64,6 +64,14 @@ if (-not $dumpbin) {
     $dumpbinPath = Get-ChildItem (Join-Path $vs 'VC/Tools/MSVC/*/bin/Hostx64/x64/dumpbin.exe') | Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
 } else { $dumpbinPath = $dumpbin.Source }
 if (-not $dumpbinPath) { throw 'dumpbin.exe not found; dependency validation incomplete' }
+$symbols = & $dumpbinPath /SYMBOLS (Join-Path $build "packages/profile-aggregation/$Configuration/profile_aggregation.lib")
+if ($LASTEXITCODE -ne 0) { throw 'dumpbin archive symbol inspection failed' }
+$definitions = @($symbols | Where-Object { $_ -match 'External' -and $_ -notmatch '\bUNDEF\b' } | ForEach-Object {
+    if ($_ -match '\|\s+(\S+)') { $Matches[1] }
+})
+$unexpectedSymbols = @($definitions | Where-Object { $_ -notmatch '^_?(pa_|ddpa_)|^__|^@|^\?\?_C@' })
+if ($unexpectedSymbols.Count -gt 0) { throw "Unprefixed archive definitions: $($unexpectedSymbols -join ', ')" }
+Write-Host "PASS: $($definitions.Count) archive definitions use pa_/ddpa_ or compiler-reserved names"
 foreach ($binary in @((Join-Path $build "src/dd-win-prof/$Configuration/dd-win-prof.dll"), (Join-Path $build "src/Tests/$Configuration/Tests.exe"), (Join-Path $uiAppOutput "UIApp.exe"))) {
     $imports = & $dumpbinPath /DEPENDENTS $binary
     if ($LASTEXITCODE -ne 0) { throw 'dumpbin failed' }
