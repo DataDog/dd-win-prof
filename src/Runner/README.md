@@ -52,7 +52,7 @@ Runner.exe --scenario <1-5> --iterations <num> [options]
 
 Scenario 5 walks through three views across two sessions: views 1-2 use the session ID passed via `--rum-session-id` (S1), then a session rotation occurs and view 3 uses a hardcoded second session ID (S2: `99999999-2222-3333-4444-555555555555`).
 
-When `--pprofdir` is set, scenario 5 also produces `.rum-views.json` files alongside the `.lz4.pprof` files. The pprof payload is Zstd-compressed; `.lz4.pprof` is a legacy filename suffix. Each JSON file contains a `{"views":[...],"sessions":[...]}` object with view and session timeline records.
+When `--pprofdir` is set, scenario 5 also produces `.rum-views.json` files alongside the Zstd-compressed `.zstd.pprof` files. Each JSON file contains a `{"views":[...],"sessions":[...]}` object with view and session timeline records.
 
 ### Additional Options
 

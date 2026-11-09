@@ -29,9 +29,9 @@ class PprofDecoderTests(unittest.TestCase):
         sample.label.add(key=3, str=4)
         self.raw = self.profile.SerializeToString()
 
-    def parse(self, data):
+    def parse(self, data, filename="legacy-name.lz4.pprof"):
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "legacy-name.lz4.pprof"
+            path = Path(directory) / filename
             path.write_bytes(data)
             return parse_pprof(str(path))
 
@@ -44,7 +44,10 @@ class PprofDecoderTests(unittest.TestCase):
         self.assertEqual(self.parse(lz4.block.compress(self.raw)), self.profile)
 
     def test_current_zstd_frame(self):
-        self.assertEqual(self.parse(zstandard.ZstdCompressor().compress(self.raw)), self.profile)
+        compressed = zstandard.ZstdCompressor().compress(self.raw)
+        for filename in ("profile.zstd.pprof", "profile.lz4.pprof"):
+            with self.subTest(filename=filename):
+                self.assertEqual(self.parse(compressed, filename), self.profile)
 
     def test_current_zstd_stream_without_content_size(self):
         compressed = zstandard.ZstdCompressor(write_content_size=False).compress(self.raw)
