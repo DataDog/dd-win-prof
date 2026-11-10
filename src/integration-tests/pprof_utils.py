@@ -7,7 +7,6 @@ Usage:
 Outputs a JSON array of samples with their resolved string labels.
 """
 
-import io
 import json
 import os
 import subprocess
@@ -68,8 +67,15 @@ def parse_pprof(path: str):
 
     if raw.startswith(b"\x28\xb5\x2f\xfd"):
         import zstandard
-        with zstandard.ZstdDecompressor().stream_reader(io.BytesIO(raw)) as reader:
-            decompressed = reader.read()
+
+        frames = []
+        while raw:
+            decompressor = zstandard.ZstdDecompressor().decompressobj()
+            frames.append(decompressor.decompress(raw))
+            if not decompressor.eof:
+                raise ValueError("Incomplete Zstd frame")
+            raw = decompressor.unused_data
+        decompressed = b"".join(frames)
     else:
         decompressed = decompress_lz4(raw)
 
