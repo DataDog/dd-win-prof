@@ -50,8 +50,34 @@ class PprofDecoderTests(unittest.TestCase):
                 self.assertEqual(self.parse(compressed, filename), self.profile)
 
     def test_current_zstd_stream_without_content_size(self):
-        compressed = zstandard.ZstdCompressor(write_content_size=False).compress(self.raw)
-        self.assertEqual(self.parse(compressed), self.profile)
+        for checksum in (False, True):
+            with self.subTest(checksum=checksum):
+                compressed = zstandard.ZstdCompressor(
+                    write_content_size=False, write_checksum=checksum
+                ).compress(self.raw)
+                self.assertEqual(self.parse(compressed), self.profile)
+
+    def test_truncated_zstd_frame_rejected(self):
+        for content_size in (False, True):
+            for checksum in (False, True):
+                compressed = zstandard.ZstdCompressor(
+                    write_content_size=content_size, write_checksum=checksum
+                ).compress(self.raw)
+                for length in (4, len(compressed) // 2, len(compressed) - 4, len(compressed) - 1):
+                    with self.subTest(content_size=content_size, checksum=checksum, length=length):
+                        with self.assertRaisesRegex(ValueError, "Incomplete Zstd frame"):
+                            self.parse(compressed[:length])
+
+    def test_concatenated_zstd_frames(self):
+        compressor = zstandard.ZstdCompressor(write_content_size=False, write_checksum=True)
+        midpoint = len(self.raw) // 2
+        first = compressor.compress(self.raw[:midpoint])
+        second = compressor.compress(self.raw[midpoint:])
+        self.assertEqual(self.parse(first + second), self.profile)
+        for length in (4, len(second) - 4, len(second) - 1):
+            with self.subTest(length=length):
+                with self.assertRaisesRegex(ValueError, "Incomplete Zstd frame"):
+                    self.parse(first + second[:length])
 
     def test_corrupt_payload_rejected(self):
         for data in (b"not compressed pprof", b"\x28\xb5\x2f\xfdinvalid"):
