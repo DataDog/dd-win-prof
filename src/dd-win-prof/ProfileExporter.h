@@ -49,7 +49,7 @@ class ProfileExporter {
   //   1. Optionally written locally as a `.rum-views.json` debug file when
   //      pprof file writing is enabled.
   //   2. Passed to libdatadog through the `optional_internal_metadata_json`
-  //      parameter of `ddog_prof_Exporter_Request_build`, where it ends up
+  //      parameter of `ddog_prof_Exporter_send_blocking`, where it ends up
   //      embedded in the `internal` field of the profile's `event.json`.
   //
   // Public so unit tests can exercise it directly; not intended for external use.
@@ -59,17 +59,8 @@ class ProfileExporter {
   );
   static void EscapeJsonString(std::ostream& out, const std::string& s);
 
-  // Configuration methods for debug file writing
-  // These methods allow enabling/disabling writing of pprof files to disk for debugging
-  // purposes. When enabled, each exported profile will be written to a timestamped
-  // .pprof.lz4 file. This feature is OFF by default and should only be enabled for
-  // debugging or development.
-  //
-  // Example usage:
-  //   exporter.SetDebugPprofFileWritingEnabled(true);
-  //   exporter.SetDebugPprofPrefix("C:\\temp\\debug_profiles\\myapp_");
-  // This would create files like:
-  // C:\temp\debug_profiles\myapp_20241201T143022Z.pprof.lz4
+  // Write Zstd-compressed pprof files for debugging; disabled by default.
+  // Filenames use the .zstd.pprof suffix.
   void SetDebugPprofFileWritingEnabled(bool enabled) {
     _debugPprofFileWritingEnabled = enabled;
   }

@@ -565,23 +565,34 @@ TEST(ProfilingDataExportTests, CallbackBypassesHttpAndOwnsBytes) {
   };
   ASSERT_TRUE(config.ValidateTransportConfig(ProfileDeliveryMode::Callback));
   EXPECT_FALSE(config.IsExportEnabled(ProfileDeliveryMode::Callback));
-  std::vector<SampleValueType> types{{"cpu-time", "nanoseconds"}};
+  std::vector<SampleValueType> types{
+      {"wait-time", "nanoseconds"}, {"cpu-time", "nanoseconds"}
+  };
+  std::vector<uint8_t> retained;
   {
     ProfileExporter exporter(&config, types, nullptr, callback);
     ASSERT_TRUE(exporter.Initialize());
     ASSERT_TRUE(exporter.Export());
+    ASSERT_EQ(results.size(), 1u);
+    retained = results.front().pprof;
     ASSERT_TRUE(exporter.Export(true));
     exporter.Cleanup();
   }
   ASSERT_EQ(results.size(), 2u);
+  EXPECT_EQ(results.front().pprof, retained);
   const auto& first = results[0];
   const auto& second = results[1];
   EXPECT_EQ(first.result, 0u);
   EXPECT_EQ(second.result, 0u);
   EXPECT_FALSE(first.isLast);
   EXPECT_TRUE(second.isLast);
-  EXPECT_FALSE(first.pprof.empty());
-  EXPECT_FALSE(second.pprof.empty());
+  for (const auto* data : {&first, &second}) {
+    ASSERT_GE(data->pprof.size(), 4u);
+    EXPECT_EQ(
+        (std::vector<uint8_t>(data->pprof.begin(), data->pprof.begin() + 4)),
+        (std::vector<uint8_t>{0x28, 0xb5, 0x2f, 0xfd})
+    );
+  }
   EXPECT_LE(first.startUnixTimeMs, first.endUnixTimeMs);
   EXPECT_EQ(first.endUnixTimeMs, second.startUnixTimeMs);
 }

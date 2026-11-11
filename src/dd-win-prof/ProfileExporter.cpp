@@ -288,7 +288,7 @@ bool ProfileExporter::ExportCurrentProfile(
       _profilingDataCallback ? std::string{} : CollectRumRecordsJson();
   WriteDebugFiles(profile.get(), rumRecordsJson, endUnixTimeMs);
 
-  // Request_build consumes the profile, so read its bytes before HTTP export.
+  // HTTP export consumes the profile, so read its bytes first.
   auto bytes = _encodingApi.bytes(profile.get());
   if (bytes.tag != DDOG_PROF_RESULT_BYTE_SLICE_OK_BYTE_SLICE) {
     std::string message = "libdatadog failed to read encoded profile bytes: ";
@@ -304,7 +304,7 @@ bool ProfileExporter::ExportCurrentProfile(
   if (_profilingDataCallback) {
     return DeliverProfileToCallback(bytes.ok, startUnixTimeMs, endUnixTimeMs, lastCall);
   }
-  if (_exportEnabled && _exporter.inner) {
+  if (_exportEnabled) {
     const bool success = ExportProfile(profile.get(), _currentExportId, rumRecordsJson);
     if (!success) {
       Log::Error("Failed to export profile to backend");
@@ -1205,14 +1205,12 @@ bool ProfileExporter::CreatePprofFile(const ddog_Timespec& startTime, int* fd) {
 
   std::strftime(time_start, std::size(time_start), "%Y%m%dT%H%M%SZ", &tm_storage);
 
-  // Create filename with timestamp
-  // Note: .lz4 extension is not added so the tools could easily open the files on
-  // Windows thanks to file association
+  // Keep .pprof last for existing profile-discovery globs.
   char filename[MAX_PATH];
   std::snprintf(
       filename,
       std::size(filename),
-      "%s%s.lz4.pprof",
+      "%s%s.zstd.pprof",
       _debugPprofPrefix.c_str(),
       time_start
   );
@@ -1439,19 +1437,6 @@ bool ProfileExporter::InitializeExporter() {
 
   _exporter = exporterResult.ok;
 
-  // Set timeout
-  auto timeoutResult = ddog_prof_Exporter_set_timeout(&_exporter, EXPORT_TIMEOUT_MS);
-  if (timeoutResult.tag == DDOG_VOID_RESULT_ERR) {
-    auto& error = timeoutResult.err;
-    std::string errorMessage = std::string(
-        reinterpret_cast<const char*>(error.message.ptr), error.message.len
-    );
-    Log::Error("Failed to set timeout: ", errorMessage);
-    ddog_Error_drop(&timeoutResult.err);
-    CleanupExporter();
-    return false;
-  }
-
   return true;
 }
 
@@ -1494,14 +1479,15 @@ bool ProfileExporter::CreateExporterEndpoint(ddog_prof_Endpoint& endpoint) {
   ddog_CharSlice urlSlice = to_CharSlice(_exportUrl);
 
   if (_agentMode) {
-    endpoint = ddog_prof_Endpoint_agent(urlSlice);
+    endpoint = ddog_prof_Endpoint_agent(urlSlice, EXPORT_TIMEOUT_MS, false);
   } else {
     if (_apiKey.empty()) {
       Log::Error("Missing API key for agentless mode");
       return false;
     }
     ddog_CharSlice apiKeySlice = to_CharSlice(_apiKey);
-    endpoint = ddog_prof_Endpoint_agentless(urlSlice, apiKeySlice);
+    endpoint =
+        ddog_prof_Endpoint_agentless(urlSlice, apiKeySlice, EXPORT_TIMEOUT_MS, false);
   }
 
   return true;
@@ -1512,8 +1498,12 @@ bool ProfileExporter::ExportProfile(
     uint32_t profileSeq,
     const std::string& rumRecordsJson
 ) {
-  if (!_exporter.inner || !encodedProfile) {
-    Log::Error("Exporter not initialized or invalid profile");
+  if (!encodedProfile) {
+    Log::Error("Invalid profile");
+    return false;
+  }
+
+  if (!_exporter.inner && !InitializeExporter()) {
     return false;
   }
 
@@ -1530,14 +1520,12 @@ bool ProfileExporter::ExportProfile(
   );
   if (bytesResult.tag != DDOG_PROF_RESULT_BYTE_SLICE_OK_BYTE_SLICE) {
     Log::Error("Failed to get profile bytes");
+    ddog_Error_drop(&bytesResult.err);
     ddog_Vec_Tag_drop(additionalTags);
     return false;
   }
 
-  // Pass the RUM records JSON through optional_internal_metadata_json.
-  // libdatadog embeds it in the `internal` field of the profile's event.json,
-  // so no separate file attachment is needed. The backing std::string must
-  // outlive the Request_build call; it's a function-scoped local.
+  // libdatadog embeds RUM records in the event.json `internal` field.
   ddog_CharSlice internalMetadataSlice{};
   const ddog_CharSlice* internalMetadataPtr = nullptr;
   if (!rumRecordsJson.empty()) {
@@ -1545,44 +1533,20 @@ bool ProfileExporter::ExportProfile(
     internalMetadataPtr = &internalMetadataSlice;
   }
 
-  // Build request - time information is now embedded in the EncodedProfile
-  auto requestResult = ddog_prof_Exporter_Request_build(
+  const auto profileSize = bytesResult.ok.len;
+  // send_blocking consumes and clears the profile handle, including on send failure.
+  auto sendResult = ddog_prof_Exporter_send_blocking(
       &_exporter,
-      const_cast<ddog_prof_EncodedProfile*>(encodedProfile),  // profile
-      ddog_prof_Exporter_Slice_File_empty(),  // files_to_compress_and_export
-      ddog_prof_Exporter_Slice_File_empty(),  // files_to_export_unmodified
-      &additionalTags,                        // optional_additional_tags
-      internalMetadataPtr,                    // optional_internal_metadata_json
-      nullptr                                 // optional_info_json
+      const_cast<ddog_prof_EncodedProfile*>(encodedProfile),
+      ddog_prof_Exporter_Slice_File_empty(),
+      &additionalTags,
+      nullptr,  // optional_process_tags
+      internalMetadataPtr,
+      nullptr,  // optional_info_json
+      nullptr   // cancel
   );
 
   ddog_Vec_Tag_drop(additionalTags);
-
-  if (requestResult.tag != DDOG_PROF_REQUEST_RESULT_OK_HANDLE_REQUEST) {
-    if (requestResult.tag == DDOG_PROF_REQUEST_RESULT_ERR_HANDLE_REQUEST) {
-      auto& error = requestResult.err;
-      std::string errorMessage = std::string(
-          reinterpret_cast<const char*>(error.message.ptr), error.message.len
-      );
-      Log::Error("Request build failed: ", errorMessage);
-
-      // TODO: check if we need to drop it all the time
-      //       i.e. call it before returning false
-      ddog_Error_drop(&requestResult.err);
-    } else {
-      Log::Error(
-          "Request build failed with unknown error (tag: ", requestResult.tag, ")"
-      );
-    }
-    return false;
-  }
-
-  ddog_prof_Request request = requestResult.ok;
-
-  // Send request
-  auto sendResult = ddog_prof_Exporter_send(&_exporter, &request, nullptr);
-
-  // Request is consumed by send, so we don't need to drop it
 
   if (sendResult.tag == DDOG_PROF_RESULT_HTTP_STATUS_ERR_HTTP_STATUS) {
     _consecutiveErrors++;
@@ -1619,7 +1583,7 @@ bool ProfileExporter::ExportProfile(
       "Successfully sent profile, HTTP ",
       responseCode,
       " (size: ",
-      bytesResult.ok.len,
+      profileSize,
       " bytes)"
   );
 

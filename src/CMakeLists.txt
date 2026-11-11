@@ -3,12 +3,12 @@ include(FetchContent)
 # Use NEW behavior for DOWNLOAD_EXTRACT_TIMESTAMP to avoid warnings
 cmake_policy(SET CMP0135 NEW)
 
-# libdatadog v19.0.0 pre-built binaries for Windows x64. These binaries are
+# libdatadog v47.0.0 pre-built binaries for Windows x64. These binaries are
 # downloaded automatically at configure time and extracted to the build directory.
 FetchContent_Declare(
     libdatadog
-    URL https://github.com/DataDog/libdatadog/releases/download/v19.0.0/libdatadog-x64-windows.zip
-    URL_HASH SHA512=548bfe9761625aaa1ce54f42979e75f3a435ca0c1a4280a91b325fff402c4264fb593d203e0f758b68313ff098fa609ed8cef800bbf6a18be7bfed9c489626bd
+    URL https://github.com/DataDog/libdatadog/releases/download/v47.0.0/libdatadog-x64-windows.zip
+    URL_HASH SHA512=168d2733c616b5b6422963194c66333cd5b3745a83ed9b8104e69f1fe271728cb8c9f4ee3c456f30d26923e7972c876439c7c18e26117e9435c74bcd908cda25
     TIMEOUT 120
     INACTIVITY_TIMEOUT 30
 )
@@ -34,7 +34,14 @@ set_target_properties(dd_win_prof_libdatadog_static PROPERTIES
     IMPORTED_LOCATION_MINSIZEREL     "${_LD_ROOT}/release/static/datadog_profiling_ffi.lib"
     IMPORTED_LOCATION_RELWITHDEBINFO "${_LD_ROOT}/release/static/datadog_profiling_ffi.lib"
     INTERFACE_INCLUDE_DIRECTORIES "${_LD_ROOT}/include"
+    INTERFACE_LINK_LIBRARIES "wsock32;shlwapi;Version;iphlpapi"
 )
+
+# Preserve the dependency's published attribution alongside our license bundle.
+if(DD_WIN_PROF_BUILD_INSTALL)
+    install(FILES "${_LD_ROOT}/LICENSE" "${_LD_ROOT}/NOTICE" "${_LD_ROOT}/LICENSE-3rdparty.csv"
+        DESTINATION licenses/libdatadog)
+endif()
 
 # libdatadog dynamic import library — used by Tests.exe, which loads the DLL at
 # runtime so it can export the profiler DLL's symbols without statically linking

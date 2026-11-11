@@ -7,9 +7,11 @@
 #include <datadog/common.h>
 #include <datadog/profiling.h>
 
+#include <algorithm>
 #include <cassert>
 #include <cstring>
 #include <iostream>
+#include <iterator>
 #include <string_view>
 
 #include "LibDatadogHelper.h"
@@ -28,8 +30,10 @@ PprofAggregator::PprofAggregator(
   // Initialize with a default/empty profile state
   memset(&m_profile, 0, sizeof(m_profile));  // probably not needed
 
-  // Convert sample value types and store them in member variable
-  m_valueTypes = ConvertSampleValueTypes(sampleValueTypes);
+  if (!ConvertSampleValueTypes(sampleValueTypes)) {
+    Log::Error("Failed to convert profile sample value types");
+    return;
+  }
 
   if (m_valueTypes.empty()) {
     Log::Error("No valid sample value types provided");
@@ -37,17 +41,13 @@ PprofAggregator::PprofAggregator(
   }
 
   // Create slice for sample types
-  ddog_prof_Slice_ValueType sample_types_slice = {
+  ddog_prof_Slice_SampleType sample_types_slice = {
       m_valueTypes.data(), m_valueTypes.size()
   };
 
-  // Create period - use the first sample type for period type, or default to cpu-time
-  ddog_prof_ValueType periodType = m_valueTypes.empty()
-                                       ? CreateValueType("cpu-time", "nanoseconds")
-                                       : m_valueTypes[0];
-
+  // Preserve the first column as the period type.
   ddog_prof_Period period;
-  period.type_ = periodType;
+  period.sample_type = m_valueTypes[0];
   period.value = static_cast<int64_t>(periodMs) * 1000000;  // Convert ms to ns
 
   // Create the profile with shared string storage
@@ -57,6 +57,25 @@ PprofAggregator::PprofAggregator(
   if (result.tag == DDOG_PROF_PROFILE_NEW_RESULT_OK) {
     m_profile = result.ok;
     m_initialized = true;
+    for (size_t i = 0; i < m_customTypes.size(); ++i) {
+      const auto& type = m_customTypes[i];
+      auto configured = ddog_prof_Profile_set_custom_sample_type(
+          &m_profile,
+          static_cast<ddog_prof_SampleType>(DDOG_PROF_SAMPLE_TYPE_CUSTOM1 + i),
+          to_CharSlice(type.Name),
+          to_CharSlice(type.Unit)
+      );
+      if (configured.tag != DDOG_PROF_PROFILE_RESULT_OK) {
+        const auto message = ddog_Error_message(&configured.err);
+        Log::Error(
+            "Failed to configure custom sample type: ",
+            std::string_view(message.ptr, message.len)
+        );
+        ddog_Error_drop(&configured.err);
+        Cleanup();
+        return;
+      }
+    }
   } else {
     const auto message = ddog_Error_message(&result.err);
     Log::Error(
@@ -182,19 +201,54 @@ bool PprofAggregator::AddSample(
   return true;
 }
 
-std::vector<ddog_prof_ValueType> PprofAggregator::ConvertSampleValueTypes(
+bool PprofAggregator::ConvertSampleValueTypes(
     std::span<const SampleValueType> sampleValueTypes
 ) {
-  std::vector<ddog_prof_ValueType> result;
-  result.reserve(sampleValueTypes.size());
+  struct StableType {
+    std::string_view name;
+    std::string_view unit;
+    ddog_prof_SampleType type;
+  };
+  static constexpr StableType stableTypes[] = {
+      {"cpu-time", "nanoseconds", DDOG_PROF_SAMPLE_TYPE_CPU_TIME},
+      {"cpu-samples", "count", DDOG_PROF_SAMPLE_TYPE_CPU_SAMPLES},
+      {"wall-time", "nanoseconds", DDOG_PROF_SAMPLE_TYPE_WALL_TIME},
+      {"alloc-samples", "count", DDOG_PROF_SAMPLE_TYPE_ALLOC_SAMPLES},
+      {"alloc-space", "bytes", DDOG_PROF_SAMPLE_TYPE_ALLOC_SPACE},
+  };
+  m_valueTypes.reserve(sampleValueTypes.size());
 
-  for (const auto& sampleValueType : sampleValueTypes) {
-    ddog_prof_ValueType valueType =
-        CreateValueType(sampleValueType.Name, sampleValueType.Unit);
-    result.push_back(valueType);
+  for (const auto& valueType : sampleValueTypes) {
+    auto stable = std::find_if(
+        std::begin(stableTypes), std::end(stableTypes), [&](const auto& type) {
+          return type.name == valueType.Name && type.unit == valueType.Unit;
+        }
+    );
+    if (stable != std::end(stableTypes)) {
+      m_valueTypes.push_back(stable->type);
+      continue;
+    }
+
+    // Preserve unmapped name/unit pairs on the wire using custom slots.
+    // TODO: Normalize wait-time/nanoseconds in libdatadog's sample type registry.
+    auto custom =
+        std::find_if(m_customTypes.begin(), m_customTypes.end(), [&](const auto& type) {
+          return type.Name == valueType.Name && type.Unit == valueType.Unit;
+        });
+    const auto index = static_cast<size_t>(custom - m_customTypes.begin());
+    if (custom == m_customTypes.end()) {
+      if (m_customTypes.size() == 5) {
+        Log::Error("libdatadog supports at most five custom sample types");
+        return false;
+      }
+      m_customTypes.push_back(valueType);
+    }
+    m_valueTypes.push_back(
+        static_cast<ddog_prof_SampleType>(DDOG_PROF_SAMPLE_TYPE_CUSTOM1 + index)
+    );
   }
 
-  return result;
+  return true;
 }
 
 void PprofAggregator::Cleanup() {
