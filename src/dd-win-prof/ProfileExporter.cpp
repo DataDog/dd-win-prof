@@ -268,6 +268,7 @@ bool ProfileExporter::Export(bool lastCall) {
   // enabled) and is passed to libdatadog via `optional_internal_metadata_json`.
   std::string rumRecordsJson;
   std::vector<std::string> rumSessionIds;
+  std::vector<std::string> rumViewIds;
   if (_pRumRecordProvider != nullptr) {
     _pRumRecordProvider->ConsumeViewRecords(_viewRecordsBuffer);
     _pRumRecordProvider->ConsumeSessionRecords(_sessionRecordsBuffer);
@@ -277,36 +278,14 @@ bool ProfileExporter::Export(bool lastCall) {
           SerializeRumRecordsToJson(_viewRecordsBuffer, _sessionRecordsBuffer);
     }
 
-    // Mirror the session ids that feed optional_internal_metadata_json into a
-    // separate vector so they can also be emitted as multi-value rum.session_id
-    // tags. Profiler::CompleteCurrentSession produces at most one record per
-    // session, so the list is already unique by construction.
-    //
-    // Capped at MAX_RUM_SESSION_ID_TAGS so a pathological rotation pattern
-    // can't blow up tag indexing on the backend; remaining ids are still in
-    // the internal-metadata JSON, just not exposed as queryable tags.
-    rumSessionIds.reserve(
-        std::min(_sessionRecordsBuffer.size(), MAX_RUM_SESSION_ID_TAGS)
-    );
-    size_t skippedSessionIds = 0;
+    // Preserve the IDs for tags before clearing the records used by metadata.
+    rumSessionIds.reserve(_sessionRecordsBuffer.size());
     for (const auto& rec : _sessionRecordsBuffer) {
-      if (rec.session_id.empty()) {
-        continue;
-      }
-      if (rumSessionIds.size() >= MAX_RUM_SESSION_ID_TAGS) {
-        ++skippedSessionIds;
-        continue;
-      }
       rumSessionIds.push_back(rec.session_id);
     }
-    if (skippedSessionIds > 0) {
-      Log::Warn(
-          "rum.session_id tag cap reached (",
-          MAX_RUM_SESSION_ID_TAGS,
-          "); ",
-          skippedSessionIds,
-          " session id(s) from this export not emitted as tags"
-      );
+    rumViewIds.reserve(_viewRecordsBuffer.size());
+    for (const auto& rec : _viewRecordsBuffer) {
+      rumViewIds.push_back(rec.view_id);
     }
 
     _viewRecordsBuffer.clear();
@@ -331,8 +310,9 @@ bool ProfileExporter::Export(bool lastCall) {
   // Export profile to backend if enabled
   bool exportSuccess = true;
   if (_exportEnabled && _exporter.inner) {
-    exportSuccess =
-        ExportProfile(encodedProfile, _currentExportId, rumRecordsJson, rumSessionIds);
+    exportSuccess = ExportProfile(
+        encodedProfile, _currentExportId, rumRecordsJson, rumSessionIds, rumViewIds
+    );
     if (!exportSuccess) {
       Log::Error("Failed to export profile to backend");
       // Continue with cleanup even if export failed
@@ -1465,7 +1445,8 @@ bool ProfileExporter::ExportProfile(
     const ddog_prof_EncodedProfile* encodedProfile,
     uint32_t profileSeq,
     const std::string& rumRecordsJson,
-    const std::vector<std::string>& rumSessionIds
+    const std::vector<std::string>& rumSessionIds,
+    const std::vector<std::string>& rumViewIds
 ) {
   if (!_exporter.inner || !encodedProfile) {
     _lastError = "Exporter not initialized or invalid profile";
@@ -1474,7 +1455,7 @@ bool ProfileExporter::ExportProfile(
 
   // Prepare additional tags (per-export metadata)
   ddog_Vec_Tag additionalTags = ddog_Vec_Tag_new();
-  if (!PrepareAdditionalTags(additionalTags, profileSeq, rumSessionIds)) {
+  if (!PrepareAdditionalTags(additionalTags, profileSeq, rumSessionIds, rumViewIds)) {
     ddog_Vec_Tag_drop(additionalTags);
     return false;
   }
@@ -1588,7 +1569,8 @@ bool ProfileExporter::ExportProfile(
 bool ProfileExporter::PrepareAdditionalTags(
     ddog_Vec_Tag& tags,
     uint32_t profileSeq,
-    const std::vector<std::string>& rumSessionIds
+    const std::vector<std::string>& rumSessionIds,
+    const std::vector<std::string>& rumViewIds
 ) {
   // Add profile sequence number
   if (!AddSingleTag(tags, TAG_PROFILE_SEQ, std::to_string(profileSeq))) {
@@ -1600,11 +1582,7 @@ bool ProfileExporter::PrepareAdditionalTags(
     return false;
   }
 
-  // Emit rum.application_id (single-value, set once via SetRumApplicationId)
-  // and one rum.session_id entry per session that was active during the
-  // profile window. Session ids are also still embedded in the
-  // optional_internal_metadata_json payload under "rum_session_ids".
-  for (const auto& kv : BuildRumTags(_rumApplicationId, rumSessionIds)) {
+  for (const auto& kv : BuildRumTags(_rumApplicationId, rumSessionIds, rumViewIds)) {
     if (!AddSingleTag(tags, kv.first, kv.second)) {
       return false;
     }
@@ -1614,7 +1592,9 @@ bool ProfileExporter::PrepareAdditionalTags(
 }
 
 std::vector<std::pair<std::string, std::string>> ProfileExporter::BuildRumTags(
-    const std::string& applicationId, const std::vector<std::string>& sessionIds
+    const std::string& applicationId,
+    const std::vector<std::string>& sessionIds,
+    const std::vector<std::string>& viewIds
 ) {
   std::vector<std::pair<std::string, std::string>> result;
   if (!applicationId.empty()) {
@@ -1623,6 +1603,11 @@ std::vector<std::pair<std::string, std::string>> ProfileExporter::BuildRumTags(
   for (const auto& sid : sessionIds) {
     if (!sid.empty()) {
       result.emplace_back(TAG_RUM_SESSION_ID, sid);
+    }
+  }
+  for (const auto& vid : viewIds) {
+    if (!vid.empty()) {
+      result.emplace_back(TAG_RUM_VIEW_ID, vid);
     }
   }
   return result;

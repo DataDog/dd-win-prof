@@ -325,8 +325,8 @@ TEST_F(ProfileExporterExportTests, ExporterInitializesWithDefaultsAndExportEnabl
 // for testability (ddog_Tag is opaque, so we can't read entries back out of the
 // resulting ddog_Vec_Tag and have to pin the contract upstream of the push).
 
-TEST(ProfileExporterBuildRumTags, NoApplicationIdNoSessionsProducesEmptyList) {
-  auto tags = ProfileExporter::BuildRumTags("", {});
+TEST(ProfileExporterBuildRumTags, NoApplicationIdNoSessionsNoViewsProducesEmptyList) {
+  auto tags = ProfileExporter::BuildRumTags("", {}, {});
   EXPECT_TRUE(tags.empty());
 }
 
@@ -370,10 +370,42 @@ TEST(ProfileExporterBuildRumTags, EmptyApplicationIdSuppressesAppEntryOnly) {
   EXPECT_EQ(tags[1].second, "s2");
 }
 
-TEST(ProfileExporterBuildRumTags, EmptySessionIdsAreSkipped) {
-  auto tags = ProfileExporter::BuildRumTags("app-uuid", {"s1", "", "s2"});
-  ASSERT_EQ(tags.size(), 3u);
+TEST(ProfileExporterBuildRumTags, EmptyIdsAreSkipped) {
+  auto tags =
+      ProfileExporter::BuildRumTags("app-uuid", {"s1", "", "s2"}, {"", "v1", "", "v2"});
+  ASSERT_EQ(tags.size(), 5u);
   EXPECT_EQ(tags[0].first, "rum.application_id");
-  EXPECT_EQ(tags[1].second, "s1");
-  EXPECT_EQ(tags[2].second, "s2");
+  EXPECT_EQ(tags[1], std::make_pair(std::string("rum.session_id"), std::string("s1")));
+  EXPECT_EQ(tags[2], std::make_pair(std::string("rum.session_id"), std::string("s2")));
+  EXPECT_EQ(tags[3], std::make_pair(std::string("rum.view_id"), std::string("v1")));
+  EXPECT_EQ(tags[4], std::make_pair(std::string("rum.view_id"), std::string("v2")));
+}
+
+TEST(ProfileExporterBuildRumTags, ViewsWithoutApplicationOrSessionsEmitOneEntryEach) {
+  auto tags = ProfileExporter::BuildRumTags("", {}, {"v1", "v2"});
+  ASSERT_EQ(tags.size(), 2u);
+  EXPECT_EQ(tags[0], std::make_pair(std::string("rum.view_id"), std::string("v1")));
+  EXPECT_EQ(tags[1], std::make_pair(std::string("rum.view_id"), std::string("v2")));
+}
+
+TEST(ProfileExporterBuildRumTags, AllSessionAndViewIdsAreEmittedWithoutACap) {
+  std::vector<std::string> sessionIds;
+  std::vector<std::string> viewIds;
+  for (size_t i = 0; i < 32; ++i) {
+    sessionIds.push_back("s" + std::to_string(i));
+    viewIds.push_back("v" + std::to_string(i));
+  }
+
+  auto tags = ProfileExporter::BuildRumTags("app-uuid", sessionIds, viewIds);
+  ASSERT_EQ(tags.size(), 1u + sessionIds.size() + viewIds.size());
+  EXPECT_EQ(tags[0].first, "rum.application_id");
+  EXPECT_EQ(tags[0].second, "app-uuid");
+  for (size_t i = 0; i < sessionIds.size(); ++i) {
+    EXPECT_EQ(tags[1 + i].first, "rum.session_id");
+    EXPECT_EQ(tags[1 + i].second, sessionIds[i]);
+  }
+  for (size_t i = 0; i < viewIds.size(); ++i) {
+    EXPECT_EQ(tags[1 + sessionIds.size() + i].first, "rum.view_id");
+    EXPECT_EQ(tags[1 + sessionIds.size() + i].second, viewIds[i]);
+  }
 }

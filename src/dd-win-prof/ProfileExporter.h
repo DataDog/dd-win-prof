@@ -87,20 +87,21 @@ class ProfileExporter {
       const ddog_prof_EncodedProfile* encodedProfile,
       uint32_t profileSeq,
       const std::string& rumRecordsJson = {},
-      const std::vector<std::string>& rumSessionIds = {}
+      const std::vector<std::string>& rumSessionIds = {},
+      const std::vector<std::string>& rumViewIds = {}
   );
   bool PrepareAdditionalTags(
       ddog_Vec_Tag& tags,
       uint32_t profileSeq,
-      const std::vector<std::string>& rumSessionIds = {}
+      const std::vector<std::string>& rumSessionIds = {},
+      const std::vector<std::string>& rumViewIds = {}
   );
 
-  // Pure helper: builds the per-export RUM tag list (rum.application_id +
-  // one rum.session_id entry per non-empty id). Empty inputs are skipped.
-  // Exposed as a free helper so the tag-list construction is unit-testable;
-  // ddog_Tag is opaque and we can't read entries back out of ddog_Vec_Tag.
+  // Kept separate for testing because ddog_Tag is opaque.
   static std::vector<std::pair<std::string, std::string>> BuildRumTags(
-      const std::string& applicationId, const std::vector<std::string>& sessionIds
+      const std::string& applicationId,
+      const std::vector<std::string>& sessionIds,
+      const std::vector<std::string>& viewIds = {}
   );
   bool CheckExportResponse(uint16_t responseCode);
   void CleanupExporter();
@@ -161,15 +162,10 @@ class ProfileExporter {
   static constexpr const char* TAG_GPU_CHIP_PREFIX = "gpu_chip_";
   static constexpr const char* TAG_GPU_RAM_PREFIX = "gpu_ram_";
 
-  // RUM tags (per-export). Both keys are emitted alongside one another in
-  // PrepareAdditionalTags. rum.session_id is multi-value: one tag entry per
-  // session record produced during the profile window. The same id list is
-  // also embedded in optional_internal_metadata_json under "rum_session_ids".
-  // Cardinality is capped at MAX_RUM_SESSION_ID_TAGS to guard against
-  // pathological session-rotation patterns blowing up tag count.
+  // Tag cardinality is not a concern here: emit all session and view IDs.
   static constexpr const char* TAG_RUM_APPLICATION_ID = "rum.application_id";
   static constexpr const char* TAG_RUM_SESSION_ID = "rum.session_id";
-  static constexpr size_t MAX_RUM_SESSION_ID_TAGS = 10;
+  static constexpr const char* TAG_RUM_VIEW_ID = "rum.view_id";
 
   // TODO: how to define metrics? With tags? With separate json file?
   static constexpr const char* TAG_RAM_SIZE = "ram_size";
