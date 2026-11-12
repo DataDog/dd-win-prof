@@ -30,6 +30,13 @@ typedef struct {
   const char *type;
   const char *unit;
 } pa_value_type;
+typedef struct {
+  const char *ptr;
+  size_t len;
+} pa_string_view;
+typedef struct {
+  pa_string_view type, unit;
+} pa_value_type_view;
 /* Pass NULL for the default allocator; otherwise both callbacks are required.
  * alloc returns malloc-aligned memory; free receives the original size.
  * The allocator/context must outlive the profile. */
@@ -65,6 +72,14 @@ typedef pa_status (*pa_sink)(void *context, const uint8_t *bytes, size_t size);
  * and copied on success. Output instance is NULL on failure. Period uses type[0]. */
 PA_API pa_status pa_create(
     const pa_value_type *types,
+    size_t count,
+    int64_t period,
+    const pa_allocator *allocator,
+    pa_profile **out
+);
+/* Length-aware UTF-8 definitions, including embedded NUL bytes. */
+PA_API pa_status pa_create_with_types(
+    const pa_value_type_view *types,
     size_t count,
     int64_t period,
     const pa_allocator *allocator,

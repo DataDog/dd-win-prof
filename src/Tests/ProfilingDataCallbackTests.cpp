@@ -14,6 +14,7 @@
 #include "Configuration.h"
 #include "EnvironmentVariables.h"
 #include "ProfileExporter.h"
+#include "ProfileTestOutput.h"
 #include "Profiler.h"
 #include "internal/dd-win-rum-private.h"
 #include "pch.h"
@@ -640,4 +641,31 @@ TEST(ProfilingDataExportTests, ThrowingCallbackDoesNotPreventNextExport) {
   EXPECT_TRUE(exporter.Export(true));
   EXPECT_EQ(calls, 3);
   exporter.Cleanup();
+}
+
+TEST(ProfilingDataExportTests, CallbackCustomDefinitionsSurviveResetAndCleanup) {
+  Configuration config;
+  config.ResetToDefaults();
+  std::vector<ProfilingData> results;
+  const std::vector<SampleValueType> definitions{
+      {std::string("wait\0time", 9), std::string("nano\0seconds", 12)},
+      {"cpu-time", "count"}
+  };
+  {
+    ProfileExporter exporter(&config, definitions, nullptr, [&](ProfilingData data) {
+      results.push_back(std::move(data));
+    });
+    ASSERT_TRUE(exporter.Initialize());
+    ASSERT_TRUE(exporter.Export());
+    ASSERT_TRUE(exporter.Export(true));
+    exporter.Cleanup();
+  }
+  ASSERT_EQ(results.size(), 2u);
+  for (size_t i = 0; i < results.size(); ++i) {
+    EXPECT_EQ(results[i].result, 0u);
+    EXPECT_EQ(results[i].isLast, i == 1);
+    WriteTestProfile(
+        "callback-custom-" + std::to_string(i + 1) + ".pprof", results[i].pprof
+    );
+  }
 }

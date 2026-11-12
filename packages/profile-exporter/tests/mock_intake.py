@@ -58,10 +58,10 @@ def validate_request(handler, body, output):
     )
     assert message.is_multipart() and not message.defects
     parts = list(message.iter_parts())
-    assert [p.get_filename() for p in parts] == ["event.json", "extra.json", "auto.pprof"]
+    assert [p.get_filename() for p in parts] == ["event.json", "extra.json", "profile.pprof"]
     event = json.loads(parts[0].get_payload(decode=True))
     assert event == {
-        "attachments": ["auto.pprof", "extra.json"],
+        "attachments": ["profile.pprof", "extra.json"],
         "tags_profiler": "service:exporter-mock,env:test",
         "start": "2023-11-14T22:13:20.000000000Z",
         "end": "2023-11-14T22:13:21.000000000Z",

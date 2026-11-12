@@ -65,13 +65,13 @@ static void exact_request(void) {
       "--" PE_BOUNDARY
       "\r\nContent-Disposition: form-data; name=\"event\"; "
       "filename=\"event.json\"\r\nContent-Type: application/json\r\n\r\n"
-      "{\"attachments\":[\"auto.pprof\"],\"tags_profiler\":\"service:"
+      "{\"attachments\":[\"profile.pprof\"],\"tags_profiler\":\"service:"
       "a\\\"b\\\\c\\u000a\\u0000\\u0001,env:test\",\"start\":\"1970-01-01T00:00:00."
       "000000000Z\",\"end\":\"1970-01-01T00:00:01.234000000Z\",\"family\":\"windows\","
       "\"version\":\"4\",\"internal\":{\"views\":[],\"sessions\":[]}}"
       "\r\n--" PE_BOUNDARY
-      "\r\nContent-Disposition: form-data; name=\"auto.pprof\"; "
-      "filename=\"auto.pprof\"\r\nContent-Type: application/octet-stream\r\n\r\n";
+      "\r\nContent-Disposition: form-data; name=\"profile.pprof\"; "
+      "filename=\"profile.pprof\"\r\nContent-Type: application/octet-stream\r\n\r\n";
   const char footer[] = "\r\n--" PE_BOUNDARY "--\r\n";
   CHECK(r.segment_count == 3 && r.segments[1].ptr == p.pprof.ptr);
   CHECK(r.content_length == sizeof(prefix) - 1 + p.pprof.len + sizeof(footer) - 1);
@@ -95,7 +95,7 @@ static void exact_request(void) {
   );
   bytes = flatten(&r);
   CHECK(
-      strstr(bytes, "\"attachments\":[\"auto.pprof\",\"extra.json\",\"binary.bin\"]")
+      strstr(bytes, "\"attachments\":[\"profile.pprof\",\"extra.json\",\"binary.bin\"]")
   );
   CHECK(strstr(
       bytes,
@@ -160,7 +160,7 @@ static void invalid_requests(void) {
   p.files = &file;
   p.file_count = 1;
   CHECK(pe_request_build(&p, &r) == PE_INVALID);
-  file.name = S("auto.pprof");
+  file.name = S("profile.pprof");
   CHECK(pe_request_build(&p, &r) == PE_INVALID);
   file.name = S("ok");
   file.bytes.len = UINT32_MAX;

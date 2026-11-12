@@ -20,6 +20,7 @@ Windows validation: `e2e-tests/validate-c-aggregation.ps1`. Use the win-sync wor
 
 `include/profile_aggregation.h` is the public C boundary. Create an opaque profile, intern strings/mappings/functions/locations/stacks/label sets, record values, serialize into a caller sink, then reset. Caller supplies resolved native metadata. No global state, VM types or callback into a symbol resolver.
 
+- `pa_create_with_types` copies length-aware UTF-8 name/unit pairs, including embedded NUL. `pa_create` retains the NUL-terminated compatibility interface. Both share the same implementation and reject malformed UTF-8. Exact pairs, column order and the first-column period survive reset and caller input lifetime. C does not impose libdatadog v47's five-custom-slot limit.
 - One thread at a time per instance. Caller serializes access, including sinks; sinks must not reenter the instance.
 - Input is borrowed only for each call; successful interning copies it. IDs are instance- and generation-scoped. Do not exchange them between instances. Zero denotes empty string/absent metadata, not a stack or label set.
 - `pa_reset` invalidates **all** IDs and empties the profile while retaining normal metadata, observation, hash, arena and compression capacity. String **contents**, not public IDs, remain cached until three consecutive completed exports without use. Exceptional spare capacity is eventually released. Sample types and period remain. Generation exhaustion returns `PA_LIMIT` rather than reviving old IDs.
@@ -40,13 +41,13 @@ See [memory reuse](docs/memory-reuse.md) for exact private floors, retention thr
 
 At flush the C++ exporter moves compressed bytes into `ProfilingData`, without a second compressed-vector copy. Final delivery/errors/reset recovery use the existing callback contract. Scratch frame IDs are reused. Symbolication caches immutable string views in engine-owned stable string storage rather than copying names/PDB IDs for each address; no Rust managed strings remain. Address caches are cleared when profile IDs reset. C mapping identity includes filename/build ID **and** memory range/file offset, with structural equality.
 
-## Delivery contract and unsupported boundary
+## Delivery contract
 
-`ProfilingData.pprof` is now **one Zstandard frame**, magic `28 b5 2f fd`, not LZ4. Debug files use `.zst.pprof`. Consumers must support Zstd before using this experimental branch. SDK source evidence shows byte pass-through to the `profile.pprof` multipart attachment; backend source auto-detects Zstd. Those observations are not a live SDK intake result.
+`ProfilingData.pprof` is one Zstandard frame, magic `28 b5 2f fd`, matching current main's codec. Historical v19 profiles used LZ4; both codecs remain readable by the integration decoder. Debug files use `.zstd.pprof`, as on main. Callback ABI and byte ownership are unchanged.
 
-Both SDK and standalone local-debug modes aggregate with the C core. **Standalone HTTP export is unsupported and explicitly rejected by `ProfileExporter::Initialize` when enabled without a callback.** libdatadog v19 `Exporter_Request_build` requires an opaque Rust-owned `EncodedProfile`; there is bytes-out, but no supported bytes-in constructor/request builder. This branch does not fabricate Rust objects, mutate private Vec layouts or replay samples into Rust. No libdatadog production library is fetched, linked, copied or installed.
+SDK callback and standalone modes use the C core. Standalone HTTP uses the independent [C/WinHTTP exporter](../profile-exporter/README.md), not a fabricated Rust encoded-profile handle. Exact sample definitions belong in pprof, not an invented event field. Event tags, internal RUM metadata and the `profile.pprof` attachment follow the existing protocol. No libdatadog production library is fetched, linked, copied or installed.
 
-Smallest upstream addition needed: a byte-input request builder accepting a borrowed encoded-profile byte slice, explicit compression (`Zstd` here), start/end times, additional tags and optional internal/info metadata JSON. It must document whether it copies bytes synchronously or takes ownership, and provide matching release/cancellation behavior. This would reuse the supported exporter endpoint/send lifecycle. No upstream changes are part of this branch.
+Fresh matched benchmarks use the v47.0.0 public CFFI in a separate process: [results and memory costs](benchmarks/windows-v47/README.md), [harness](benchmarks/harness/README.md), [realignment](docs/v47-realignment.md). Archived v19 evidence is historical, not a v47 measurement. V47's legacy Profile API reconstructs ordinary interners on reset; the C core instead retains capacity and expires private cached strings after three unused successful exports. Compression is level 1 in both, with an explicit 128 KiB C window versus v47's native Zstd default window. Compare complete flush and output-free costs, not isolated encoder/reset internals.
 
 The dirty external dd-sdk-cpp checkout is intentionally untouched. Its `cmake/profiler.cmake` install rule still references the removed `dd_win_prof_libdatadog_dynamic` target. Remove the following obsolete rule before SDK installation can succeed:
 
@@ -62,6 +63,6 @@ Do not replace it with a fake compatibility target. This branch's source consume
 
 ## Dependency and disclosure inventory
 
-Production aggregation dependencies are four components: Verstable 2.2.1 (MIT), rapidhash V3 (MIT), nanopb 0.4.9.2 (zlib), Zstd 1.5.7 (BSD-3-Clause selected). Google's pprof schema carries Apache-2.0 attribution. The overall profiler also uses spdlog and its bundled fmt (MIT); Google Test is test-only. The optional baseline harness uses libdatadog v19 and its locked Cargo dependencies **only in a separate test process**, never linked into SDK tests or installed. Python decoder requirements are test tooling, not runtime dependencies.
+Production aggregation dependencies are four components: Verstable 2.2.1 (MIT), rapidhash V3 (MIT), nanopb 0.4.9.2 (zlib), Zstd 1.5.7 (BSD-3-Clause selected). Google's pprof schema carries Apache-2.0 attribution. The overall profiler also uses spdlog and its bundled fmt (MIT); Google Test is test-only. The matched baseline harness uses a prebuilt libdatadog v47 release **only in a separate test process** (historical v19 tools remain available), never linked into SDK tests or installed. Python decoder requirements are test tooling, not runtime dependencies.
 
 See [provenance](docs/provenance.md), `licenses/`, embedded vendor notices and the root `LICENSE-3rdparty.csv`. No disclosure-count or 5–10 MB integrated-residency guarantee is claimed from this inventory.

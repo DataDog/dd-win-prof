@@ -5,6 +5,7 @@ import importlib.util
 import json
 import statistics
 from pathlib import Path
+from result_metadata import run_identity, check_row, check_manifest
 
 parser = argparse.ArgumentParser()
 parser.add_argument('run', type=Path)
@@ -24,14 +25,18 @@ manifest = rows(a.run / 'jobs.csv')
 assert result['result'] == 'PASS' and len(manifest) == result['jobs'], 'incomplete or failed run'
 assert len({job['id'] for job in manifest}) == len(manifest), 'duplicate manifest case'
 assert [int(job['order']) for job in manifest] == list(range(len(manifest))), 'incomplete case order'
+version, baseline, metadata = run_identity(a.run)
+check_manifest(manifest, metadata, version)
+baseline_backend = "v47_cffi" if baseline == "v47.0.0" else "v19_cffi"
 all_runs = []
 expected_fixtures = set()
 for job in manifest:
     assert job['exitCode'] == '0'
     prefix = a.run / job['id']
     summary, = rows(Path(str(prefix) + '-summary.csv'))
-    tests.check(prefix, summary['mode'], summary['backend'] == 'c_timed',
-                summary['allocator_instrumented'] == '1', int(summary['samples']), int(summary['flushes']))
+    samples, flushes = check_row(summary, job, version)
+    tests.check(prefix, job['mode'], job['backend'] == 'core_timed',
+                job['allocator'] == '1', samples, flushes)
     platform, = rows(Path(str(prefix) + '-platform.csv'))
     assert platform['clock'] == 'QPC' and platform['affinity_requested'] == '4'
     assert platform['affinity_apply_success'] == '1' and platform['process_affinity_mask'] == '4'
@@ -41,7 +46,8 @@ for job in manifest:
                                  for cycle in range(int(summary['flushes'])))
 assert {p.name for p in (a.run / 'fixtures').glob('*.pprof')} == expected_fixtures, 'incomplete fixture set'
 crt = rows(a.run / 'runtime-config.csv')
-assert crt and all('DLL' not in row['value'].upper() for row in crt)
+expected_crt = metadata.get('msvcRuntime', 'MultiThreaded')
+assert crt and all(('DLL' in row['value'].upper()) == expected_crt.endswith('DLL') for row in crt)
 build_bytes = (a.run / 'build.log').read_bytes()
 build_text = build_bytes.decode('utf-16' if build_bytes.startswith((b'\xff\xfe', b'\xfe\xff')) else 'utf-8-sig', errors='replace')
 assert 'LNK4098' not in build_text, 'conflicting CRT default-library warning'
@@ -49,7 +55,7 @@ assert 'LNK4098' not in build_text, 'conflicting CRT default-library warning'
 latencies = []
 growth = []
 for workload in ['repeated', 'unique', 'deep256', 'labels', 'churn']:
-    for backend in ['c', 'v19_cffi']:
+    for backend in ['c', baseline_backend]:
         selected = [(j, s) for j, s in all_runs if j['group'] == 'latency' and s['backend'] == backend and
                     s['timestamped'] == '1' and s['workload'] == workload]
         item = {'backend': backend, 'workload': workload, 'runs': len(selected)}
@@ -84,7 +90,7 @@ for job, summary in all_runs:
 
 memory = []
 for workload in ['repeated', 'unique', 'deep256', 'labels']:
-    for backend in ['c', 'v19_cffi']:
+    for backend in ['c', baseline_backend]:
         selected = [j for j, s in all_runs if j['group'] == 'primary' and s['workload'] == workload and
                     s['timestamped'] == '1' and s['backend'] == backend]
         checkpoints = [rows(a.run / (j['id'] + '-memory.csv')) for j in selected]
@@ -107,14 +113,14 @@ for job, summary in all_runs:
                         'retained_after_reset': next(int(s['core_live_bytes']) for s in reversed(stages) if s['phase'] == 'explicitreset'),
                         'ingest_allocations': sum(int(s['core_allocations']) for s in stages if s['phase'] == 'ingest')})
 
-report = {'validation': {'result': 'PASS', 'runs': len(all_runs), 'crt': crt}, 'latency': latencies,
+report = {'validation': {'result': 'PASS', 'runs': len(all_runs), 'crt': crt, 'result_version': version, 'baseline_version': baseline}, 'latency': latencies,
           'growth_association': growth, 'recovery': recovery, 'memory': memory, 'core_allocator': allocations,
           'limitations': ['Growth events come from separate deterministic-recipe diagnostic runs, not the same timed process.',
-                          'Afterencode states differ: v19 has already reset, while C still retains the populated profile.',
+                          'Afterencode states differ: libdatadog has already reset, while C still retains the populated profile.',
                           'Recovery traces are short synthetic runs, not a full-profiler soak.',
                           'Peak working set and peak process commit are process-lifetime counters.']}
 a.output.write_text(json.dumps(report, indent=2) + '\n')
-print(f'PASS: {len(all_runs)} measured runs; phase totals, memory ordering, exact percentiles, allocation balance, affinity, matching static CRT')
+print(f'PASS: {len(all_runs)} measured runs; phase totals, memory ordering, exact percentiles, allocation balance, affinity, matching recorded CRT')
 for item in latencies:
     print('LATENCY', item['backend'], item['workload'], 'p99_us', round(item['record_p99_ns']['median']/1000, 3),
           'max_us_median/range', *(round(item['record_max_ns'][k]/1000, 3) for k in ['median', 'min', 'max']))

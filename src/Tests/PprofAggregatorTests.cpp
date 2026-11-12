@@ -1,8 +1,8 @@
 // Copyright 2026 Datadog, Inc. SPDX-License-Identifier: Apache-2.0
 #include "PprofAggregator.h"
 #include "ProfileExporter.h"
-#include "pch.h"
 #include "ProfileTestOutput.h"
+#include "pch.h"
 using namespace dd_win_prof;
 class PprofAggregatorTest : public ::testing::Test {
  protected:
@@ -84,7 +84,7 @@ TEST_F(PprofAggregatorTest, IntegrationWithProfileExporterAndDebugFileWriting) {
   exporter.Cleanup();
   bool found = false;
   for (const auto& f : fs::directory_iterator(dir))
-    found |= f.path().filename().string().ends_with(".zst.pprof");
+    found |= f.path().filename().string().ends_with(".zstd.pprof");
   EXPECT_TRUE(found);
   fs::remove_all(dir);
 }
@@ -174,11 +174,29 @@ TEST_F(PprofAggregatorTest, CustomSampleTypesPreserveRepeatedAndDistinctDefiniti
     definitions.push_back({"custom-" + std::to_string(i), "nanoseconds"});
   }
   definitions.push_back(definitions.front());
-  PprofAggregator aggregator(definitions);
+  PprofAggregator aggregator(definitions, 7);
   ASSERT_TRUE(aggregator.IsInitialized());
-  std::vector<uint8_t> bytes;
-  ASSERT_TRUE(aggregator.Serialize(1700000000000, 1700000001000, bytes));
-  Encoded(bytes);
+  definitions.clear();
+  definitions.shrink_to_fit();
+  for (int cycle = 1; cycle <= 2; ++cycle) {
+    const std::vector<int64_t> values{
+        11 * cycle,
+        22 * cycle,
+        33 * cycle,
+        44 * cycle,
+        55 * cycle,
+        66 * cycle,
+        77 * cycle
+    };
+    ASSERT_TRUE(aggregator.AddSample(
+        Locations(aggregator), values, 1700000000000000000 + cycle, Labels(aggregator)
+    ));
+    std::vector<uint8_t> bytes;
+    ASSERT_TRUE(aggregator.Serialize(1700000000000, 1700000001000, bytes));
+    Encoded(bytes);
+    WriteTestProfile("wide-" + std::to_string(cycle) + ".pprof", bytes);
+    ASSERT_TRUE(aggregator.Reset());
+  }
 }
 
 TEST_F(PprofAggregatorTest, InvalidCustomDefinitionFailsInitialization) {
@@ -211,6 +229,22 @@ TEST_F(PprofAggregatorTest, CustomPeriodAndDefinitionsSurviveInputLifetimeAndRes
     ASSERT_TRUE(aggregator.Serialize(1700000000000, 1700000001000, bytes));
     Encoded(bytes);
     WriteTestProfile("custom-" + std::to_string(cycle) + ".pprof", bytes);
+    ASSERT_TRUE(aggregator.Reset());
+  }
+}
+
+TEST_F(PprofAggregatorTest, EmbeddedNulDefinitionsSurviveReset) {
+  const std::vector<SampleValueType> definitions{
+      {std::string("wait\0time", 9), std::string("nano\0seconds", 12)},
+      {"cpu-time", "nanoseconds"}
+  };
+  PprofAggregator aggregator(definitions, 10);
+  ASSERT_TRUE(aggregator.IsInitialized());
+  for (int cycle = 1; cycle <= 2; ++cycle) {
+    ASSERT_TRUE(Record(aggregator));
+    std::vector<uint8_t> bytes;
+    ASSERT_TRUE(aggregator.Serialize(1700000000000, 1700000001000, bytes));
+    WriteTestProfile("nul-" + std::to_string(cycle) + ".pprof", bytes);
     ASSERT_TRUE(aggregator.Reset());
   }
 }

@@ -18,6 +18,7 @@
 #include "../dd-win-prof/TagsHelper.h"
 #include "../dd-win-prof/ThreadInfo.h"
 #include "LocalHttpServer.h"
+#include "ProfileTestOutput.h"
 #include "pch.h"
 
 class ProfileExporterExportTests : public ::testing::Test {
@@ -352,8 +353,12 @@ TEST(ProfileExporterEndpointTests, AgentlessCopiesEndpointInputs) {
     const std::string site = "example.invalid";
     const std::string key = "local-test-key";
     pe_config config{
-        {site.data(), site.size()}, {key.data(), key.size()},
-        {"endpoint-test", 13}, {"1", 1}, 10000, 1
+        {site.data(), site.size()},
+        {key.data(), key.size()},
+        {"endpoint-test", 13},
+        {"1", 1},
+        10000,
+        1
     };
     ASSERT_EQ(pe_exporter_create(&config, &created, &result), PE_OK);
   }
@@ -561,11 +566,37 @@ TEST_F(ProfileExporterExportTests, HttpFailureStillResetsAndAllowsNextExport) {
   };
   ProfileExporter http(&httpConfig, sampleTypes, nullptr, {}, api);
   ASSERT_TRUE(http.Initialize());
-  for (int i = 0; i < 2; ++i) {
+  for (int i = 0; i < 3; ++i) {
     ASSERT_TRUE(http.Add(CreateTestSample()));
-    EXPECT_FALSE(http.Export(i == 1));
+    EXPECT_EQ(http.Export(i == 2), i < 2);
     EXPECT_EQ(resetCalls, i + 1);
   }
   http.Cleanup();
   resets = nullptr;
+}
+
+TEST_F(ProfileExporterExportTests, HttpCustomDefinitionsSurviveReset) {
+  LocalHttpServer server;
+  auto httpConfig = HttpConfiguration(server);
+  const std::vector<SampleValueType> definitions{
+      {std::string("wait\0time", 9), std::string("nano\0seconds", 12)},
+      {"cpu-time", "count"}
+  };
+  ProfileExporter exp(&httpConfig, definitions);
+  ASSERT_TRUE(exp.Initialize());
+  for (int cycle = 0; cycle < 2; ++cycle) {
+    ASSERT_TRUE(exp.Add(CreateTestSample()));
+    ASSERT_TRUE(exp.Export(cycle == 1));
+  }
+  exp.Cleanup();
+  ASSERT_TRUE(server.Error().empty()) << server.Error();
+  const auto requests = server.Requests();
+  ASSERT_EQ(requests.size(), 2u);
+  for (size_t i = 0; i < requests.size(); ++i) {
+    EXPECT_EQ(Tag(requests[i].body, "profile_seq"), std::to_string(i));
+    EXPECT_NE(requests[i].body.find("service:exporter-test"), std::string::npos);
+    WriteHttpTestProfile(
+        "http-custom-" + std::to_string(i + 1) + ".pprof", requests[i].body
+    );
+  }
 }

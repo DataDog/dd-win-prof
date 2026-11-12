@@ -893,11 +893,52 @@ static void growth_failures(void) {
   }
 }
 #endif
+static void sized_definitions(void) {
+  char name[] = "wait\0time", unit[] = "nano\0seconds";
+  pa_value_type_view types[] = {{{name, sizeof(name) - 1}, {unit, sizeof(unit) - 1}}};
+  pa_profile *p = NULL;
+  OK(pa_create_with_types(types, 1, 10000000, NULL, &p));
+  memset(name, 'x', sizeof(name));
+  memset(unit, 'x', sizeof(unit));
+  for (int cycle = 0; cycle < 2; ++cycle) {
+    buffer b = {0};
+    OK(pa_serialize(p, 0, 1, sink, &b));
+    uint8_t *storage;
+    view profile = decode(&b, &storage);
+    view type = sub(profile, 1), period = sub(profile, 11);
+    CHECK(number(type, 1) == number(period, 1));
+    CHECK(number(type, 2) == number(period, 2));
+    view n = string_at(profile, number(type, 1));
+    view u = string_at(profile, number(type, 2));
+    CHECK(n.end - n.p == 9 && !memcmp(n.p, "wait\0time", 9));
+    CHECK(u.end - u.p == 12 && !memcmp(u.p, "nano\0seconds", 12));
+    free(storage);
+    free(b.bytes);
+    OK(pa_reset(p));
+  }
+  pa_destroy(p);
+  const char *invalid[] = {
+      "\xff", "\xc2", "\xc0\x80", "\xed\xa0\x80", "\xf4\x90\x80\x80"
+  };
+  for (size_t i = 0; i < sizeof(invalid) / sizeof(*invalid); ++i) {
+    pa_value_type legacy = {invalid[i], "nanoseconds"};
+    CHECK(pa_create(&legacy, 1, 1, NULL, &p) == PA_INVALID && !p);
+    pa_value_type_view sized = {{"cpu", 3}, {invalid[i], strlen(invalid[i])}};
+    CHECK(pa_create_with_types(&sized, 1, 1, NULL, &p) == PA_INVALID && !p);
+  }
+  pa_value_type_view empty = {{NULL, 0}, {NULL, 0}};
+  OK(pa_create_with_types(&empty, 1, 0, NULL, &p));
+  pa_destroy(p);
+  empty.type.len = 1;
+  CHECK(pa_create_with_types(&empty, 1, 0, NULL, &p) == PA_INVALID && !p);
+  CHECK(pa_create_with_types(NULL, 1, 0, NULL, &p) == PA_INVALID && !p);
+}
 int main(int argc, char **argv) {
 #ifndef PA_TEST_COLLISIONS
   growth_failures();
   untimed_sum_growth_and_trim();
 #endif
+  sized_definitions();
   warmed_cycles_and_spike();
   string_cycles();
   churn_and_compaction();

@@ -16,8 +16,10 @@ DWORD-bounded total Content-Length. Metadata memory is additional to the C core'
 encoding/output memory. Internal JSON is emitted unmodified in event.json's
 `internal` field, preserving the previous native RUM convention. Event family is
 `windows`, language is `native` in native tags, event version is `4`, attachment is
-`auto.pprof`. Native service/env/version/host, runtime-id, hardware, profiler,
-profile_seq, pid and rum.application_id tags are preserved.
+`profile.pprof`. Native service/env/version/host, runtime-id, hardware, profiler,
+profile_seq, pid and rum.application_id tags are preserved. Ordered custom type/unit
+pairs, including embedded NUL, are carried in pprof. There is no additional event
+sample-type field.
 
 ## Endpoints and failures
 
@@ -29,8 +31,10 @@ profile_seq, pid and rum.application_id tags are preserved.
   accepted as sites. Native configuration uses existing DD_SITE/API key fields.
 - No redirects, automatic application retries, queue or delivery replay. HTTP
   non-2xx is `PE_HTTP`; WinHTTP failure is `PE_TRANSPORT`, with system error code.
-  Result fields are initialized on every call. Native Export returns false on
-  failure and still resets the profile; callback error codes/ownership are unchanged.
+  Result fields are initialized on every call. The native adapter preserves main's
+  policy: 403/404 fail; other HTTP responses continue and clear the transport error
+  count; the first two consecutive transport errors continue and the third fails.
+  Every attempt still resets the profile; callback error codes/ownership are unchanged.
   Successful standalone sends log `Experimental HTTP export succeeded, HTTP: <status>`.
   Failure logs include HTTP status and/or Win32 system error, not credentials.
   Runner's exit status or generic completion log alone does not prove intake acceptance.

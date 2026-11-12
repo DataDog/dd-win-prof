@@ -106,6 +106,7 @@ static bool sample_equal(sample_key a, sample_key b) {
 
 typedef struct {
   pa_id type, unit;
+  size_t type_len, unit_len;
 } value_type;
 /* All members have eight-byte alignment; values immediately follow this header. */
 typedef struct {
@@ -543,8 +544,52 @@ static pa_status prepare_workspace(pa_profile *p) {
   p->workspace_size = size;
   return PA_OK;
 }
-pa_status pa_create(
-    const pa_value_type *types,
+static bool utf8_ok(pa_string_view s) {
+  if (!s.ptr && s.len) return false;
+  const unsigned char *p = (const unsigned char *)s.ptr;
+  for (size_t i = 0; i < s.len;) {
+    unsigned char c = p[i++];
+    if (c < 128) continue;
+    unsigned extra;
+    uint32_t code, minimum;
+    if (c >= 0xc2 && c <= 0xdf) {
+      extra = 1;
+      code = c & 31;
+      minimum = 0x80;
+    } else if (c >= 0xe0 && c <= 0xef) {
+      extra = 2;
+      code = c & 15;
+      minimum = 0x800;
+    } else if (c >= 0xf0 && c <= 0xf4) {
+      extra = 3;
+      code = c & 7;
+      minimum = 0x10000;
+    } else
+      return false;
+    if (extra > s.len - i) return false;
+    while (extra--) {
+      c = p[i++];
+      if ((c & 0xc0) != 0x80) return false;
+      code = (code << 6) | (c & 63);
+    }
+    if (code < minimum || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff))
+      return false;
+  }
+  return true;
+}
+static pa_value_type_view definition(
+    const pa_value_type *legacy, const pa_value_type_view *types, size_t i
+) {
+  if (types) return types[i];
+  pa_value_type_view result = {
+      {legacy[i].type, legacy[i].type ? strlen(legacy[i].type) : 0},
+      {legacy[i].unit, legacy[i].unit ? strlen(legacy[i].unit) : 0}
+  };
+  return result;
+}
+static pa_status create_profile(
+    const pa_value_type *legacy,
+    const pa_value_type_view *types,
     size_t n,
     int64_t period,
     const pa_allocator *a,
@@ -552,14 +597,18 @@ pa_status pa_create(
 ) {
   if (!out) return PA_INVALID;
   *out = NULL;
-  if (!types || !n || n > (SIZE_MAX - sizeof(observation)) / sizeof(int64_t) ||
+  if ((!legacy && !types) || !n ||
+      n > (SIZE_MAX - sizeof(observation)) / sizeof(int64_t) ||
       n > SIZE_MAX / sizeof(value_type) || period < 0 || (a && (!a->alloc || !a->free)))
     return PA_INVALID;
   size_t bytes = 0;
   for (size_t i = 0; i < n; i++) {
-    if (!types[i].type || !types[i].unit) return PA_INVALID;
-    size_t t = strlen(types[i].type), u = strlen(types[i].unit);
-    if (t > SIZE_MAX - u - 2 || bytes > SIZE_MAX - t - u - 2) return PA_LIMIT;
+    if (legacy && (!legacy[i].type || !legacy[i].unit)) return PA_INVALID;
+    pa_value_type_view type = definition(legacy, types, i);
+    size_t t = type.type.len, u = type.unit.len;
+    if (u > SIZE_MAX - 2 || t > SIZE_MAX - u - 2 || bytes > SIZE_MAX - t - u - 2)
+      return PA_LIMIT;
+    if (!utf8_ok(type.type) || !utf8_ok(type.unit)) return PA_INVALID;
     bytes += t + u + 2;
   }
   pa_allocator alloc = a ? *a : (pa_allocator){NULL, default_alloc, default_free};
@@ -584,11 +633,14 @@ pa_status pa_create(
   }
   char *s = p->config;
   for (size_t i = 0; i < n; i++) {
-    size_t t = strlen(types[i].type) + 1, u = strlen(types[i].unit) + 1;
-    memcpy(s, types[i].type, t);
-    s += t;
-    memcpy(s, types[i].unit, u);
-    s += u;
+    pa_value_type_view type = definition(legacy, types, i);
+    p->types[i] = (value_type){0, 0, type.type.len, type.unit.len};
+    if (type.type.len) memcpy(s, type.type.ptr, type.type.len);
+    s += type.type.len;
+    *s++ = 0;
+    if (type.unit.len) memcpy(s, type.unit.ptr, type.unit.len);
+    s += type.unit.len;
+    *s++ = 0;
   }
   /* Normal floors are paid at creation, not on the first sampled record. */
   arena *owner;
@@ -616,6 +668,24 @@ pa_status pa_create(
   }
   *out = p;
   return PA_OK;
+}
+pa_status pa_create(
+    const pa_value_type *types,
+    size_t n,
+    int64_t period,
+    const pa_allocator *allocator,
+    pa_profile **out
+) {
+  return create_profile(types, NULL, n, period, allocator, out);
+}
+pa_status pa_create_with_types(
+    const pa_value_type_view *types,
+    size_t n,
+    int64_t period,
+    const pa_allocator *allocator,
+    pa_profile **out
+) {
+  return create_profile(NULL, types, n, period, allocator, out);
 }
 static int64_t add_saturating(int64_t a, int64_t b) {
   if (b > 0 && a > INT64_MAX - b) return INT64_MAX;
@@ -805,12 +875,12 @@ pa_status pa_serialize(
     return PA_INVALID;
   const char *config = p->config;
   for (size_t i = 0; i < p->type_count; i++) {
-    pa_status st = pa_intern_string(p, config, strlen(config), &p->types[i].type);
+    pa_status st = pa_intern_string(p, config, p->types[i].type_len, &p->types[i].type);
     if (st != PA_OK) return st;
-    config += strlen(config) + 1;
-    st = pa_intern_string(p, config, strlen(config), &p->types[i].unit);
+    config += p->types[i].type_len + 1;
+    st = pa_intern_string(p, config, p->types[i].unit_len, &p->types[i].unit);
     if (st != PA_OK) return st;
-    config += strlen(config) + 1;
+    config += p->types[i].unit_len + 1;
   }
   pa_status st = pa_intern_string(p, "end_timestamp_ns", 16, &p->timestamp_key);
   if (st != PA_OK) return st;

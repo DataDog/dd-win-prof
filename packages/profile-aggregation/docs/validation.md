@@ -1,6 +1,20 @@
 # Validation and remaining gates
 
-## Current retained-storage validation
+## Current v47 realignment
+
+The branch now builds on main `96d14f8a` with its v47 extensible definitions, Zstd delivery and existing callback/HTTP policies preserved. [Fresh Windows comparison](../benchmarks/windows-v47/README.md) and [realignment details](v47-realignment.md) replace v19 assumptions for this head.
+
+- Isolated main control: **229** native tests.
+- Candidate Windows: **233** native tests, core/collision/exporter suites, source/install/consumer/import/no-Rust checks, **101 RUM / 23 UI-hang** assertions; nine returned profiles independently decoded.
+- Matched public-v47-CFFI matrix: **312 cases**, **20 semantic groups / 60 fixtures**, complete flush/output-free accounting, matching static CRT and affinity. Strengthened recipe/schedule acceptance and seven regression tests pass. The historical v19 run also passes the new inspector without modifying its artifacts.
+- Follow-up Windows Release: **233** tests and **12** codec/wire tests. Populated seven-column profiles, repeated type/unit definitions, two resets and a **7 ms** period independently decode with exact values.
+- Windows native/core/exporter **ASan**: **233** native tests, core **2/2**, exporter **1/1**, five native wire cases. Runtime import verified; leak detection disabled. Host ASan remains inconclusive.
+- Five-state small app: **18 profiles / 13,960 observations**, nine callbacks and one final callback per enabled variant, zero errors. C saves 1.50 MiB WS / 4.59 MiB private commit versus v47 in small work, but high-cardinality benchmark retention is substantially higher in C. See report for both costs and single-run limits.
+- Final independent review found no blocker and reproduced acceptance JSON/negative controls against the saved evidence.
+
+New-head GitHub CI, fresh v47-realigned intake/indexing, full external SDK packaging/live delivery, soak and release qualification remain gates. Prior staging indexing and CI are historical, not evidence for this head. The sections below retain earlier execution records.
+
+## Historical retained-storage validation (v19)
 
 The current implementation retains normal working storage and caches strings across exports. Three consecutive unused completed exports expire a string; failed/repeated serialization does not advance multiple cycles. The historical 307-byte reset measurements below predate this policy.
 
@@ -12,7 +26,7 @@ The current implementation retains normal working storage and caches strings acr
 - Fresh small-app job `20261109T151820Z-run-script-dd-win-prof-4a2f0bbf` covers five sequential 45-second states. Enabled C versus no profiler linked adds **6.18 MiB working set / 3.05 MiB private commit** in the small phase, **6.45 / 3.31 MiB** in recovery. Both enabled variants deliver nine profiles, one final callback and no errors; all 18 captures independently decode. Snapshot: `benchmarks/windows-small-app/run-20261109T151820Z/`.
 - A subsequent namespace audit found and prefixed `g_debuglevel` plus two MSVC-emitted Zstd helpers. Windows job `20261109T152926Z-run-script-dd-win-prof-2743f3c2` rebuilt and passed both core suites, all 220 behavioral tests and the 297-definition archive audit. Host audit finds 233 definitions, all `pa_`/`ddpa_`, with no benchmark hooks. The Windows validation script now checks defined archive symbols. Performance/memory cohorts predate these identifier-only changes; their exact measured sources remain preserved.
 
-The [current Windows report](../benchmarks/windows-v2/README.md) records allocation reductions, retained memory, stable short-run recovery and remaining cold-growth stalls. The original baseline and packed-stack matrices remain historical evidence, not measurements of the new policy. Live intake, full-SDK/long-soak residency and Windows ASan remain open.
+The [historical v19 Windows report](../benchmarks/windows-v2/README.md) records allocation reductions, retained memory, stable short-run recovery and remaining cold-growth stalls. The original baseline and packed-stack matrices measure earlier storage policies. Gate statements in those records describe their execution date; use the current v47 section above for this head.
 
 ## Portable core, macOS arm64
 

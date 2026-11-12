@@ -93,6 +93,10 @@ $pythonEnv = Join-Path $root 'build-c-aggregation-python'
 Run 'python' @('-m', 'venv', $pythonEnv)
 $python = Join-Path $pythonEnv 'Scripts/python.exe'
 Run $python @('-m', 'pip', 'install', '-r', (Join-Path $root 'src/integration-tests/requirements.txt'))
+$previousTestsExe = $env:DD_WIN_PROF_TESTS_EXE
+$env:DD_WIN_PROF_TESTS_EXE = Join-Path $build "src/Tests/$Configuration/Tests.exe"
+try { Run $python @('-m', 'unittest', 'discover', '-s', (Join-Path $root 'src/integration-tests'), '-p', 'test_*.py', '-v') }
+finally { $env:DD_WIN_PROF_TESTS_EXE = $previousTestsExe }
 $mock = Join-Path $root 'packages/profile-exporter/tests/mock_intake.py'
 $received = Join-Path $capture 'winhttp-received.zst.pprof'
 Run $python @($mock, '--probe', (Join-Path $build "packages/profile-exporter/$Configuration/exporter_probe.exe"), '--output', $received)

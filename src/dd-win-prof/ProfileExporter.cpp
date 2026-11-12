@@ -49,6 +49,7 @@ void ProfileExporter::Cleanup(bool) {
   _initialized = false;
   _httpExporter.reset();
   _httpTags.clear();
+  _consecutiveErrors = 0;
   _aggregator.reset();
   _symbolication.reset();
   _persistentSymbolCache.clear();
@@ -183,18 +184,22 @@ bool ProfileExporter::SendHttp(
         0
     };
     pe_result result{};
-    if (pe_exporter_send(_httpExporter.get(), &profile, &result) == PE_OK) {
-      Log::Info("Experimental HTTP export succeeded, HTTP: ", result.http_status);
+    const auto status = pe_exporter_send(_httpExporter.get(), &profile, &result);
+    if (status == PE_TRANSPORT) {
+      ++_consecutiveErrors;
+      Log::Warn("HTTP transport error: ", result.system_error);
+      return _consecutiveErrors < 3;
+    }
+    if (status == PE_OK || status == PE_HTTP) {
+      _consecutiveErrors = 0;
+      if (result.http_status == 403 || result.http_status == 404) return false;
+      if (status == PE_OK)
+        Log::Info("Experimental HTTP export succeeded, HTTP: ", result.http_status);
+      else
+        Log::Warn("HTTP error ", result.http_status, " (continuing)");
       return true;
     }
-    Log::Error(
-        "Experimental HTTP export failed: ",
-        result.status,
-        ", HTTP: ",
-        result.http_status,
-        ", system error: ",
-        result.system_error
-    );
+    Log::Error("HTTP request preparation failed: ", result.status);
   } catch (const std::exception& e) {
     Log::Error("HTTP export failed: ", e.what());
   }
@@ -400,7 +405,7 @@ void ProfileExporter::WriteDebugFiles(
   if (!_debugPprofFileWritingEnabled || _debugPprofPrefix.empty()) return;
   const auto stem = _debugPprofPrefix + std::to_string(endMs) + "_" +
                     std::to_string(_currentExportId);
-  std::ofstream profile(stem + ".zst.pprof", std::ios::binary);
+  std::ofstream profile(stem + ".zstd.pprof", std::ios::binary);
   profile.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
   if (!profile) Log::Warn("Failed to write debug profile");
   if (!rum.empty()) {

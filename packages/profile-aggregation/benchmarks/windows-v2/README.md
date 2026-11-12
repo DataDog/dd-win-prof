@@ -1,5 +1,7 @@
 # Windows aggregation: retained storage and string cache
 
+Historical **libdatadog v19** comparison. The [fresh v47 report](../windows-v47/README.md) applies to the realigned branch. Measurements and source snapshots below are unchanged; do not carry v19 speedups or LZ4 assumptions into v47.
+
 ## Result
 
 Normal exports now reuse working storage instead of freeing and rebuilding it. In the Windows churn workload (100 exports of 1,000 records), counted ingestion allocations fall from **2,300 to 13** for timestamped records and **3,200 to 15** for untimed records. These totals include warmup. Timestamped ingestion falls from 54.933 ms to 20.817 ms; equivalent flush falls from 82.249 ms to 60.952 ms. Cross-cohort timings are observations, not isolated causal estimates.

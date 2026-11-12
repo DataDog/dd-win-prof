@@ -9,10 +9,12 @@ PprofAggregator::PprofAggregator(
     std::span<const SampleValueType> types, int periodMs, ProfileEncodingApi api
 )
     : m_api(api) {
-  std::vector<pa_value_type> config;
+  std::vector<pa_value_type_view> config;
   for (const auto& type : types)
-    config.push_back({type.Name.c_str(), type.Unit.c_str()});
-  if (pa_create(
+    config.push_back(
+        {{type.Name.data(), type.Name.size()}, {type.Unit.data(), type.Unit.size()}}
+    );
+  if (pa_create_with_types(
           config.data(),
           config.size(),
           static_cast<int64_t>(periodMs) * 1000000,

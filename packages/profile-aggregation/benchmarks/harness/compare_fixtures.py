@@ -6,7 +6,6 @@ against the shared recipe, compares normalized backends, and checks timed C byte
 """
 import argparse
 import hashlib
-import io
 import json
 import re
 from collections import Counter
@@ -73,8 +72,13 @@ def decompress(path):
     data = path.read_bytes()
     if data.startswith(bytes.fromhex("28b52ffd")):
         import zstandard
-        with zstandard.ZstdDecompressor().stream_reader(io.BytesIO(data)) as stream:
-            return stream.read()
+        frames = []
+        while data:
+            decoder = zstandard.ZstdDecompressor().decompressobj()
+            frames.append(decoder.decompress(data))
+            assert decoder.eof, "incomplete Zstd frame: %s" % path
+            data = decoder.unused_data
+        return b"".join(frames)
     if data.startswith(bytes.fromhex("04224d18")):
         import lz4.frame
         return lz4.frame.decompress(data)
@@ -146,8 +150,9 @@ def expected(workload, timestamped, count, begin):
     return samples
 
 
-def validate_directory(directory, require_v19=False, fixture_samples=6000, flush_every=1000):
-    pattern = re.compile(r"(core|core_timed|v19)-(repeated|unique|deep256|labels|churn)-t([01])-(\d+)\.pprof$")
+def validate_directory(directory, require_v19=False, fixture_samples=6000, flush_every=1000, require_v47=False):
+    assert not (require_v19 and require_v47), "select one baseline version"
+    pattern = re.compile(r"(core|core_timed|v19|v47)-(repeated|unique|deep256|labels|churn)-t([01])-(\d+)\.pprof$")
     grouped, report = {}, []
     for path in sorted(directory.glob("*.pprof")):
         match = pattern.fullmatch(path.name)
@@ -168,8 +173,10 @@ def validate_directory(directory, require_v19=False, fixture_samples=6000, flush
     assert grouped, "no fixtures"
     for key, backends in grouped.items():
         assert {"core", "core_timed"} <= set(backends), "missing normal/timed fixture: %s" % (key,)
-        if require_v19:
-            assert "v19" in backends, "missing baseline fixture: %s" % (key,)
+        if require_v19 or require_v47:
+            baseline = "v47" if require_v47 else "v19"
+            assert set(backends) == {"core", "core_timed", baseline}, "missing/wrong baseline fixture: %s" % (key,)
+        assert not {"v19", "v47"} <= set(backends), "mixed baseline versions"
         assert backends["core"][1].read_bytes() == backends["core_timed"][1].read_bytes(), "instrumentation changed bytes"
         for samples, _ in backends.values():
             assert samples == backends["core"][0]
@@ -179,18 +186,20 @@ def validate_directory(directory, require_v19=False, fixture_samples=6000, flush
             cycles = (fixture_samples + flush_every - 1) // flush_every if workload == "churn" else 1
             for cycle in range(cycles):
                 assert (workload, ts, cycle) in grouped, "missing fixture group"
-    return {"result": "PASS", "groups": len(grouped), "files": report}
+    return {"result": "PASS", "baseline_version": "v47.0.0" if require_v47 else "v19.0.0" if require_v19 else "none", "groups": len(grouped), "files": report}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path)
-    parser.add_argument("--require-v19", action="store_true")
+    baseline = parser.add_mutually_exclusive_group()
+    baseline.add_argument("--require-v19", action="store_true")
+    baseline.add_argument("--require-v47", action="store_true")
     parser.add_argument("--samples", type=int, default=6000)
     parser.add_argument("--flush-every", type=int, default=1000)
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
-    report = validate_directory(args.directory, args.require_v19, args.samples, args.flush_every)
+    report = validate_directory(args.directory, args.require_v19, args.samples, args.flush_every, require_v47=args.require_v47)
     if args.report:
         args.report.write_text(json.dumps(report, indent=2) + "\n")
     print("PASS: %d fixture groups independently decoded, recipe-checked, and compared" % report["groups"])

@@ -22,7 +22,7 @@
 #include <mach/mach.h>
 #endif
 #endif
-#ifdef PA_BENCH_V19
+#if defined(PA_BENCH_V19) || defined(PA_BENCH_V47)
 #include <datadog/profiling.h>
 #else
 #include "profile_aggregation.h"
@@ -97,21 +97,26 @@ struct Allocator {
     a.event(n,0,false); std::free(p);
   }
 };
-#ifdef PA_BENCH_V19
+#if defined(PA_BENCH_V19) || defined(PA_BENCH_V47)
 // Only public result unions and API-owned opaque handles are used.
 template<class R, class Tag> static auto unwrap(R r, Tag success) {
-  if (r.tag != success) { ddog_Error_drop(&r.err); throw std::runtime_error("v19 API error"); }
+  if (r.tag != success) { ddog_Error_drop(&r.err); throw std::runtime_error("libdatadog public API error"); }
   return r.ok;
 }
-static void check(ddog_VoidResult r) { if (r.tag != DDOG_VOID_RESULT_OK) { ddog_Error_drop(&r.err); throw std::runtime_error("v19 sample error"); } }
+static void check(ddog_VoidResult r) { if (r.tag != DDOG_VOID_RESULT_OK) { ddog_Error_drop(&r.err); throw std::runtime_error("libdatadog sample error"); } }
 using String = ddog_prof_StringId; using Function = ddog_prof_FunctionId; using Location = ddog_prof_LocationId;
 using Stack = ddog_prof_StackTraceId; using Labels = ddog_prof_LabelSetId;
 struct Backend {
   ddog_prof_Profile p{}; ddog_prof_EncodedProfile encoded{}; bool has_output = false;
   String empty = ddog_prof_Profile_interned_empty_string();
   explicit Backend(Allocator&) {
+#ifdef PA_BENCH_V47
+    const ddog_prof_SampleType types[] = {DDOG_PROF_SAMPLE_TYPE_CPU_TIME, DDOG_PROF_SAMPLE_TYPE_WALL_TIME};
+#else
     ddog_prof_ValueType types[] = {{{"cpu-time",8},{"nanoseconds",11}},{{"wall-time",9},{"nanoseconds",11}}};
-    ddog_prof_Period period{types[0],10000000}; p = unwrap(ddog_prof_Profile_new({types,2}, &period), DDOG_PROF_PROFILE_NEW_RESULT_OK);
+#endif
+    ddog_prof_Period period{types[0],10000000};
+    p = unwrap(ddog_prof_Profile_new({types,2}, &period), DDOG_PROF_PROFILE_NEW_RESULT_OK);
   }
   String string(const char* s) { return unwrap(ddog_prof_Profile_intern_string(&p, {s,std::strlen(s)}), DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID); }
   Function function() { return unwrap(ddog_prof_Profile_intern_function(&p,empty,empty,empty), DDOG_PROF_FUNCTION_ID_RESULT_OK_GENERATIONAL_ID_FUNCTION_ID); }
@@ -127,7 +132,11 @@ struct Backend {
   void free_output() { if (has_output) { ddog_prof_EncodedProfile_drop(&encoded); has_output = false; } }
   ~Backend() { free_output(); ddog_prof_Profile_drop(&p); }
 };
+#ifdef PA_BENCH_V47
+static const char* backend_name = "v47_cffi";
+#else
 static const char* backend_name = "v19_cffi";
+#endif
 #else
 static void check(pa_status s) { require(s == PA_OK, "C API status failure"); }
 using String = pa_id; using Function = pa_id; using Location = pa_id; using Stack = pa_id; using Labels = pa_id;
@@ -200,7 +209,7 @@ static Options options(int argc,char** argv) {
   require(o.samples>0 && o.samples<=10000000 && o.flush_every>0 && o.cycles>0 && o.cycles<=1000,"counts out of range");
   require(o.workload=="repeated" || o.workload=="unique" || o.workload=="deep256" || o.workload=="labels" || o.workload=="churn" || o.workload=="recovery","invalid workload");
   require(o.mode=="throughput" || o.mode=="latency" || o.mode=="discard","invalid mode");
-#ifdef PA_BENCH_V19
+#if defined(PA_BENCH_V19) || defined(PA_BENCH_V47)
   require(!o.alloc_stats,"baseline allocator totals unavailable; cannot enable instrumentation");
 #endif
   require(!o.alloc_stats || o.mode=="throughput","allocation diagnostics must be a separate throughput run");
@@ -226,7 +235,7 @@ int main(int argc,char** argv) try {
   auto stages=csv(o.output+"-stages.csv","cycle,phase,samples,ns,compression_ns,noncompression_serialization_ns,compression_calls,protobuf_bytes,compressed_bytes,core_allocations,core_allocated_bytes,core_frees,core_live_bytes,core_peak_bytes");
   auto mem=csv(o.output+"-memory.csv","cycle,stage,samples,current_working_set_bytes,peak_working_set_bytes,private_committed_bytes,peak_process_commit_bytes");
   auto lat=csv(o.output+"-latency.csv","sample_index,ns");
-  auto totals=csv(o.output+"-summary.csv","backend,workload,mode,timestamped,allocator_instrumented,samples,flushes,setup_ns,ingest_ns,serialize_ns,explicit_reset_ns,output_free_ns,destroy_ns,compressed_bytes,allocation_events_dropped,clock_p50_ns,clock_p95_ns,clock_p99_ns,clock_max_ns,record_p50_ns,record_p95_ns,record_p99_ns,record_max_ns,record_max_index,compression_ns,noncompression_serialization_ns,protobuf_bytes");
+  auto totals=csv(o.output+"-summary.csv","result_version,baseline_version,backend,workload,mode,timestamped,allocator_instrumented,samples,flushes,setup_ns,ingest_ns,serialize_ns,explicit_reset_ns,output_free_ns,destroy_ns,compressed_bytes,allocation_events_dropped,clock_p50_ns,clock_p95_ns,clock_p99_ns,clock_max_ns,record_p50_ns,record_p95_ns,record_p99_ns,record_max_ns,record_max_index,compression_ns,noncompression_serialization_ns,protobuf_bytes");
   // Measure paired empty reads; do not subtract this noisy estimate from samples.
   std::vector<Latency> empty; empty.reserve(10000);
   for(size_t i=0;i<10000;++i) { auto t=tick(); auto d=tick()-t; empty.push_back({d,i}); }
@@ -292,11 +301,11 @@ int main(int argc,char** argv) try {
       compression_ns=0; compression_calls=0; protobuf_bytes=0;
 #endif
       encode_ns+=phase(cycle,"serialize",n,[&]{b->encode(total);});
-      auto bytes=b->bytes(); compressed+=bytes.len; // C sink and v19 both retain full output.
+      auto bytes=b->bytes(); compressed+=bytes.len; // Both backends retain full output.
       snapshot(cycle,"afterencode",n);
       if(!o.fixture.empty()) { std::ofstream file(o.fixture+"-"+std::to_string(cycle)+".pprof",std::ios::binary); require(bool(file),"fixture open failed"); file.write(reinterpret_cast<const char*>(bytes.ptr),bytes.len); require(bool(file),"fixture write failed"); }
     }
-    // v19 serialize already drains/resets. This redundant reset models the old
+    // libdatadog serialize already drains/resets. This redundant reset models the
     // adapter, and is deliberately reported separately from its implicit reset.
     reset_ns+=phase(cycle,"explicitreset",n,[&]{b->reset();});
     free_ns+=phase(cycle,"output_free",n,[&]{b->free_output();});
@@ -306,7 +315,7 @@ int main(int argc,char** argv) try {
   snapshot(cycles,"afterdestroy",0);
   for(auto v:latency) lat<<v.index<<','<<v.ns<<'\n';
   std::sort(latency.begin(),latency.end(),[](auto a,auto b){return a.ns<b.ns || (a.ns==b.ns && a.index<b.index);});
-  totals<<backend_name<<','<<o.workload<<','<<o.mode<<','<<o.timestamped<<','<<o.alloc_stats<<','<<total<<','<<flushes<<','<<setup_ns<<','<<ingest_ns<<','<<encode_ns<<','<<reset_ns<<','<<free_ns<<','<<destroy_ns<<','<<compressed<<',';
+  totals<<"v2-v"<<PA_BENCH_BASELINE_VERSION<<','<<PA_BENCH_BASELINE_VERSION<<','<<backend_name<<','<<o.workload<<','<<o.mode<<','<<o.timestamped<<','<<o.alloc_stats<<','<<total<<','<<flushes<<','<<setup_ns<<','<<ingest_ns<<','<<encode_ns<<','<<reset_ns<<','<<free_ns<<','<<destroy_ns<<','<<compressed<<',';
   if(o.alloc_stats) totals<<alloc.dropped_events<<','; else totals<<"NA,";
   totals<<percentile(empty,50).ns<<','<<percentile(empty,95).ns<<','<<percentile(empty,99).ns<<','<<empty.back().ns<<',';
   if(latency.empty()) totals<<"NA,NA,NA,NA,NA";

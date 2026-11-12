@@ -253,7 +253,7 @@ static void file_part(writer* w, pe_slice name) {
 }
 static void event(writer* w, const pe_profile* p, const char* start, const char* end) {
   part(w, "event", "application/json");
-  lit(w, "{\"attachments\":[\"auto.pprof\"");
+  lit(w, "{\"attachments\":[\"profile.pprof\"");
   for (size_t i = 0; i < p->file_count; ++i) {
     lit(w, ",");
     quoted(w, p->files[i].name);
@@ -283,7 +283,7 @@ static int filename_ok(pe_slice s) {
     if (!((p[i] >= 'a' && p[i] <= 'z') || (p[i] >= 'A' && p[i] <= 'Z') ||
           (p[i] >= '0' && p[i] <= '9') || p[i] == '.' || p[i] == '-' || p[i] == '_'))
       return 0;
-  return !(s.len == 10 && !memcmp(s.ptr, "auto.pprof", 10)) &&
+  return !(s.len == 13 && !memcmp(s.ptr, "profile.pprof", 13)) &&
          !(s.len == 5 && !memcmp(s.ptr, "event", 5));
 }
 static int collision(pe_slice s) {
@@ -330,7 +330,7 @@ pe_status pe_request_build(const pe_profile* p, pe_request* out) {
   event(&w, p, start, end);
   for (size_t i = 0; i < p->file_count; ++i) file_part(&w, p->files[i].name);
   lit(&w, "\r\n");
-  part(&w, "auto.pprof", "application/octet-stream");
+  part(&w, "profile.pprof", "application/octet-stream");
   lit(&w, "\r\n--" PE_BOUNDARY "--\r\n");
   if (w.status != PE_OK) return w.status;
   if (payload > UINT32_MAX - w.len) return PE_TOO_LARGE;
@@ -353,7 +353,7 @@ pe_status pe_request_build(const pe_profile* p, pe_request* out) {
     previous = w.len;
   }
   lit(&w, "\r\n");
-  part(&w, "auto.pprof", "application/octet-stream");
+  part(&w, "profile.pprof", "application/octet-stream");
   segments[n++] = (pe_slice){w.data + previous, w.len - previous};
   segments[n++] = p->pprof;
   previous = w.len;

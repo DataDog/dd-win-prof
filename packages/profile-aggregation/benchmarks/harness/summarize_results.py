@@ -5,6 +5,7 @@ import json
 import statistics
 from collections import defaultdict
 from pathlib import Path
+from result_metadata import run_identity, check_row, check_manifest
 
 parser = argparse.ArgumentParser()
 parser.add_argument('artifacts', type=Path)
@@ -23,9 +24,12 @@ def distribution(values):
             'q75': percentile(values, .75), 'min': min(values), 'max': max(values)}
 
 manifest = {}
+identities = {}
 for path in args.artifacts.rglob('jobs.csv'):
     result = json.loads((path.parent / 'result.json').read_text(encoding='utf-8-sig'))
+    identities[path.parent] = run_identity(path.parent)
     jobs = list(csv.DictReader(path.open(encoding='utf-8-sig')))
+    check_manifest(jobs, identities[path.parent][2], identities[path.parent][0])
     if result['result'] != 'PASS' or len(jobs) != result['jobs'] or len({j['id'] for j in jobs}) != len(jobs):
         raise SystemExit(f'Incomplete or failed run: {path.parent}')
     for row in jobs:
@@ -43,21 +47,25 @@ for path in sorted(actual):
         raise SystemExit(f'Expected one summary row: {path}')
     row = measured[0]
     row['_path'] = str(path.relative_to(args.artifacts))
-    row['group'] = manifest[(path.parent, path.name.removesuffix('-summary.csv'))]['group']
+    job = manifest[(path.parent, path.name.removesuffix('-summary.csv'))]
+    version, baseline, _ = identities[path.parent]
+    check_row(row, job, version)
+    row['result_version'], row['baseline_version'] = version, baseline
+    row['group'] = job['group']
     rows.append(row)
 if not rows:
     raise SystemExit('No v2 summary CSVs found')
 
 groups = defaultdict(list)
 for row in rows:
-    key = tuple(row[k] for k in ['group', 'backend', 'workload', 'mode', 'timestamped',
+    key = tuple(row[k] for k in ['result_version', 'baseline_version', 'group', 'backend', 'workload', 'mode', 'timestamped',
                                  'allocator_instrumented', 'samples'])
     groups[key].append(row)
 
 results = []
 for key, items in sorted(groups.items()):
-    group, backend, workload, mode, timestamped, instrumented, count = key
-    result = {'group': group, 'backend': backend, 'workload': workload, 'mode': mode,
+    version, baseline, group, backend, workload, mode, timestamped, instrumented, count = key
+    result = {'result_version': version, 'baseline_version': baseline, 'group': group, 'backend': backend, 'workload': workload, 'mode': mode,
               'timestamped': timestamped == '1', 'allocator_instrumented': instrumented == '1',
               'samples': int(count), 'repetitions': len(items), 'files': [x['_path'] for x in items]}
     for column in ['setup_ns', 'ingest_ns', 'serialize_ns', 'explicit_reset_ns',
@@ -69,43 +77,47 @@ for key, items in sorted(groups.items()):
         if values:
             result[column] = distribution(values)
     if mode != 'discard':
-        # v19 serialization includes its reset. Its redundant explicit reset is
+        # libdatadog serialization includes its reset. Its redundant explicit reset is
         # recorded separately, but is not part of the minimal equivalent flush.
-        values = [int(x['serialize_ns']) + (0 if backend == 'v19_cffi' else int(x['explicit_reset_ns'])) for x in items]
+        values = [int(x['serialize_ns']) + (0 if backend in ('v19_cffi', 'v47_cffi') else int(x['explicit_reset_ns'])) for x in items]
         result['equivalent_flush_ns'] = distribution(values)
+        result['whole_flush_and_free_ns'] = distribution([value + int(item['output_free_ns']) for value, item in zip(values, items)])
     results.append(result)
 
 comparisons = []
 for result in results:
     if result['backend'] != 'c' or result['allocator_instrumented']:
         continue
-    other = next((x for x in results if x['backend'] == 'v19_cffi' and
-                  all(x[k] == result[k] for k in ['group', 'workload', 'mode', 'timestamped', 'samples', 'allocator_instrumented'])), None)
+    baseline_name = 'v47' if result['baseline_version'] == 'v47.0.0' else 'v19'
+    other = next((x for x in results if x['backend'] == baseline_name + '_cffi' and
+                  all(x[k] == result[k] for k in ['result_version', 'baseline_version', 'group', 'workload', 'mode', 'timestamped', 'samples', 'allocator_instrumented'])), None)
     if not other:
         continue
-    comparison = {k: result[k] for k in ['group', 'workload', 'mode', 'timestamped', 'samples']}
-    for field in ['ingest_ns', 'equivalent_flush_ns', 'explicit_reset_ns']:
+    comparison = {k: result[k] for k in ['result_version', 'baseline_version', 'group', 'workload', 'mode', 'timestamped', 'samples']}
+    for field in ['ingest_ns', 'whole_flush_and_free_ns', 'equivalent_flush_ns', 'explicit_reset_ns']:
         if field in result and field in other:
             c, baseline = result[field]['median'], other[field]['median']
-            comparison[field] = {'c_median_ns': c, 'v19_median_ns': baseline,
+            comparison[field] = {'c_median_ns': c, baseline_name + '_median_ns': baseline,
                                  'c_delta_percent': (c / baseline - 1) * 100 if baseline else None}
     comparisons.append(comparison)
 
 report = {'groups': results, 'comparisons': comparisons,
           'notes': ['Primary throughput excludes per-record clocks and allocator counting.',
                     'Latency, compression hooks and allocation diagnostics are separate groups.',
-                    'v19 serialization includes implicit reset; redundant explicit reset is excluded from equivalent flush.',
+                    'libdatadog v19/v47 serialization includes implicit reset; redundant explicit reset is excluded from equivalent flush.',
                     'Reported spreads are observed repetitions, not statistical confidence intervals.']}
 args.output.parent.mkdir(parents=True, exist_ok=True)
 args.output.write_text(json.dumps(report, indent=2) + '\n')
 for row in comparisons:
     if row['group'] != 'primary':
         continue
+    baseline_name = 'v47' if row['baseline_version'] == 'v47.0.0' else 'v19'
+    metric = baseline_name + '_median_ns'
     ingest = row['ingest_ns']
-    flush = row['equivalent_flush_ns']
+    flush = row['whole_flush_and_free_ns']
     print(f"{row['workload']:10} timed={int(row['timestamped'])} n={row['samples']:>7} "
-          f"ingest C/v19={ingest['c_median_ns']/1e6:.3f}/{ingest['v19_median_ns']/1e6:.3f}ms "
+          f"ingest C/{baseline_name}={ingest['c_median_ns']/1e6:.3f}/{ingest[metric]/1e6:.3f}ms "
           f"({ingest['c_delta_percent']:+.1f}%) "
-          f"flush C/v19={flush['c_median_ns']/1e6:.3f}/{flush['v19_median_ns']/1e6:.3f}ms "
+          f"flush+free C/{baseline_name}={flush['c_median_ns']/1e6:.3f}/{flush[metric]/1e6:.3f}ms "
           f"({flush['c_delta_percent']:+.1f}%)")
 print(f'{len(rows)} raw runs, {len(results)} groups; report: {args.output}')
