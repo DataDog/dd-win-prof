@@ -15,14 +15,21 @@
 .PARAMETER NoOpen
     Skip opening the solution in Visual Studio after generation.
 
+.PARAMETER Asan
+    Configure the solution with AddressSanitizer enabled
+    (-DDD_WIN_PROF_ENABLE_ASAN=ON). Affects all configs in the resulting
+    solution; use a separate -BuildDir to keep ASan and non-ASan builds.
+
 .EXAMPLE
     .\scripts\generate-vs.ps1
     .\scripts\generate-vs.ps1 -BuildDir out\vs -NoOpen
+    .\scripts\generate-vs.ps1 -BuildDir build-asan -Asan
 #>
 param(
     [string]$BuildDir = "build",
     [string]$Generator = "Visual Studio 17 2022",
-    [switch]$NoOpen
+    [switch]$NoOpen,
+    [switch]$Asan
 )
 
 $ErrorActionPreference = "Stop"
@@ -30,8 +37,14 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 Push-Location $ProjectRoot
 try {
+    $cmakeArgs = @("-G", $Generator, "-B", $BuildDir)
+    if ($Asan) {
+        Write-Host "AddressSanitizer ENABLED (DD_WIN_PROF_ENABLE_ASAN=ON)" -ForegroundColor Yellow
+        $cmakeArgs += "-DDD_WIN_PROF_ENABLE_ASAN=ON"
+    }
+
     Write-Host "Generating Visual Studio solution in '$BuildDir'..." -ForegroundColor Cyan
-    cmake -G "$Generator" -B "$BuildDir"
+    cmake @cmakeArgs
     if ($LASTEXITCODE -ne 0) {
         Write-Error "CMake configure failed."
         exit 1

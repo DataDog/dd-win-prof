@@ -23,6 +23,10 @@ set_property(TARGET Runner PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
 # Runner target looks "up-to-date" to MSBuild, and its POST_BUILD step is
 # skipped -- so the Runner output directory keeps a stale DLL.
 #
+# cmake -E copy_directory is not used: it fails the whole copy when a
+# destination DLL is still mapped. copy_directory_replace.cmake renames
+# in-use files aside and copies the new ones in.
+#
 # A per-config stamp file acts as the command's OUTPUT (target-dependent
 # generator expressions aren't allowed in OUTPUT, so we can't use the copied
 # DLL's path directly). The stamp is touched after the copy and, being newer
@@ -32,9 +36,10 @@ set_property(TARGET Runner PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
 set(_runner_runtime_deps_stamp "${CMAKE_CURRENT_BINARY_DIR}/runtime_deps_$<CONFIG>.stamp")
 add_custom_command(
     OUTPUT "${_runner_runtime_deps_stamp}"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${WINDOWSPROFILER_ROOT_DIR}/src/reference"
-        "$<TARGET_FILE_DIR:Runner>"
+    COMMAND ${CMAKE_COMMAND}
+        "-DSRC=${WINDOWSPROFILER_ROOT_DIR}/src/reference"
+        "-DDST=$<TARGET_FILE_DIR:Runner>"
+        -P "${WINDOWSPROFILER_ROOT_DIR}/cmake/copy_directory_replace.cmake"
     COMMAND ${CMAKE_COMMAND} -E touch "${_runner_runtime_deps_stamp}"
     DEPENDS $<TARGET_FILE:dd-win-prof>
     COMMENT "Copying reference binaries to Runner output directory"
@@ -43,3 +48,8 @@ add_custom_command(
 add_custom_target(Runner_runtime_deps DEPENDS "${_runner_runtime_deps_stamp}")
 add_dependencies(Runner_runtime_deps dd-win-prof)
 add_dependencies(Runner Runner_runtime_deps)
+
+# When ASan is on, Runner.exe (and the dd-win-prof.dll it loads) are both
+# instrumented and need the MSVC ASan runtime DLL alongside the executable.
+# No-op when DD_WIN_PROF_ENABLE_ASAN is OFF.
+dd_win_prof_copy_asan_runtime(Runner)

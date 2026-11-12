@@ -4,6 +4,7 @@
 
 #include "ThreadList.h"
 
+#include "OsSpecificApi.h"
 #include "pch.h"
 
 const std::uint32_t ThreadList::DefaultThreadListSize = 50;
@@ -44,13 +45,40 @@ void ThreadList::RemoveThread(uint32_t tid) {
   }
 }
 
+std::shared_ptr<ThreadInfo> ThreadList::GetThread(uint32_t threadId) {
+  std::lock_guard<std::recursive_mutex> lock(_mutex);
+
+  for (auto& pInfo : _threads) {
+    if (pInfo->GetThreadId() == threadId) {
+      return pInfo;
+    }
+  }
+
+  return nullptr;
+}
+
 size_t ThreadList::Count() {
   std::lock_guard<std::recursive_mutex> lock(_mutex);
 
   return _threads.size();
 }
 
+void ThreadList::ResetProfilingState() {
+  std::lock_guard<std::recursive_mutex> lock(_mutex);
+
+  // StackSamplerLoop creates two iterators per session. The previous loop has
+  // already stopped, so its iterator slots can be discarded.
+  _iterators.clear();
+
+  for (auto& pInfo : _threads) {
+    auto cpuConsumption = OsSpecificApi::GetThreadCpuTime(pInfo->GetOsThreadHandle());
+    pInfo->ResetProfilingState(cpuConsumption);
+  }
+}
+
 uint32_t ThreadList::CreateIterator() {
+  std::lock_guard<std::recursive_mutex> lock(_mutex);
+
   uint32_t iterator = static_cast<uint32_t>(_iterators.size());
   _iterators.push_back(0);
   return iterator;
@@ -83,7 +111,13 @@ std::shared_ptr<ThreadInfo> ThreadList::LoopNext(uint32_t iterator) {
 
   _iterators[iterator] = pos;
 
-  if (startPos == pos) {
+  // Check if we actually found a valid thread.
+  // The loop exits when startPos == pos OR when we find a valid thread.
+  // If pInfo is invalid, it means we completed a full circle without finding
+  // any valid thread. If pInfo is valid, return it even if startPos == pos
+  // (which happens when the valid thread sits just before the start position).
+  if (pInfo->GetOsThreadHandle() == static_cast<HANDLE>(NULL) ||
+      pInfo->GetOsThreadHandle() == INVALID_HANDLE_VALUE) {
     return nullptr;
   }
 

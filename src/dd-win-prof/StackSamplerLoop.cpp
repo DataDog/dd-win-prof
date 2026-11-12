@@ -125,25 +125,26 @@ void StackSamplerLoop::CpuProfilingIteration() {
         //       maybe the cpu iteration should happen before the walltime iteration?
         pThreadInfo->SetLastWaitSampleTimestamp(0ns);
 
-        auto cpuForSample = currentConsumption - lastConsumption;
+        auto cpuDelta = currentConsumption - lastConsumption;
 
         // we don't collect a sample for this thread is no CPU was consumed since the
         // last check
-        if (cpuForSample > 0ms) {
+        if (cpuDelta > 0ms) {
           auto lastCpuTimestamp = pThreadInfo->GetCpuTimestamp();
           auto thisSampleTimestamp = OpSysTools::GetHighPrecisionTimestamp();
+
+          // Work in nanoseconds to avoid precision loss when capping.
+          std::chrono::nanoseconds cpuForSample = cpuDelta;
 
           // For the first computation, no need to deal with overlapping CPU usage
           if (lastCpuTimestamp != 0ns) {
             // detect overlapping CPU usage
             auto threshold = lastCpuTimestamp + cpuForSample;
             if (threshold > thisSampleTimestamp) {
-              // ensure that we don't overlap
-              // -> only the largest possibly CPU consumption is accounted = diff
-              // between the 2 timestamps
-              cpuForSample = std::chrono::duration_cast<std::chrono::milliseconds>(
-                  thisSampleTimestamp - lastCpuTimestamp - 1us
-              );  // removing 1 microsecond to be sure;
+              // Cap to elapsed wall-clock time to avoid over-counting.
+              // Subtract 1µs safety margin to avoid attributing 100% CPU.
+              auto elapsed = thisSampleTimestamp - lastCpuTimestamp;
+              cpuForSample = elapsed > 1us ? elapsed - 1us : 0ns;
             }
           }
 
@@ -209,14 +210,17 @@ void StackSamplerLoop::WalltimeProfilingIteration() {
         pThreadInfo->SetLastWalltimeSampleTimestamp(thisSampleTimestamp);
     auto duration = ComputeWallTime(thisSampleTimestamp, prevSampleTimestamp);
 
-    // check if the thread is waiting and for for which reason
+    // check if the thread is waiting and for which reason
     auto [isWaiting, waitReason, failure] =
         OsSpecificApi::IsWaiting(pThreadInfo->GetOsThreadHandle());
-    if (failure || !isWaiting) {
+    if (failure || !isWaiting || pThreadInfo->IsHangDetected()) {
+      //                                      ^-- during a hang, we don't want to emit
+      // wait sample to avoid double counting the wait time (the hang is already counted
+      // as wait time) but still emit a walltime sample
       waitReason = WAIT_REASON_NONE;
     }
 
-    // get callstack and create sample (possibly mixed with wait information)
+    // get callstack and create sample
     CollectOneThreadSample(
         pThreadInfo, thisSampleTimestamp, duration, PROFILING_TYPE::WallTime, waitReason
     );
@@ -234,8 +238,14 @@ void StackSamplerLoop::CollectOneThreadSample(
     PROFILING_TYPE profilingType,
     ULONG waitingReason
 ) {
-  // the thread needs to be suspended before capturing the stack
-  if (!_stackFrameCollector.TrySuspendThread(pThreadInfo)) {
+  // Suspend the thread AND grab its CONTEXT in one shot. The CONTEXT acts both
+  // as the suspend-fence (per Raymond Chen) and as the unwind seed below, so we
+  // pay for a single GetThreadContext per sample instead of two.
+  // The CONTEXT is ~1.2 KB on x64; we keep a single instance on the stack and
+  // let CaptureStack mutate it in place (RtlVirtualUnwind rewrites the
+  // register state frame-by-frame) instead of copying it.
+  CONTEXT seedContext;
+  if (!_stackFrameCollector.TrySuspendThread(pThreadInfo, seedContext)) {
     return;
   }
 
@@ -243,7 +253,7 @@ void StackSamplerLoop::CollectOneThreadSample(
   uint64_t frames[MaxFrameCount];
   uint16_t framesCount = MaxFrameCount;
   bool isStackCaptured = (_stackFrameCollector.CaptureStack(
-      pThreadInfo->GetOsThreadHandle(), frames, framesCount, isTruncated
+      pThreadInfo->GetOsThreadHandle(), seedContext, frames, framesCount, isTruncated
   ));
   // resume the thread before doing any allocation that could cause a deadlock
   ::ResumeThread(pThreadInfo->GetOsThreadHandle());

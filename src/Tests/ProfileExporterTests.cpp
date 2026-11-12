@@ -5,7 +5,9 @@
 #include <Windows.h>
 #include <gtest/gtest.h>
 
+#include <filesystem>
 #include <memory>
+#include <thread>
 #include <vector>
 
 #include "../dd-win-prof/Configuration.h"
@@ -14,11 +16,13 @@
 #include "../dd-win-prof/SampleValueType.h"
 #include "../dd-win-prof/TagsHelper.h"
 #include "../dd-win-prof/ThreadInfo.h"
+#include "LocalHttpServer.h"
 #include "pch.h"
 
 class ProfileExporterExportTests : public ::testing::Test {
  protected:
   void SetUp() override {
+    previousValuesCount = Sample::ValuesCount;
     // Create configuration and disable export for tests
     config = std::make_unique<Configuration>();
     config->SetExportEnabled(
@@ -38,8 +42,16 @@ class ProfileExporterExportTests : public ::testing::Test {
   void TearDown() override {
     exporter.reset();
     config.reset();
+    Sample::SetValuesCount(previousValuesCount);
+    if (!debugOutputDirectory.empty()) {
+      std::error_code error;
+      std::filesystem::remove_all(debugOutputDirectory, error);
+      EXPECT_FALSE(error) << error.message();
+    }
   }
 
+  std::filesystem::path debugOutputDirectory;
+  size_t previousValuesCount;
   std::unique_ptr<Configuration> config;
   std::vector<SampleValueType> sampleTypes;
   std::unique_ptr<ProfileExporter> exporter;
@@ -49,7 +61,6 @@ TEST_F(ProfileExporterExportTests, InitializationWithExportEnabled) {
   // Test that exporter initializes correctly with export enabled
   ASSERT_TRUE(exporter->Initialize());
   EXPECT_TRUE(exporter->IsInitialized());
-  EXPECT_TRUE(exporter->GetLastError().empty());
 }
 
 TEST_F(ProfileExporterExportTests, ExportWithoutSamples) {
@@ -58,6 +69,27 @@ TEST_F(ProfileExporterExportTests, ExportWithoutSamples) {
 
   // Export should succeed even with no samples
   EXPECT_TRUE(exporter->Export());
+}
+
+TEST_F(ProfileExporterExportTests, DebugProfileUsesZstdSuffix) {
+  debugOutputDirectory =
+      std::filesystem::temp_directory_path() /
+      ("dd-win-prof-debug-" + std::to_string(::GetCurrentProcessId()) + "-" +
+       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  ASSERT_TRUE(std::filesystem::create_directory(debugOutputDirectory));
+  exporter->SetDebugPprofPrefix((debugOutputDirectory / "profile_").string());
+  exporter->SetDebugPprofFileWritingEnabled(true);
+  ASSERT_TRUE(exporter->Initialize());
+  ASSERT_TRUE(exporter->Export());
+
+  std::vector<std::filesystem::path> profiles;
+  for (const auto& entry : std::filesystem::directory_iterator(debugOutputDirectory)) {
+    if (entry.path().extension() == ".pprof") {
+      profiles.push_back(entry.path());
+    }
+  }
+  ASSERT_EQ(profiles.size(), 1);
+  EXPECT_TRUE(profiles.front().filename().string().ends_with(".zstd.pprof"));
 }
 
 TEST_F(ProfileExporterExportTests, ExportWithSamples) {
@@ -188,10 +220,6 @@ TEST_F(ProfileExporterExportTests, ConfigurationIntegration) {
   EXPECT_TRUE(exporter->Export());
 }
 
-// Note: These tests will attempt to connect to localhost:8126 (Datadog Agent)
-// If no agent is running, the export will fail but the test should still pass
-// since we're testing the export logic, not the actual network connectivity
-
 // ===========================================================================
 // noEnvVars scenarios -- exporter with defaults-only and overridden config
 // ===========================================================================
@@ -312,9 +340,7 @@ TEST_F(ProfileExporterExportTests, ExporterInitializesWithDefaultsAndExportEnabl
   Sample::SetValuesCount(types.size());
 
   auto exp = std::make_unique<ProfileExporter>(agentConfig.get(), types);
-  ASSERT_TRUE(exp->Initialize())
-      << "Exporter should initialize with default agent config: "
-      << exp->GetLastError();
+  ASSERT_TRUE(exp->Initialize());
   EXPECT_TRUE(exp->IsInitialized());
 
   // Explicit cleanup before destruction to avoid potential deadlocks
@@ -408,4 +434,236 @@ TEST(ProfileExporterBuildRumTags, AllSessionAndViewIdsAreEmittedWithoutACap) {
     EXPECT_EQ(tags[1 + sessionIds.size() + i].first, "rum.view_id");
     EXPECT_EQ(tags[1 + sessionIds.size() + i].second, viewIds[i]);
   }
+}
+
+TEST(ProfileExporterEndpointTests, AgentlessCopiesEndpointInputs) {
+  ddog_prof_ProfileExporter_Result created;
+  {
+    const std::string site = "example.invalid";
+    const std::string key = "local-test-key";
+    auto endpoint = ddog_prof_Endpoint_agentless(
+        {site.data(), site.size()}, {key.data(), key.size()}, 10000, false
+    );
+    created = ddog_prof_Exporter_new(
+        {"endpoint-test", 13}, {"1", 1}, {"windows", 7}, nullptr, endpoint
+    );
+  }
+  ASSERT_EQ(created.tag, DDOG_PROF_PROFILE_EXPORTER_RESULT_OK_HANDLE_PROFILE_EXPORTER);
+  auto runtime = ddog_prof_Exporter_init_runtime(&created.ok);
+  EXPECT_EQ(runtime.tag, DDOG_VOID_RESULT_OK);
+  if (runtime.tag == DDOG_VOID_RESULT_ERR) ddog_Error_drop(&runtime.err);
+  ddog_prof_Exporter_drop(&created.ok);
+  EXPECT_EQ(created.ok.inner, nullptr);
+}
+
+namespace {
+Configuration HttpConfiguration(const LocalHttpServer& server) {
+  ScopedEnvironment agent("DD_TRACE_AGENT_URL", server.Url());
+  ScopedEnvironment pipe("DD_TRACE_PIPE_NAME", "");
+  Configuration config;
+  config.SetApiKey("");
+  config.SetExportEnabled(true);
+  config.SetProfilesOutputDirectory({});
+  config.SetServiceName("exporter-test");
+  return config;
+}
+
+std::string Tag(const std::string& body, const std::string& name) {
+  auto start = body.find(name + ":");
+  if (start == std::string::npos) return {};
+  start += name.size() + 1;
+  return body.substr(start, body.find_first_of(",\"", start) - start);
+}
+
+class ExportRumRecords : public IRumRecordProvider {
+ public:
+  void ConsumeViewRecords(std::vector<RumViewRecord>& records) override {
+    records = {{1700000000000, 1000, "test-view", "Test view", {1000000, 3000000}}};
+  }
+  void ConsumeSessionRecords(std::vector<RumSessionRecord>& records) override {
+    records = {{1700000000000, 1000, "test-session"}};
+  }
+  std::string GetCurrentSessionId() const override { return "test-session"; }
+};
+}  // namespace
+
+TEST_F(
+    ProfileExporterExportTests, HttpFinalThreadPreservesSequenceIdentityAndRumMetadata
+) {
+  LocalHttpServer server;
+  auto httpConfig = HttpConfiguration(server);
+  ExportRumRecords records;
+  ProfileExporter exp(&httpConfig, sampleTypes, &records);
+  exp.SetRumApplicationId("test-application");
+  ASSERT_TRUE(exp.Initialize());
+  std::thread periodic([&] {
+    ASSERT_TRUE(exp.Add(CreateTestSample()));
+    EXPECT_TRUE(exp.Export());
+  });
+  periodic.join();
+  ASSERT_TRUE(exp.Add(CreateTestSample()));
+  EXPECT_TRUE(exp.Export(true));
+  exp.Cleanup();
+
+  EXPECT_TRUE(server.Error().empty()) << server.Error();
+  const auto requests = server.Requests();
+  ASSERT_EQ(requests.size(), 2u);
+  for (size_t i = 0; i < requests.size(); ++i) {
+    SCOPED_TRACE(i);
+    EXPECT_EQ(requests[i].headers.find("POST /profiling/v1/input HTTP/1.1\r\n"), 0u);
+    const auto& body = requests[i].body;
+    for (const auto* field :
+         {"\"family\":\"windows\"",
+          "\"version\":\"4\"",
+          "language:native",
+          "runtime_os:windows",
+          "service:exporter-test",
+          "test-application",
+          "\"internal\":{",
+          "\"viewId\":\"test-view\"",
+          "\"viewName\":\"Test view\"",
+          "\"cpuTimeNs\":1000000",
+          "\"waitTimeNs\":3000000",
+          "\"sessionId\":\"test-session\"",
+          "\"timeStamp\":1700000000000",
+          "\"duration\":1000"}) {
+      EXPECT_NE(body.find(field), std::string::npos) << field;
+    }
+    EXPECT_EQ(Tag(body, "rum.application_id"), "test-application");
+    EXPECT_EQ(Tag(body, "rum.session_id"), "test-session");
+    EXPECT_EQ(Tag(body, "rum.view_id"), "test-view");
+    EXPECT_EQ(Tag(body, "profile_seq"), std::to_string(i));
+    EXPECT_FALSE(Tag(body, "runtime-id").empty());
+    EXPECT_EQ(Tag(body, "runtime-id"), Tag(requests[0].body, "runtime-id"));
+    EXPECT_EQ(Tag(body, "pid"), std::to_string(GetCurrentProcessId()));
+    EXPECT_NE(body.find("filename=\"profile.pprof\""), std::string::npos);
+    EXPECT_NE(body.find(std::string("\x28\xb5\x2f\xfd", 4)), std::string::npos);
+  }
+}
+
+TEST_F(ProfileExporterExportTests, HttpEmitsAllRumTagsWithoutACapOrStaleIds) {
+  class BufferedRumRecords : public IRumRecordProvider {
+   public:
+    std::vector<RumViewRecord> views;
+    std::vector<RumSessionRecord> sessions;
+
+    void ConsumeViewRecords(std::vector<RumViewRecord>& records) override {
+      views.swap(records);
+    }
+    void ConsumeSessionRecords(std::vector<RumSessionRecord>& records) override {
+      sessions.swap(records);
+    }
+    std::string GetCurrentSessionId() const override { return {}; }
+  } records;
+
+  records.sessions.push_back({});
+  records.views.push_back({});
+  for (size_t i = 0; i < 32; ++i) {
+    records.sessions.push_back({0, 1, "session-" + std::to_string(i)});
+    records.views.push_back({0, 1, "view-" + std::to_string(i), "", {}});
+  }
+
+  LocalHttpServer server;
+  auto httpConfig = HttpConfiguration(server);
+  ProfileExporter exp(&httpConfig, sampleTypes, &records);
+  exp.SetRumApplicationId("test-application");
+  ASSERT_TRUE(exp.Initialize());
+  ASSERT_TRUE(exp.Add(CreateTestSample()));
+  EXPECT_TRUE(exp.Export());
+  ASSERT_TRUE(exp.Add(CreateTestSample()));
+  EXPECT_TRUE(exp.Export(true));
+  exp.Cleanup();
+
+  EXPECT_TRUE(server.Error().empty()) << server.Error();
+  const auto requests = server.Requests();
+  ASSERT_EQ(requests.size(), 2u);
+  const auto& body = requests[0].body;
+  for (size_t i = 0; i < 32; ++i) {
+    SCOPED_TRACE(i);
+    EXPECT_NE(
+        body.find("rum.session_id:session-" + std::to_string(i) + ","),
+        std::string::npos
+    );
+    EXPECT_NE(
+        body.find("rum.view_id:view-" + std::to_string(i) + ","), std::string::npos
+    );
+  }
+  EXPECT_EQ(body.find("rum.session_id:,"), std::string::npos);
+  EXPECT_EQ(body.find("rum.view_id:,"), std::string::npos);
+  EXPECT_EQ(Tag(requests[1].body, "rum.application_id"), "test-application");
+  EXPECT_TRUE(Tag(requests[1].body, "rum.session_id").empty());
+  EXPECT_TRUE(Tag(requests[1].body, "rum.view_id").empty());
+}
+
+TEST_F(ProfileExporterExportTests, HttpResponsePolicyAcrossFinalThreadTransition) {
+  for (const auto status : {200, 202, 204, 403, 404, 500, 504}) {
+    SCOPED_TRACE(status);
+    LocalHttpServer server({status});
+    auto httpConfig = HttpConfiguration(server);
+    ProfileExporter exp(&httpConfig, sampleTypes);
+    ASSERT_TRUE(exp.Initialize());
+    const bool expected = status != 403 && status != 404;
+    std::thread periodic([&] {
+      EXPECT_TRUE(exp.Add(CreateTestSample()));
+      EXPECT_EQ(exp.Export(), expected);
+    });
+    periodic.join();
+    ASSERT_TRUE(exp.Add(CreateTestSample()));
+    EXPECT_EQ(exp.Export(true), expected);
+    exp.Cleanup();
+    EXPECT_TRUE(server.Error().empty()) << server.Error();
+    const auto requests = server.Requests();
+    ASSERT_EQ(requests.size(), 2u);
+    EXPECT_EQ(Tag(requests.back().body, "profile_seq"), "1");
+  }
+}
+
+TEST_F(
+    ProfileExporterExportTests,
+    HttpTransportErrorCountSurvivesThreadChangeAndResetsOnResponse
+) {
+  // Any HTTP response, including 500, clears the consecutive transport error count.
+  LocalHttpServer server({0, 0, 0, 500, 0, 0, 0});
+  auto httpConfig = HttpConfiguration(server);
+  ProfileExporter exp(&httpConfig, sampleTypes);
+  ASSERT_TRUE(exp.Initialize());
+  auto send = [&](bool last, bool expected) {
+    ASSERT_TRUE(exp.Add(CreateTestSample()));
+    EXPECT_EQ(exp.Export(last), expected);
+  };
+  std::thread periodic([&] {
+    send(false, true);
+    send(false, true);
+  });
+  periodic.join();
+  send(true, false);
+  send(false, true);
+  send(false, true);
+  send(false, true);
+  send(true, false);
+  exp.Cleanup();
+  EXPECT_TRUE(server.Error().empty()) << server.Error();
+  const auto requests = server.Requests();
+  ASSERT_EQ(requests.size(), 7u);
+  for (size_t i = 0; i < requests.size(); ++i) {
+    EXPECT_EQ(Tag(requests[i].body, "profile_seq"), std::to_string(i));
+  }
+}
+
+TEST_F(ProfileExporterExportTests, HttpTimeoutIsBoundedAndRecoverableTransportError) {
+  LocalHttpServer server({-1, 202});
+  auto httpConfig = HttpConfiguration(server);
+  ProfileExporter exp(&httpConfig, sampleTypes);
+  ASSERT_TRUE(exp.Initialize());
+  ASSERT_TRUE(exp.Add(CreateTestSample()));
+  const auto start = std::chrono::steady_clock::now();
+  EXPECT_TRUE(exp.Export(true));
+  const auto elapsed = std::chrono::steady_clock::now() - start;
+  EXPECT_GE(elapsed, std::chrono::seconds(8));
+  EXPECT_LT(elapsed, std::chrono::seconds(15));
+  EXPECT_TRUE(server.Error().empty()) << server.Error();
+  EXPECT_TRUE(exp.Add(CreateTestSample()));
+  EXPECT_TRUE(exp.Export(true));
+  exp.Cleanup();
+  EXPECT_EQ(server.Requests().size(), 2u);
 }

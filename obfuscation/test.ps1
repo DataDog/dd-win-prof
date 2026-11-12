@@ -204,7 +204,7 @@ Test-Condition "Both files have same line count" ($symbolLines.Count -eq $obfLin
 
 Write-Info "Found $($symbolLines.Count) lines (includes MODULE header)"
 
-# Test: Symbol file format (PUBLIC/PRIVATE ADDRESS SIZE SymbolName)
+# Test: Symbol file format (FUNC ADDRESS SIZE PARAM_SIZE SymbolName)
 # Note: Addresses are hex without 0x prefix
 $invalidSymbolLines = @()
 $addresses = @()
@@ -217,15 +217,15 @@ foreach ($line in $symbolLines) {
         continue
     }
 
-    if ($line -match '^(PUBLIC|PRIVATE)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+(.+)$') {
-        $visibility = $matches[1]
-        $address = $matches[2]
-        $size = $matches[3]
+    if ($line -match '^FUNC\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+(.+)$') {
+        $address = $matches[1]
+        $size = $matches[2]
+        $paramSize = $matches[3]
         $symbolName = $matches[4]
         $addresses += [Convert]::ToInt64($address, 16)
 
-        # Count visibility types
-        if ($visibility -eq "PUBLIC") { $publicCount++ } else { $privateCount++ }
+        # All FUNC records counted as public (they're all exported functions)
+        $publicCount++
 
         # Validate address is hex
         if ($address -notmatch '^[0-9a-fA-F]+$') {
@@ -234,6 +234,11 @@ foreach ($line in $symbolLines) {
 
         # Validate size is hex
         if ($size -notmatch '^[0-9a-fA-F]+$') {
+            $invalidSymbolLines += $line
+        }
+
+        # Validate param_size is hex
+        if ($paramSize -notmatch '^[0-9a-fA-F]+$') {
             $invalidSymbolLines += $line
         }
 
@@ -269,7 +274,7 @@ Test-Condition "Addresses are sorted in ascending order" $addressesSorted `
 # ============================================================================
 Write-TestHeader "Validating Obfuscated Symbol File Format"
 
-# Test: Obfuscated file format (PUBLIC/PRIVATE ADDRESS SIZE obf_XXXXXXXX)
+# Test: Obfuscated file format (FUNC ADDRESS SIZE PARAM_SIZE obf_XXXXXXXX)
 # Note: Obfuscated file does NOT include real symbol names
 # Note: Addresses are hex without 0x prefix
 $invalidObfLines = @()
@@ -284,17 +289,17 @@ foreach ($line in $obfLines) {
         continue
     }
 
-    if ($line -match '^(PUBLIC|PRIVATE)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+(obf_[0-9A-F]{8})$') {
-        $visibility = $matches[1]
-        $address = $matches[2]
-        $size = $matches[3]
+    if ($line -match '^FUNC\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+(obf_[0-9A-F]{8})$') {
+        $address = $matches[1]
+        $size = $matches[2]
+        $paramSize = $matches[3]
         $obfName = $matches[4]
 
         $obfNames += $obfName
         $obfAddresses += [Convert]::ToInt64($address, 16)
 
-        # Count visibility types
-        if ($visibility -eq "PUBLIC") { $obfPublicCount++ } else { $obfPrivateCount++ }
+        # All FUNC records counted as public
+        $obfPublicCount++
 
         # Validate address is hex
         if ($address -notmatch '^[0-9a-fA-F]+$') {
@@ -367,25 +372,25 @@ if ($symbolLines.Count -gt 1) {
         $symbolLine = $symbolLines[$idx]
         $obfLine = $obfLines[$idx]
 
-        if ($symbolLine -match '^(PUBLIC|PRIVATE)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+(.+)$') {
-            $symVisibility = $matches[1]
-            $symAddress = $matches[2]
-            $symSize = $matches[3]
+        if ($symbolLine -match '^FUNC\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+(.+)$') {
+            $symAddress = $matches[1]
+            $symSize = $matches[2]
+            $symParamSize = $matches[3]
             $symName = $matches[4]
 
-            # Extract obfuscated name from symbol line (it's the first space-separated token after size)
+            # Extract obfuscated name from symbol line (it's the first space-separated token after param_size)
             $symObfName = if ($symName -match '^(obf_[0-9A-F]{8})\s+') { $matches[1] } else { "" }
 
-            if ($obfLine -match '^(PUBLIC|PRIVATE)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+(obf_[0-9A-F]{8})$') {
-                $obfVisibility = $matches[1]
-                $obfAddress = $matches[2]
-                $obfSize = $matches[3]
+            if ($obfLine -match '^FUNC\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+(obf_[0-9A-F]{8})$') {
+                $obfAddress = $matches[1]
+                $obfSize = $matches[2]
+                $obfParamSize = $matches[3]
                 $obfName = $matches[4]
 
-                # Test: Visibility matches
-                $visibilityMatch = ($symVisibility -eq $obfVisibility)
-                Test-Condition "Line $idx : Visibility matches" $visibilityMatch `
-                    "Symbol file: $symVisibility, Obfuscated file: $obfVisibility"
+                # Test: Param size matches
+                $paramSizeMatch = ($symParamSize -eq $obfParamSize)
+                Test-Condition "Line $idx : Param size matches" $paramSizeMatch `
+                    "Symbol file: $symParamSize, Obfuscated file: $obfParamSize"
 
                 # Test: Addresses match
                 $addressesMatch = ($symAddress -eq $obfAddress)

@@ -43,6 +43,7 @@ jobs:
         DD_PROFILING_LOG_LEVEL=debug
         DD_PROFILING_LOG_TO_CONSOLE=1
         DD_INTERNAL_PROFILING_OUTPUT_DIR=e2e-tests/pprof
+        DD_PROFILING_INTERNAL_SYMBOLIZE_CALLSTACKS=1
         "@
         New-Item -Path "e2e-tests/.env" -Value $envContent -Force
       shell: pwsh

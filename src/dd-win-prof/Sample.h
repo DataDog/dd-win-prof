@@ -8,6 +8,12 @@
 #include "ThreadInfo.h"
 #include "pch.h"
 
+// Compact per-sample marker used to attach the "UIHang" label at export time.
+// - None:      ordinary sample, no "UIHang" label is emitted
+// - Detected:  hang start sample, emitted with "UIHang=true"
+// - Recovered: hang end sample, emitted with "UIHang=false"
+enum class UiHangSampleKind : uint8_t { None = 0, Detected = 1, Recovered = 2 };
+
 class Sample {
  public:
   static size_t ValuesCount;
@@ -39,10 +45,14 @@ class Sample {
   void SetRumViewContext(RumViewContext&& ctx) { _rumViewContext = std::move(ctx); }
   const RumViewContext& GetRumViewContext() const { return _rumViewContext; }
 
+  void SetUiHangSampleKind(UiHangSampleKind kind) { _uiHangSampleKind = kind; }
+  UiHangSampleKind GetUiHangSampleKind() const { return _uiHangSampleKind; }
+
  private:
   std::chrono::nanoseconds _timestamp;
   std::vector<uint64_t> _callstack;
   std::vector<int64_t> _values;
   std::shared_ptr<ThreadInfo> _threadInfo;
   RumViewContext _rumViewContext;
+  UiHangSampleKind _uiHangSampleKind{UiHangSampleKind::None};
 };

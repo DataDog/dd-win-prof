@@ -31,6 +31,7 @@ int main(int argc, char** argv) {
   }
 
   int new_argc = static_cast<int>(new_argv.size());
+  new_argv.push_back(nullptr);
   ::testing::InitGoogleTest(&new_argc, const_cast<char**>(new_argv.data()));
 
   std::cout << "==================================================" << std::endl;
@@ -48,8 +49,6 @@ int main(int argc, char** argv) {
   std::cout << "\n==================================================" << std::endl;
   std::cout << "Test suite completed with result: "
             << (result == 0 ? "SUCCESS" : "FAILURE") << std::endl;
-  std::cout << "Press any key to continue..." << std::endl;
-  std::cin.get();
 
   return result;
 }

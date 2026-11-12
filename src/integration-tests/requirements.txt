@@ -1,3 +1,4 @@
 lz4
 protobuf
 grpcio-tools
+zstandard

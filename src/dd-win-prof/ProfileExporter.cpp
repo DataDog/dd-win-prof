@@ -28,10 +28,19 @@
 using namespace dd_win_prof;
 using namespace OsSpecificApi;
 
+namespace {
+int64_t ToUnixTimeMs(std::chrono::system_clock::time_point time) {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(time.time_since_epoch())
+      .count();
+}
+}  // namespace
+
 ProfileExporter::ProfileExporter(
     Configuration* pConfiguration,
     std::span<const SampleValueType> sampleTypeDefinitions,
-    IRumRecordProvider* pRumRecordProvider
+    IRumRecordProvider* pRumRecordProvider,
+    ProfilingDataCallback callback,
+    ProfileEncodingApi encodingApi
 )
     : _pConfiguration(pConfiguration),
       _sampleTypeDefinitions{
@@ -43,9 +52,11 @@ ProfileExporter::ProfileExporter(
       _debugPprofFileWritingEnabled(false),
       _debugPprofPrefix(""),
       _exportEnabled(false),
+      _profilingDataCallback(std::move(callback)),
       _exporter(nullptr),
       _agentMode(true),
       _consecutiveErrors(0),
+      _encodingApi(encodingApi),
       _pRumRecordProvider(pRumRecordProvider) {
   _runtimeId = ComputeRuntimeId();
 
@@ -72,12 +83,13 @@ ProfileExporter::ProfileExporter(
       _debugPprofPrefix += "profile_";
     }
 
-    // Configure export settings from Configuration
-    _exportEnabled =
-        _pConfiguration->IsExportEnabled();  // Use dedicated export setting
-    _apiKey = _pConfiguration->GetApiKey();
-    _agentMode = !_pConfiguration
-                      ->IsAgentless();  // Use agent mode unless agentless is specified
+    const auto mode = _profilingDataCallback ? ProfileDeliveryMode::Callback
+                                             : ProfileDeliveryMode::Http;
+    _exportEnabled = _pConfiguration->IsExportEnabled(mode);
+    if (_exportEnabled) {
+      _apiKey = _pConfiguration->GetApiKey();
+      _agentMode = !_pConfiguration->IsAgentless();
+    }
   }
 }
 
@@ -110,6 +122,7 @@ void ProfileExporter::Cleanup(bool skipExporterCleanup) {
   // Clean up libdatadog's managed string storage
   ddog_prof_ManagedStringStorage_drop(_stringStorage);
 
+  _profilingDataCallback = {};
   _initialized = false;
   Log::Debug("Exporter cleanup completed");
 }
@@ -121,7 +134,7 @@ bool ProfileExporter::Initialize() {
     // Initialize libdatadog's managed string storage
     auto storageResult = ddog_prof_ManagedStringStorage_new();
     if (storageResult.tag != DDOG_PROF_MANAGED_STRING_STORAGE_NEW_RESULT_OK) {
-      _lastError = "Failed to create libdatadog ManagedStringStorage";
+      Log::Error("Failed to create libdatadog ManagedStringStorage");
       return false;
     }
     _stringStorage = storageResult.ok;
@@ -131,25 +144,22 @@ bool ProfileExporter::Initialize() {
     if (!_symbolication->Initialize(
             _stringStorage, _pConfiguration->AreCallstacksSymbolized()
         )) {
-      _lastError = "Failed to initialize symbolication engine";
+      Log::Error("Failed to initialize symbolication engine");
       return false;
     }
 
     // Initialize PprofAggregator directly with SampleValueType (no enum conversion
     // needed)
     _aggregator = std::make_unique<dd_win_prof::PprofAggregator>(
-        _sampleTypeDefinitions, _stringStorage, 10
+        _sampleTypeDefinitions, _stringStorage, 10, _encodingApi
     );
 
     if (!_aggregator->IsInitialized()) {
-      _lastError =
-          "Failed to initialize PprofAggregator: " + _aggregator->GetLastError();
       return false;
     }
 
     // Intern sample labels that will be reused across samples
     if (!InternSampleLabels(_sampleLabels)) {
-      _lastError = "Failed to intern sample labels";
       return false;
     }
 
@@ -164,7 +174,6 @@ bool ProfileExporter::Initialize() {
     // Initialize exporter if export is enabled
     if (_exportEnabled) {
       if (!InitializeExporter()) {
-        _lastError = "Failed to initialize exporter: " + _lastError;
         return false;
       }
       Log::Info(
@@ -180,7 +189,7 @@ bool ProfileExporter::Initialize() {
     _initialized = true;
     return true;
   } catch (const std::exception& ex) {
-    _lastError = "Exception during initialization: " + std::string(ex.what());
+    Log::Error("Exception during initialization: ", ex.what());
     return false;
   }
 }
@@ -225,16 +234,15 @@ bool ProfileExporter::Add(std::shared_ptr<Sample> const& sample) {
   // Get RUM view context for labeling
   const auto& rumView = sample->GetRumViewContext();
 
+  // Get the UI-hang marker (None for ordinary samples)
+  const UiHangSampleKind uiHangKind = sample->GetUiHangSampleKind();
+
   // Create labelset for this sample (includes thread name and RUM labels if available)
-  ddog_prof_LabelSetId labelsetId = CreateLabelSet(_sampleLabels, threadInfo, rumView);
+  ddog_prof_LabelSetId labelsetId =
+      CreateLabelSet(_sampleLabels, threadInfo, rumView, uiHangKind);
 
   // Add sample to aggregator with labels
-  if (!_aggregator->AddSample(locationIds, sampleValues, timestampNs, labelsetId)) {
-    LogOnce(Error, "Failed to add sample to aggregator: ", _aggregator->GetLastError());
-    return false;
-  }
-
-  return true;
+  return _aggregator->AddSample(locationIds, sampleValues, timestampNs, labelsetId);
 }
 
 bool ProfileExporter::Export(bool lastCall) {
@@ -243,144 +251,202 @@ bool ProfileExporter::Export(bool lastCall) {
     return false;
   }
 
-  // Clear per-export caches since location IDs become invalid after profile reset
   OnExportStart();
+  const auto end = std::chrono::system_clock::now();
+  const bool exported = ExportCurrentProfile(
+      lastCall, ToUnixTimeMs(_profileStartTime), ToUnixTimeMs(end)
+  );
+  // Reset even after failed delivery so the next export can recover.
+  const bool prepared = FinishExport(end, lastCall);
+  return exported && prepared;
+}
 
-  // Serialize the profile using the aggregator
-  auto currentTime = std::chrono::system_clock::now();
-  auto startMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                     _profileStartTime.time_since_epoch()
-  )
-                     .count();
-  auto endMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                   currentTime.time_since_epoch()
-  )
-                   .count();
+void ProfileExporter::EncodedProfileDeleter::operator()(
+    ddog_prof_EncodedProfile* profile
+) const {
+  if (profile == nullptr) {
+    return;
+  }
+  if (profile->inner != nullptr) {
+    ddog_prof_EncodedProfile_drop(profile);
+  }
+  delete profile;
+}
 
-  auto encodedProfile = _aggregator->Serialize(startMs, endMs);
-  if (!encodedProfile) {
-    Log::Error("Failed to serialize profile: ", _aggregator->GetLastError());
-    return false;
+bool ProfileExporter::ExportCurrentProfile(
+    bool lastCall, int64_t startUnixTimeMs, int64_t endUnixTimeMs
+) {
+  if (_profilingDataCallback) {
+    DiscardRumRecords();
+  }
+  EncodedProfilePtr profile(_aggregator->Serialize(startUnixTimeMs, endUnixTimeMs));
+  if (!profile) {
+    return ReportError(ProfilingErrorCode::SerializationFailed, lastCall);
   }
 
-  // Consume RUM view and session records and serialize them to JSON.
-  // The same JSON is used for the local debug `.rum-views.json` file (if
-  // enabled) and is passed to libdatadog via `optional_internal_metadata_json`.
-  std::string rumRecordsJson;
   std::vector<std::string> rumSessionIds;
   std::vector<std::string> rumViewIds;
-  if (_pRumRecordProvider != nullptr) {
-    _pRumRecordProvider->ConsumeViewRecords(_viewRecordsBuffer);
-    _pRumRecordProvider->ConsumeSessionRecords(_sessionRecordsBuffer);
+  auto rumRecordsJson = _profilingDataCallback
+                            ? std::string{}
+                            : CollectRumRecordsJson(rumSessionIds, rumViewIds);
+  WriteDebugFiles(profile.get(), rumRecordsJson, endUnixTimeMs);
 
-    if (!_viewRecordsBuffer.empty() || !_sessionRecordsBuffer.empty()) {
-      rumRecordsJson =
-          SerializeRumRecordsToJson(_viewRecordsBuffer, _sessionRecordsBuffer);
-    }
-
-    // Preserve the IDs for tags before clearing the records used by metadata.
-    rumSessionIds.reserve(_sessionRecordsBuffer.size());
-    for (const auto& rec : _sessionRecordsBuffer) {
-      rumSessionIds.push_back(rec.session_id);
-    }
-    rumViewIds.reserve(_viewRecordsBuffer.size());
-    for (const auto& rec : _viewRecordsBuffer) {
-      rumViewIds.push_back(rec.view_id);
-    }
-
-    _viewRecordsBuffer.clear();
-    _sessionRecordsBuffer.clear();
-  }
-
-  // Write debug pprof file if enabled
-  if (_debugPprofFileWritingEnabled && !_debugPprofPrefix.empty()) {
-    if (!WritePprofFile(encodedProfile)) {
-      Log::Warn("Failed to write debug pprof file (continuing with export)");
-    }
-
-    if (!rumRecordsJson.empty()) {
-      auto time_t_now = std::chrono::system_clock::to_time_t(currentTime);
-      ddog_Timespec ts = {static_cast<int64_t>(time_t_now), 0};
-      if (!WriteRumRecordsFile(rumRecordsJson, ts)) {
-        Log::Warn("Failed to write RUM records file (continuing with export)");
-      }
-    }
-  }
-
-  // Export profile to backend if enabled
-  bool exportSuccess = true;
-  if (_exportEnabled && _exporter.inner) {
-    exportSuccess = ExportProfile(
-        encodedProfile, _currentExportId, rumRecordsJson, rumSessionIds, rumViewIds
+  // HTTP export consumes the profile, so read its bytes first.
+  auto bytes = _encodingApi.bytes(profile.get());
+  if (bytes.tag != DDOG_PROF_RESULT_BYTE_SLICE_OK_BYTE_SLICE) {
+    std::string message = "libdatadog failed to read encoded profile bytes: ";
+    message.append(
+        reinterpret_cast<const char*>(bytes.err.message.ptr), bytes.err.message.len
     );
-    if (!exportSuccess) {
+    ddog_Error_drop(&bytes.err);
+    Log::Error(message);
+    return ReportError(ProfilingErrorCode::ProfileBytesUnavailable, lastCall);
+  }
+
+  LogExport(lastCall, endUnixTimeMs - startUnixTimeMs, bytes.ok.len);
+  if (_profilingDataCallback) {
+    return DeliverProfileToCallback(bytes.ok, startUnixTimeMs, endUnixTimeMs, lastCall);
+  }
+  if (_exportEnabled) {
+    const bool success = ExportProfile(
+        profile.get(), _currentExportId, rumRecordsJson, rumSessionIds, rumViewIds
+    );
+    if (!success) {
       Log::Error("Failed to export profile to backend");
-      // Continue with cleanup even if export failed
+    }
+    return success;
+  }
+  return true;
+}
+
+std::string ProfileExporter::CollectRumRecordsJson(
+    std::vector<std::string>& sessionIds, std::vector<std::string>& viewIds
+) {
+  if (_pRumRecordProvider == nullptr) {
+    return {};
+  }
+  _pRumRecordProvider->ConsumeViewRecords(_viewRecordsBuffer);
+  _pRumRecordProvider->ConsumeSessionRecords(_sessionRecordsBuffer);
+  if (_viewRecordsBuffer.empty() && _sessionRecordsBuffer.empty()) {
+    return {};
+  }
+
+  auto json = SerializeRumRecordsToJson(_viewRecordsBuffer, _sessionRecordsBuffer);
+  // Preserve the IDs for tags before clearing the records used by metadata.
+  sessionIds.reserve(_sessionRecordsBuffer.size());
+  for (const auto& rec : _sessionRecordsBuffer) {
+    sessionIds.push_back(rec.session_id);
+  }
+  viewIds.reserve(_viewRecordsBuffer.size());
+  for (const auto& rec : _viewRecordsBuffer) {
+    viewIds.push_back(rec.view_id);
+  }
+  _viewRecordsBuffer.clear();
+  _sessionRecordsBuffer.clear();
+  return json;
+}
+
+void ProfileExporter::DiscardRumRecords() {
+  if (_pRumRecordProvider == nullptr) {
+    return;
+  }
+  _pRumRecordProvider->ConsumeViewRecords(_viewRecordsBuffer);
+  _pRumRecordProvider->ConsumeSessionRecords(_sessionRecordsBuffer);
+  _viewRecordsBuffer.clear();
+  _sessionRecordsBuffer.clear();
+}
+
+void ProfileExporter::WriteDebugFiles(
+    const ddog_prof_EncodedProfile* profile,
+    const std::string& rumRecordsJson,
+    int64_t endUnixTimeMs
+) {
+  if (!_debugPprofFileWritingEnabled || _debugPprofPrefix.empty()) {
+    return;
+  }
+  if (!WritePprofFile(profile)) {
+    Log::Warn("Failed to write debug pprof file (continuing with export)");
+  }
+  if (!rumRecordsJson.empty()) {
+    ddog_Timespec time = {endUnixTimeMs / 1000, 0};
+    if (!WriteRumRecordsFile(rumRecordsJson, time)) {
+      Log::Warn("Failed to write RUM records file (continuing with export)");
     }
   }
+}
 
-  // Get profile bytes for logging before export consumes it
-  // TODO: if this call is expensive, get it from ExportProfile call
-  auto bytesResult = ddog_prof_EncodedProfile_bytes(encodedProfile);
-  size_t profileSize = 0;
-  if (bytesResult.tag == DDOG_PROF_RESULT_BYTE_SLICE_OK_BYTE_SLICE) {
-    profileSize = bytesResult.ok.len;
+bool ProfileExporter::DeliverProfileToCallback(
+    const ddog_ByteSlice& bytes,
+    int64_t startUnixTimeMs,
+    int64_t endUnixTimeMs,
+    bool lastCall
+) {
+  ProfilingData data;
+  if (bytes.len != 0) {
+    data.pprof.assign(bytes.ptr, bytes.ptr + bytes.len);
   }
+  data.startUnixTimeMs = startUnixTimeMs;
+  data.endUnixTimeMs = endUnixTimeMs;
+  data.isLast = lastCall;
+  return DeliverProfilingData(std::move(data));
+}
 
-  // Calculate profile duration
-  auto profileDurationMs = endMs - startMs;
+void ProfileExporter::LogExport(
+    bool lastCall, int64_t durationMs, size_t profileSize
+) const {
+  Log::Info(
+      lastCall ? "Export last profile #" : "Export profile #",
+      _currentExportId,
+      ", Process ID: ",
+      _processId,
+      ", Runtime ID: ",
+      _runtimeId,
+      ", Profile duration: ",
+      durationMs,
+      "ms",
+      ", Profile buffer size: ",
+      profileSize,
+      " bytes",
+      ", Persistent symbol cache size: ",
+      _persistentSymbolCache.size()
+  );
+}
 
-  // For now, just log with current export ID and system info
-  if (lastCall) {
-    Log::Info(
-        "Export last profile #",
-        _currentExportId,
-        ", Process ID: ",
-        _processId,
-        ", Runtime ID: ",
-        _runtimeId,
-        ", Profile duration: ",
-        profileDurationMs,
-        "ms",
-        ", Profile buffer size: ",
-        profileSize,
-        " bytes",
-        ", Persistent symbol cache size: ",
-        _persistentSymbolCache.size()
-    );
-  } else {
-    Log::Info(
-        "Export profile #",
-        _currentExportId,
-        ", Process ID: ",
-        _processId,
-        ", Runtime ID: ",
-        _runtimeId,
-        ", Profile duration: ",
-        profileDurationMs,
-        "ms",
-        ", Profile buffer size: ",
-        profileSize,
-        " bytes",
-        ", Persistent symbol cache size: ",
-        _persistentSymbolCache.size()
-    );
+bool ProfileExporter::DeliverProfilingData(ProfilingData data) {
+  try {
+    _profilingDataCallback(std::move(data));
+    return true;
+  } catch (const std::exception& error) {
+    Log::Error("Profiling data callback threw: ", error.what());
+  } catch (...) {
+    Log::Error("Profiling data callback threw a non-standard exception");
   }
+  return false;
+}
 
-  // Clean up encoded profile
-  ddog_prof_EncodedProfile_drop(encodedProfile);
+bool ProfileExporter::ReportError(ProfilingErrorCode code, bool lastCall) {
+  if (_profilingDataCallback) {
+    ProfilingData data;
+    data.result = static_cast<uint32_t>(code);
+    data.isLast = lastCall;
+    DeliverProfilingData(std::move(data));
+  }
+  return false;
+}
 
-  // Reset the aggregator for next collection cycle
-  _aggregator->Reset();
-
-  // Re-intern sample labels since they become invalid after profile reset
+bool ProfileExporter::FinishExport(
+    std::chrono::system_clock::time_point end, bool lastCall
+) {
+  bool success = true;
+  if (!_aggregator->Reset()) {
+    success = ReportError(ProfilingErrorCode::ProfileResetFailed, lastCall);
+  }
   if (!InternSampleLabels(_sampleLabels)) {
-    Log::Error("Failed to re-intern sample labels after reset");
-    // Continue anyway - this will cause Add() calls to fail but won't crash
+    success = ReportError(ProfilingErrorCode::SampleLabelsUnavailable, lastCall);
   }
 
   // Reset the profile start time for the next collection cycle
-  _profileStartTime = currentTime;
+  _profileStartTime = end;
 
   // Increment export ID for next export
   _currentExportId++;
@@ -389,8 +455,7 @@ bool ProfileExporter::Export(bool lastCall) {
   if (_currentExportId % CACHE_CLEANUP_THRESHOLD == 0) {
     CleanupUnusedCacheEntries(_currentExportId);
   }
-
-  return true;
+  return success;
 }
 
 std::string ProfileExporter::ComputeRuntimeId() {
@@ -822,9 +887,14 @@ bool ProfileExporter::PrepareStableTags(ddog_Vec_Tag& tags) {
 }
 
 bool ProfileExporter::InternSampleLabels(SampleLabels& labels) {
-  // Get profile for interning operations
+  const auto fail = [](ddog_Error& error, const char* message) {
+    ddog_Error_drop(&error);
+    Log::Error(message);
+    return false;
+  };
   ddog_prof_Profile* profile = _aggregator->GetProfile();
   if (profile == nullptr) {
+    Log::Error("Profile unavailable while interning sample labels");
     return false;
   }
 
@@ -833,13 +903,7 @@ bool ProfileExporter::InternSampleLabels(SampleLabels& labels) {
       ddog_prof_Profile_intern_string(profile, to_CharSlice(LABEL_PROCESS_ID));
   if (processIdKeyResult.tag !=
       DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
-    LogOnce(
-        Error,
-        "Failed to intern process_id label key (tag: ",
-        processIdKeyResult.tag,
-        ")"
-    );
-    return false;
+    return fail(processIdKeyResult.err, "Failed to intern process_id label key");
   }
 
   // Intern the process ID value
@@ -848,10 +912,7 @@ bool ProfileExporter::InternSampleLabels(SampleLabels& labels) {
       ddog_prof_Profile_intern_string(profile, to_CharSlice(processIdStr));
   if (processIdValueResult.tag !=
       DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
-    LogOnce(
-        Error, "Failed to intern process_id value (tag: ", processIdValueResult.tag, ")"
-    );
-    return false;
+    return fail(processIdValueResult.err, "Failed to intern process_id value");
   }
 
   // Create process_id label ID using the proper API function
@@ -860,11 +921,7 @@ bool ProfileExporter::InternSampleLabels(SampleLabels& labels) {
   );
   if (processIdLabelResult.tag !=
       DDOG_PROF_LABEL_ID_RESULT_OK_GENERATIONAL_ID_LABEL_ID) {
-    LogOnce(
-        Error, "Failed to intern process_id label (tag: ", processIdLabelResult.tag, ")"
-    );
-
-    return false;
+    return fail(processIdLabelResult.err, "Failed to intern process_id label");
   }
 
   labels.processIdLabelId = processIdLabelResult.ok;
@@ -875,13 +932,7 @@ bool ProfileExporter::InternSampleLabels(SampleLabels& labels) {
       ddog_prof_Profile_intern_string(profile, to_CharSlice(LABEL_THREAD_ID));
   if (threadIdKeyResult.tag !=
       DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
-    LogOnce(
-        Error,
-        "InternSampleLabels: Failed to intern thread_id label key (tag: ",
-        threadIdKeyResult.tag,
-        ")"
-    );
-    return false;
+    return fail(threadIdKeyResult.err, "Failed to intern thread_id label key");
   }
   // Store the thread ID label key ID (we'll use this to create per-thread labels)
   labels.threadIdKeyId = threadIdKeyResult.ok;
@@ -891,13 +942,7 @@ bool ProfileExporter::InternSampleLabels(SampleLabels& labels) {
       ddog_prof_Profile_intern_string(profile, to_CharSlice(LABEL_THREAD_NAME));
   if (threadNameKeyResult.tag !=
       DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
-    LogOnce(
-        Error,
-        "InternSampleLabels: Failed to intern thread_name label key (tag: ",
-        threadNameKeyResult.tag,
-        ")"
-    );
-    return false;
+    return fail(threadNameKeyResult.err, "Failed to intern thread_name label key");
   }
   // Store the thread name label key ID (we'll use this to create per-thread labels)
   labels.threadNameKeyId = threadNameKeyResult.ok;
@@ -907,13 +952,7 @@ bool ProfileExporter::InternSampleLabels(SampleLabels& labels) {
       ddog_prof_Profile_intern_string(profile, to_CharSlice(LABEL_RUM_VIEW_ID));
   if (rumViewIdKeyResult.tag !=
       DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
-    LogOnce(
-        Error,
-        "InternSampleLabels: Failed to intern rum.view_id label key (tag: ",
-        rumViewIdKeyResult.tag,
-        ")"
-    );
-    return false;
+    return fail(rumViewIdKeyResult.err, "Failed to intern rum.view_id label key");
   }
   labels.rumViewIdKeyId = rumViewIdKeyResult.ok;
 
@@ -921,15 +960,53 @@ bool ProfileExporter::InternSampleLabels(SampleLabels& labels) {
       ddog_prof_Profile_intern_string(profile, to_CharSlice(LABEL_TRACE_ENDPOINT));
   if (traceEndpointKeyResult.tag !=
       DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
+    return fail(
+        traceEndpointKeyResult.err, "Failed to intern trace endpoint label key"
+    );
+  }
+  labels.traceEndpointKeyId = traceEndpointKeyResult.ok;
+
+  // Intern the "UIHang" key plus its two possible values, then build the two
+  // complete labels once so per-sample export only has to pick one of them.
+  auto uiHangKeyResult =
+      ddog_prof_Profile_intern_string(profile, to_CharSlice(LABEL_UI_HANG));
+  if (uiHangKeyResult.tag != DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
     LogOnce(
         Error,
-        "InternSampleLabels: Failed to intern trace endpoint label key (tag: ",
-        traceEndpointKeyResult.tag,
+        "InternSampleLabels: Failed to intern UIHang label key (tag: ",
+        uiHangKeyResult.tag,
         ")"
     );
     return false;
   }
-  labels.traceEndpointKeyId = traceEndpointKeyResult.ok;
+
+  auto uiHangTrueValueResult =
+      ddog_prof_Profile_intern_string(profile, to_CharSlice(LABEL_UI_HANG_TRUE_VALUE));
+  auto uiHangFalseValueResult =
+      ddog_prof_Profile_intern_string(profile, to_CharSlice(LABEL_UI_HANG_FALSE_VALUE));
+  if (uiHangTrueValueResult.tag !=
+          DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID ||
+      uiHangFalseValueResult.tag !=
+          DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
+    LogOnce(Error, "InternSampleLabels: Failed to intern UIHang label value");
+    return false;
+  }
+
+  auto uiHangTrueLabelResult = ddog_prof_Profile_intern_label_str(
+      profile, uiHangKeyResult.ok, uiHangTrueValueResult.ok
+  );
+  auto uiHangFalseLabelResult = ddog_prof_Profile_intern_label_str(
+      profile, uiHangKeyResult.ok, uiHangFalseValueResult.ok
+  );
+  if (uiHangTrueLabelResult.tag !=
+          DDOG_PROF_LABEL_ID_RESULT_OK_GENERATIONAL_ID_LABEL_ID ||
+      uiHangFalseLabelResult.tag !=
+          DDOG_PROF_LABEL_ID_RESULT_OK_GENERATIONAL_ID_LABEL_ID) {
+    LogOnce(Error, "InternSampleLabels: Failed to intern UIHang label");
+    return false;
+  }
+  labels.uiHangTrueLabelId = uiHangTrueLabelResult.ok;
+  labels.uiHangFalseLabelId = uiHangFalseLabelResult.ok;
 
   return true;
 }
@@ -937,7 +1014,8 @@ bool ProfileExporter::InternSampleLabels(SampleLabels& labels) {
 ddog_prof_LabelSetId ProfileExporter::CreateLabelSet(
     const SampleLabels& labels,
     std::shared_ptr<ThreadInfo> threadInfo,
-    const RumViewContext& rumView
+    const RumViewContext& rumView,
+    UiHangSampleKind uiHangKind
 ) {
   // Get profile for interning operations
   ddog_prof_Profile* profile = _aggregator->GetProfile();
@@ -949,6 +1027,14 @@ ddog_prof_LabelSetId ProfileExporter::CreateLabelSet(
 
   // Always add process_id label
   labelIdArray.push_back(labels.processIdLabelId);
+
+  // Add the "UIHang" label for hang start/end samples (nothing for ordinary
+  // samples). Both labels were pre-interned in InternSampleLabels.
+  if (uiHangKind == UiHangSampleKind::Detected) {
+    labelIdArray.push_back(labels.uiHangTrueLabelId);
+  } else if (uiHangKind == UiHangSampleKind::Recovered) {
+    labelIdArray.push_back(labels.uiHangFalseLabelId);
+  }
 
   // Add thread_id label if thread info is available
   if (threadInfo) {
@@ -1135,14 +1221,12 @@ bool ProfileExporter::CreatePprofFile(const ddog_Timespec& startTime, int* fd) {
 
   std::strftime(time_start, std::size(time_start), "%Y%m%dT%H%M%SZ", &tm_storage);
 
-  // Create filename with timestamp
-  // Note: .lz4 extension is not added so the tools could easily open the files on
-  // Windows thanks to file association
+  // Keep .pprof last for existing profile-discovery globs.
   char filename[MAX_PATH];
   std::snprintf(
       filename,
       std::size(filename),
-      "%s%s.lz4.pprof",
+      "%s%s.zstd.pprof",
       _debugPprofPrefix.c_str(),
       time_start
   );
@@ -1333,7 +1417,7 @@ bool ProfileExporter::InitializeExporter() {
   auto exporterResult = ddog_prof_Exporter_new(
       to_CharSlice(_kProfilerUserAgent),  // user_agent
       to_CharSlice(_kProfilerVersion),    // profiler_version
-      to_CharSlice("native"),             // family
+      to_CharSlice("windows"),            // family
       &stableTags,
       endpoint
   );
@@ -1342,7 +1426,6 @@ bool ProfileExporter::InitializeExporter() {
 
   if (exporterResult.tag !=
       DDOG_PROF_PROFILE_EXPORTER_RESULT_OK_HANDLE_PROFILE_EXPORTER) {
-    _lastError = "Failed to create exporter";
     if (exporterResult.tag ==
         DDOG_PROF_PROFILE_EXPORTER_RESULT_ERR_HANDLE_PROFILE_EXPORTER) {
       // Extract error message
@@ -1350,7 +1433,6 @@ bool ProfileExporter::InitializeExporter() {
       std::string errorMessage = std::string(
           reinterpret_cast<const char*>(error.message.ptr), error.message.len
       );
-      _lastError += ": " + errorMessage;
       Log::Error(
           "Failed to create exporter: ",
           errorMessage,
@@ -1370,21 +1452,6 @@ bool ProfileExporter::InitializeExporter() {
   }
 
   _exporter = exporterResult.ok;
-
-  // Set timeout
-  auto timeoutResult = ddog_prof_Exporter_set_timeout(&_exporter, EXPORT_TIMEOUT_MS);
-  if (timeoutResult.tag == DDOG_VOID_RESULT_ERR) {
-    _lastError = "Failed to set exporter timeout";
-    auto& error = timeoutResult.err;
-    std::string errorMessage = std::string(
-        reinterpret_cast<const char*>(error.message.ptr), error.message.len
-    );
-    _lastError += ": " + errorMessage;
-    Log::Error("Failed to set timeout: ", errorMessage);
-    ddog_Error_drop(&timeoutResult.err);
-    CleanupExporter();
-    return false;
-  }
 
   return true;
 }
@@ -1428,14 +1495,15 @@ bool ProfileExporter::CreateExporterEndpoint(ddog_prof_Endpoint& endpoint) {
   ddog_CharSlice urlSlice = to_CharSlice(_exportUrl);
 
   if (_agentMode) {
-    endpoint = ddog_prof_Endpoint_agent(urlSlice);
+    endpoint = ddog_prof_Endpoint_agent(urlSlice, EXPORT_TIMEOUT_MS, false);
   } else {
     if (_apiKey.empty()) {
-      _lastError = "MIssing API key for agentless mode";
+      Log::Error("Missing API key for agentless mode");
       return false;
     }
     ddog_CharSlice apiKeySlice = to_CharSlice(_apiKey);
-    endpoint = ddog_prof_Endpoint_agentless(urlSlice, apiKeySlice);
+    endpoint =
+        ddog_prof_Endpoint_agentless(urlSlice, apiKeySlice, EXPORT_TIMEOUT_MS, false);
   }
 
   return true;
@@ -1448,8 +1516,12 @@ bool ProfileExporter::ExportProfile(
     const std::vector<std::string>& rumSessionIds,
     const std::vector<std::string>& rumViewIds
 ) {
-  if (!_exporter.inner || !encodedProfile) {
-    _lastError = "Exporter not initialized or invalid profile";
+  if (!encodedProfile) {
+    Log::Error("Invalid profile");
+    return false;
+  }
+
+  if (!_exporter.inner && !InitializeExporter()) {
     return false;
   }
 
@@ -1465,15 +1537,13 @@ bool ProfileExporter::ExportProfile(
       const_cast<ddog_prof_EncodedProfile*>(encodedProfile)
   );
   if (bytesResult.tag != DDOG_PROF_RESULT_BYTE_SLICE_OK_BYTE_SLICE) {
-    _lastError = "Failed to get profile bytes";
+    Log::Error("Failed to get profile bytes");
+    ddog_Error_drop(&bytesResult.err);
     ddog_Vec_Tag_drop(additionalTags);
     return false;
   }
 
-  // Pass the RUM records JSON through optional_internal_metadata_json.
-  // libdatadog embeds it in the `internal` field of the profile's event.json,
-  // so no separate file attachment is needed. The backing std::string must
-  // outlive the Request_build call; it's a function-scoped local.
+  // libdatadog embeds RUM records in the event.json `internal` field.
   ddog_CharSlice internalMetadataSlice{};
   const ddog_CharSlice* internalMetadataPtr = nullptr;
   if (!rumRecordsJson.empty()) {
@@ -1481,55 +1551,27 @@ bool ProfileExporter::ExportProfile(
     internalMetadataPtr = &internalMetadataSlice;
   }
 
-  // Build request - time information is now embedded in the EncodedProfile
-  auto requestResult = ddog_prof_Exporter_Request_build(
+  const auto profileSize = bytesResult.ok.len;
+  // send_blocking consumes and clears the profile handle, including on send failure.
+  auto sendResult = ddog_prof_Exporter_send_blocking(
       &_exporter,
-      const_cast<ddog_prof_EncodedProfile*>(encodedProfile),  // profile
-      ddog_prof_Exporter_Slice_File_empty(),  // files_to_compress_and_export
-      ddog_prof_Exporter_Slice_File_empty(),  // files_to_export_unmodified
-      &additionalTags,                        // optional_additional_tags
-      internalMetadataPtr,                    // optional_internal_metadata_json
-      nullptr                                 // optional_info_json
+      const_cast<ddog_prof_EncodedProfile*>(encodedProfile),
+      ddog_prof_Exporter_Slice_File_empty(),
+      &additionalTags,
+      nullptr,  // optional_process_tags
+      internalMetadataPtr,
+      nullptr,  // optional_info_json
+      nullptr   // cancel
   );
 
   ddog_Vec_Tag_drop(additionalTags);
 
-  if (requestResult.tag != DDOG_PROF_REQUEST_RESULT_OK_HANDLE_REQUEST) {
-    _lastError = "Failed to build export request";
-    if (requestResult.tag == DDOG_PROF_REQUEST_RESULT_ERR_HANDLE_REQUEST) {
-      auto& error = requestResult.err;
-      std::string errorMessage = std::string(
-          reinterpret_cast<const char*>(error.message.ptr), error.message.len
-      );
-      _lastError += ": " + errorMessage;
-      Log::Error("Request build failed: ", errorMessage);
-
-      // TODO: check if we need to drop it all the time
-      //       i.e. call it before returning false
-      ddog_Error_drop(&requestResult.err);
-    } else {
-      Log::Error(
-          "Request build failed with unknown error (tag: ", requestResult.tag, ")"
-      );
-    }
-    return false;
-  }
-
-  ddog_prof_Request request = requestResult.ok;
-
-  // Send request
-  auto sendResult = ddog_prof_Exporter_send(&_exporter, &request, nullptr);
-
-  // Request is consumed by send, so we don't need to drop it
-
   if (sendResult.tag == DDOG_PROF_RESULT_HTTP_STATUS_ERR_HTTP_STATUS) {
     _consecutiveErrors++;
-    _lastError = "Failed to send profile";
     auto& error = sendResult.err;
     std::string errorMessage = std::string(
         reinterpret_cast<const char*>(error.message.ptr), error.message.len
     );
-    _lastError += ": " + errorMessage;
     ddog_Error_drop(&sendResult.err);
 
     Log::Error(
@@ -1559,7 +1601,7 @@ bool ProfileExporter::ExportProfile(
       "Successfully sent profile, HTTP ",
       responseCode,
       " (size: ",
-      bytesResult.ok.len,
+      profileSize,
       " bytes)"
   );
 

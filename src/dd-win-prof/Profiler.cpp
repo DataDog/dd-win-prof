@@ -27,7 +27,31 @@ Profiler::~Profiler() {
   _isStarted = false;
 }
 
+bool Profiler::SetProfilingDataCallback(const ProfilingDataCallback& callback) {
+  if (IsStarted()) {
+    Log::Error("Cannot change the profiling callback while the profiler is running");
+    return false;
+  }
+  try {
+    _profilingDataCallback = callback;
+    return true;
+  } catch (const std::exception& error) {
+    Log::Error("Failed to copy profiling data callback: ", error.what());
+    return false;
+  } catch (...) {
+    Log::Error("Failed to copy profiling data callback: non-standard exception");
+    return false;
+  }
+}
+
 bool Profiler::StartProfiling() {
+  std::lock_guard<std::mutex> lock(_lifecycleMutex);
+
+  if (_isStarted.load(std::memory_order_relaxed)) {
+    Log::Warn("Profiler is already running.");
+    return false;
+  }
+
   // no needed to look at env var to enable profiler
   // --> used only as kill switch to disable it
   if (_pConfiguration->IsProfilerExplicitlyDisabled()) {
@@ -38,12 +62,22 @@ bool Profiler::StartProfiling() {
     return false;
   }
 
+  if (!_pConfiguration->ValidateTransportConfig(GetDeliveryMode())) {
+    return false;
+  }
+
   Log::Info("Starting profiler...");
+
+  // ThreadInfo objects live for the lifetime of the process. Clear the
+  // previous session's timestamps, hang marker, CPU baseline, and sampler
+  // iterators before creating a new sampling loop.
+  _pThreadList->ResetProfilingState();
 
   auto valueTypeProvider = SampleValueTypeProvider();
 
   _pCpuTimeProvider = std::make_unique<CpuTimeProvider>(valueTypeProvider);
   _pCpuWallTimeProvider = std::make_unique<WallTimeProvider>(valueTypeProvider);
+  _pUiHangProvider = std::make_unique<UiHangProvider>(valueTypeProvider);
 
   // create the thread responsible for looping through the thread list
   _pStackSamplerLoop = std::make_unique<StackSamplerLoop>(
@@ -61,16 +95,22 @@ bool Profiler::StartProfiling() {
 
   //... and pass them to the exporter
   _pProfileExporter = std::make_unique<ProfileExporter>(
-      _pConfiguration.get(), sampleTypeDefinitions, this
+      _pConfiguration.get(), sampleTypeDefinitions, this, _profilingDataCallback
   );
 
   // Initialize the ProfileExporter
   if (!_pProfileExporter->Initialize()) {
-    Log::Error(
-        "Failed to initialize profile exporter: ", _pProfileExporter->GetLastError()
-    );
+    _pProfileExporter.reset();
+    _pStackSamplerLoop.reset();
+    _pUiHangProvider.reset();
+    _pCpuWallTimeProvider.reset();
+    _pCpuTimeProvider.reset();
     return false;
   }
+
+  // a failure to register the hang probe message is not fatal, but it will prevent UI
+  // hang detection from working (i.e. MonitorWindowHangs() will fail)
+  InitializeWindowHangs();
 
   // Flush buffered RUM application ID to the exporter
   {
@@ -94,6 +134,9 @@ bool Profiler::StartProfiling() {
     _pSamplesCollector->Register(_pCpuWallTimeProvider.get());
   }
 
+  // no configuration needed because enabled only when starting to monitor hang
+  _pSamplesCollector->Register(_pUiHangProvider.get());
+
   // start processing
   _pSamplesCollector->Start();
   _pStackSamplerLoop->Start();
@@ -102,9 +145,43 @@ bool Profiler::StartProfiling() {
   return true;
 }
 
+bool Profiler::MonitorWindowHangs(HWND hWnd) {
+  std::lock_guard<std::mutex> lock(_lifecycleMutex);
+
+  if (!_isStarted.load(std::memory_order_relaxed)) {
+    Log::Warn("Profiler must be started before monitoring window hangs.");
+    return false;
+  }
+
+  if (_hangProbeMessageId == 0) {
+    Log::Warn(
+        "Probe message could not be registered: impossible to monitor window hangs."
+    );
+    return false;
+  }
+
+  // create the UiHangDetector (hook is thread-specific, so no DLL hMod)
+  if (_pUiHangDetector != nullptr) {
+    Log::Warn("Impossible to monitor more than one window for UI hang detection.");
+    return false;
+  }
+
+  auto pUiHangDetector = std::make_unique<UiHangDetector>(
+      _hangProbeMessageId, _pUiHangProvider.get(), this
+  );
+  bool success = pUiHangDetector->MonitorWindowHangs(hWnd, _pThreadList.get());
+  if (success) {
+    _pUiHangDetector = std::move(pUiHangDetector);
+  }
+  return success;
+}
+
 void Profiler::StopProfiling(bool shutdownOngoing) {
+  std::lock_guard<std::mutex> lock(_lifecycleMutex);
+
   // avoid being stopped multiple times
-  if (!_isStarted) {
+  if (!_isStarted.load(std::memory_order_relaxed)) {
+    Log::Warn("Profiler is not running.");
     return;
   }
 
@@ -117,20 +194,44 @@ void Profiler::StopProfiling(bool shutdownOngoing) {
     SamplesCollector::SignalShutdown();
   }
 
+  // Stop the UI hang detector first
+  if (_pUiHangDetector != nullptr) {
+    _pUiHangDetector->Stop();
+    _pUiHangDetector.reset();
+  }
+
   if (_pStackSamplerLoop != nullptr) {
     _pStackSamplerLoop->Stop();
+    _pStackSamplerLoop.reset();
   }
 
   if (_pSamplesCollector != nullptr) {
     _pSamplesCollector->Stop(shutdownOngoing);
+    _pSamplesCollector.reset();
   }
 
   // Explicitly clean up ProfileExporter with shutdown detection
   if (_pProfileExporter != nullptr) {
     // Use the parameter to decide cleanup approach
     _pProfileExporter->Cleanup(shutdownOngoing);
+    _pProfileExporter.reset();
   }
+
+  _pUiHangProvider.reset();
+  _pCpuWallTimeProvider.reset();
+  _pCpuTimeProvider.reset();
+
   Log::Info("Profiler stopped...");
+}
+
+bool Profiler::InitializeWindowHangs() {
+  _hangProbeMessageId = ::RegisterWindowMessageW(dd_win_prof::kHangProbeMessageName);
+  if (_hangProbeMessageId == 0) {
+    Log::Warn("Failed to register hang probe message.");
+    return false;
+  }
+
+  return true;
 }
 
 bool Profiler::AddCurrentThread() {

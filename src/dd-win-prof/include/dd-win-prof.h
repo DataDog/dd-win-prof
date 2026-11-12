@@ -4,6 +4,9 @@
 
 #pragma once
 
+#include <Windows.h>
+#include <stdint.h>
+
 #ifdef DD_WIN_PROF_STATIC_LINK
 #define DD_WIN_PROF_API
 #elif defined(DD_WIN_PROF_EXPORTS)
@@ -25,8 +28,8 @@ typedef struct _ProfilerConfig {
   const char* serviceName;
   const char* serviceVersion;
 
-  // Datadog endpoint: these are MANDATORY if noEnvVars is true, otherwise they can be
-  // set via environment variables instead
+  // Required for built-in HTTP upload when noEnvVars is true; otherwise they can
+  // come from environment variables. Not required with an SDK-private callback.
   const char* url;
   const char* apiKey;
 
@@ -37,8 +40,8 @@ typedef struct _ProfilerConfig {
                                          // (default: 5, min: 5, max: 64)
   int32_t cpuThreadsThreshold;    // number of threads to sample for CPU time (default:
                                   // 64, min: 5, max: 128)
-  int32_t uploadIntervalSeconds;  // how often to upload profiles in seconds (default:
-                                  // 60s or 20s in dev mode)
+  int32_t uploadIntervalSeconds;  // HTTP upload or SDK callback interval in seconds
+                                  // (default: 60s or 20s in dev mode)
   const char* tags;  // additional tags to attach to profiles as comma separated list
                      // (default: empty)
 
@@ -53,12 +56,28 @@ typedef struct _ProfilerConfig {
 } ProfilerConfig;
 
 extern "C" {
+// Start automatic detection of UI hangs for the current profiling session.
+// Returns false unless the profiler is running, or if a window is already monitored.
+DD_WIN_PROF_API bool MonitorWindowHangs(HWND hWnd);
+
+// Use this function to setup profiling configuration before calling StartProfiler.
+// In case of SetupProfiler/StartProfiler/StopProfiler/StartProfiler restart scenario,
+// the initial setup configuration is kept even if StopProfiler is called.
+// Each call reset previous settings and only updates default with pSettings values.
+// Omitted values use environment variables (unless noEnvVars is set) or defaults.
+// Does not clear SDK-private callback registration. Serialize setup/start/stop calls.
 DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig* pSettings);
 
-// Start profiling manually (returns false if already started or explicitly disabled)
+// Start profiling manually (returns false if already started or explicitly disabled).
+// May be called again after StopProfiler() returns.
 DD_WIN_PROF_API bool StartProfiler();
 
-// Stop profiling manually (safe to call even if not started)
+// Stops collection, waits for the current export and attempts a final export.
+// Does not wait for the upload interval. The final SDK callback runs on this thread.
+// Blocks until callbacks finish, not until SDK work they queued finishes. No overall
+// timeout is imposed. No-op if already stopped.
+// After return, no callbacks run until the next start; setup/registration may run
+// again. Do not overlap lifecycle calls or call them from an SDK callback.
 DD_WIN_PROF_API void StopProfiler();
 
 // Enter a named view. Generates a unique view_id internally.

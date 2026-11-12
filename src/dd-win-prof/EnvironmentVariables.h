@@ -26,13 +26,12 @@ class EnvironmentVariables final {
   constexpr static const char* Environment = "DD_ENV";
   constexpr static const char* Site = "DD_SITE";
   constexpr static const char* UploadInterval = "DD_PROFILING_UPLOAD_PERIOD";
-  constexpr static const char* AgentUrl = "DD_TRACE_AGENT_UR";
+  constexpr static const char* AgentUrl = "DD_TRACE_AGENT_URL";
   constexpr static const char* AgentHost = "DD_AGENT_HOST";
   constexpr static const char* AgentPort = "DD_TRACE_AGENT_PORT";
   constexpr static const char* NamedPipeName = "DD_TRACE_PIPE_NAME";
   constexpr static const char* ApiKey = "DD_API_KEY";
   constexpr static const char* Hostname = "DD_HOSTNAME";
-  constexpr static const char* Agentless = "DD_PROFILING_AGENTLESS";
   constexpr static const char* Tags = "DD_TAGS";
 
   constexpr static const char* ProfilesOutputDir = "DD_INTERNAL_PROFILING_OUTPUT_DIR";

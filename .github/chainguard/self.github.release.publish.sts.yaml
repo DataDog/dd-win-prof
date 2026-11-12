@@ -1,0 +1,33 @@
+# Policy for: .github/workflows/release.yml (build-and-release job) in DataDog/dd-win-prof
+#
+# Federates a GitHub Actions OIDC token into a higher-privileged GH token so
+# `gh release create/upload` can succeed even though the repo's default
+# GITHUB_TOKEN is org-capped to `contents: read`.
+#
+# Triggered by either:
+#  - a vX.Y.Z tag push  (the primary release trigger)
+#  - a workflow_dispatch from main  (manual escape hatch to re-upload assets
+#    to an existing release without re-tagging)
+#
+# Naming follows the convention from dd-octo-sts docs:
+#   {source}.{environment}.{action}.{context}.sts.yaml
+# Reference: https://datadoghq.atlassian.net/wiki/spaces/SECENG/pages/5138645099
+
+issuer: https://token.actions.githubusercontent.com
+
+# Match either a vX.Y.Z tag push or a workflow_dispatch from main, both
+# scoped to this repo. Kept as narrow as practical so no other event can
+# claim this token.
+subject_pattern: repo:DataDog/dd-win-prof:ref:(refs/tags/v[0-9]+\.[0-9]+\.[0-9]+|refs/heads/main)
+
+# Defense in depth: also constrain the surrounding OIDC claims. Keys are
+# alphabetical per the dd-octo-sts style guide.
+claim_pattern:
+  event_name: (push|workflow_dispatch)
+  job_workflow_ref: DataDog/dd-win-prof/\.github/workflows/release\.yml@(refs/tags/v[0-9]+\.[0-9]+\.[0-9]+|refs/heads/main)
+  ref: (refs/tags/v[0-9]+\.[0-9]+\.[0-9]+|refs/heads/main)
+  repository: DataDog/dd-win-prof
+
+# Just enough to create/update a GitHub Release and upload assets.
+permissions:
+  contents: write

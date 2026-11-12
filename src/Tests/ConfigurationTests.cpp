@@ -16,6 +16,11 @@
 // ---------------------------------------------------------------------------
 class EnvironmentVariableHelper {
  public:
+  struct Value {
+    bool exists;
+    std::string text;
+  };
+
   static void SetEnvironmentVariable(const char* name, const char* value) {
     ::SetEnvironmentVariableA(name, value);
   }
@@ -24,10 +29,13 @@ class EnvironmentVariableHelper {
     ::SetEnvironmentVariableA(name, nullptr);
   }
 
-  static std::string GetEnvironmentVariable(const char* name) {
+  static Value GetEnvironmentVariable(const char* name) {
     char buffer[1024] = {0};
     DWORD result = ::GetEnvironmentVariableA(name, buffer, sizeof(buffer));
-    return result > 0 ? std::string(buffer) : std::string();
+    if (result > 0) {
+      return {true, std::string(buffer, result)};
+    }
+    return {::GetLastError() != ERROR_ENVVAR_NOT_FOUND, {}};
   }
 };
 
@@ -37,6 +45,24 @@ class EnvironmentVariableHelper {
 static ProfilerConfig MakeProfilerConfig() {
   ProfilerConfig cfg = {};
   cfg.size = sizeof(ProfilerConfig);
+  return cfg;
+}
+
+static ProfilerConfig MakeFullyOverriddenProfilerConfig(bool noEnvVars = false) {
+  auto cfg = MakeProfilerConfig();
+  cfg.noEnvVars = noEnvVars;
+  cfg.url = "datadoghq.com";
+  cfg.apiKey = "first-key";
+  cfg.serviceName = "first-service";
+  cfg.serviceEnvironment = "first-env";
+  cfg.serviceVersion = "1.2.3";
+  cfg.cpuWallTimeSamplingPeriodNs = 10'000'000;
+  cfg.walltimeThreadsThreshold = 10;
+  cfg.cpuThreadsThreshold = 32;
+  cfg.uploadIntervalSeconds = 45;
+  cfg.tags = "team:first";
+  cfg.pprofOutputDirectory = "C:\\temp\\first";
+  cfg.symbolizeCallstacks = true;
   return cfg;
 }
 
@@ -51,17 +77,28 @@ class ConfigurationTest : public ::testing::Test {
     SaveEnvVar(EnvironmentVariables::Environment);
     SaveEnvVar(EnvironmentVariables::ServiceName);
     SaveEnvVar(EnvironmentVariables::AgentHost);
+    SaveEnvVar(EnvironmentVariables::AgentPort);
+    SaveEnvVar(EnvironmentVariables::NamedPipeName);
     SaveEnvVar(EnvironmentVariables::ApiKey);
+    SaveEnvVar(EnvironmentVariables::Site);
+    SaveEnvVar(EnvironmentVariables::AgentUrl);
+    SaveEnvVar(EnvironmentVariables::CpuWallTimeSamplingPeriod);
+    SaveEnvVar(EnvironmentVariables::WalltimeThreadsThreshold);
+    SaveEnvVar(EnvironmentVariables::CpuTimeThreadsThreshold);
+    SaveEnvVar(EnvironmentVariables::UploadInterval);
+    SaveEnvVar(EnvironmentVariables::Tags);
+    SaveEnvVar(EnvironmentVariables::ProfilesOutputDir);
+    SaveEnvVar(EnvironmentVariables::SymbolizeCallstacks);
   }
 
   void TearDown() override {
     for (auto const& [name, original] : _savedEnvVars) {
-      if (original.empty()) {
-        EnvironmentVariableHelper::UnsetEnvironmentVariable(name.c_str());
-      } else {
+      if (original.exists) {
         EnvironmentVariableHelper::SetEnvironmentVariable(
-            name.c_str(), original.c_str()
+            name.c_str(), original.text.c_str()
         );
+      } else {
+        EnvironmentVariableHelper::UnsetEnvironmentVariable(name.c_str());
       }
     }
   }
@@ -74,6 +111,22 @@ class ConfigurationTest : public ::testing::Test {
     EnvironmentVariableHelper::UnsetEnvironmentVariable(name);
   }
 
+  void UnsetAgentTransportEnvVars() {
+    UnsetTestEnvVar(EnvironmentVariables::AgentUrl);
+    UnsetTestEnvVar(EnvironmentVariables::AgentHost);
+    UnsetTestEnvVar(EnvironmentVariables::AgentPort);
+  }
+
+  void UnsetTuningEnvVars() {
+    UnsetTestEnvVar(EnvironmentVariables::CpuWallTimeSamplingPeriod);
+    UnsetTestEnvVar(EnvironmentVariables::WalltimeThreadsThreshold);
+    UnsetTestEnvVar(EnvironmentVariables::CpuTimeThreadsThreshold);
+    UnsetTestEnvVar(EnvironmentVariables::UploadInterval);
+    UnsetTestEnvVar(EnvironmentVariables::Tags);
+    UnsetTestEnvVar(EnvironmentVariables::ProfilesOutputDir);
+    UnsetTestEnvVar(EnvironmentVariables::SymbolizeCallstacks);
+  }
+
  private:
   void SaveEnvVar(const char* name) {
     _savedEnvVars.emplace_back(
@@ -81,7 +134,7 @@ class ConfigurationTest : public ::testing::Test {
     );
   }
 
-  std::vector<std::pair<std::string, std::string>> _savedEnvVars;
+  std::vector<std::pair<std::string, EnvironmentVariableHelper::Value>> _savedEnvVars;
 };
 
 // ===========================================================================
@@ -195,8 +248,7 @@ TEST_F(ConfigurationTest, ConfigurationCanBeOverriden) {
   EXPECT_EQ(config.CpuWallTimeSamplingPeriod(), 100ms);
   EXPECT_EQ(config.GetApiKey(), "xxx-xxxx-xxxxx");
   EXPECT_EQ(config.GetSite(), "http://localhost:8126");
-  EXPECT_TRUE(config.IsAgentless())
-      << "Should be in agentless mode when endpoint is set";
+  EXPECT_TRUE(config.IsAgentless()) << "Should be agentless when API key is set";
 }
 
 // ===========================================================================
@@ -471,4 +523,288 @@ TEST_F(ConfigurationTest, InitConfig_NoEnvVars_False_EnvVarsPreserved) {
   EXPECT_EQ(config.GetEnvironment(), "env-env")
       << "Env var value should survive when noEnvVars=false";
   EXPECT_EQ(config.GetServiceName(), "api-svc") << "API override should apply";
+}
+
+struct RepeatedSetupCase {
+  bool noEnvVars;
+  const char* expectedVersion;
+  const char* name;
+};
+// check noEnVars true     /  false   impact on re-initialized configuration
+//           -->  default < > env var
+class RepeatedSetupConfigurationTest
+    : public ConfigurationTest,
+      public testing::WithParamInterface<RepeatedSetupCase> {};
+
+TEST_P(
+    RepeatedSetupConfigurationTest,
+    OmittedVersionUsesDefaultOrEnvironmentAccordingToNoEnvVars
+) {
+  const auto& testCase = GetParam();
+  SetTestEnvVar(EnvironmentVariables::Version, "env-version");
+  UnsetTestEnvVar(EnvironmentVariables::ApiKey);
+  UnsetAgentTransportEnvVars();
+
+  Configuration config;
+  auto first = MakeFullyOverriddenProfilerConfig();
+  ASSERT_TRUE(InitializeConfiguration(&config, &first));
+  ASSERT_EQ(config.GetVersion(), "1.2.3");
+
+  // read values from env vars
+  auto second = MakeProfilerConfig();
+  second.noEnvVars = testCase.noEnvVars;
+  ASSERT_EQ(second.serviceVersion, nullptr);
+  ASSERT_TRUE(InitializeConfiguration(&config, &second, ProfileDeliveryMode::Callback));
+  EXPECT_EQ(config.GetVersion(), testCase.expectedVersion);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    NoEnvVarsMode,
+    RepeatedSetupConfigurationTest,
+    testing::Values(
+        RepeatedSetupCase{false, "env-version", "Environment"},
+        RepeatedSetupCase{true, "Unspecified-Version", "Defaults"}
+    ),
+    [](const testing::TestParamInfo<RepeatedSetupCase>& info) {
+      return info.param.name;
+    }
+);
+
+TEST_F(ConfigurationTest, InitConfig_RepeatedSetup_UnsetMetadataUsesEnvVars) {
+  SetTestEnvVar(EnvironmentVariables::ServiceName, "env-service");
+  SetTestEnvVar(EnvironmentVariables::Environment, "env-env");
+  SetTestEnvVar(EnvironmentVariables::Version, "env-version");
+  SetTestEnvVar(EnvironmentVariables::ApiKey, "env-key");
+  SetTestEnvVar(EnvironmentVariables::Site, "datadoghq.eu");
+  UnsetAgentTransportEnvVars();
+
+  Configuration config;
+  auto first = MakeFullyOverriddenProfilerConfig();
+  ASSERT_TRUE(InitializeConfiguration(&config, &first));
+
+  // read values from env vars
+  auto second = MakeProfilerConfig();
+  ASSERT_TRUE(InitializeConfiguration(&config, &second));
+
+  // ensure that values overriden in first are not reused
+  EXPECT_EQ(config.GetServiceName(), "env-service");
+  EXPECT_EQ(config.GetEnvironment(), "env-env");
+  EXPECT_EQ(config.GetVersion(), "env-version");
+  EXPECT_EQ(config.GetApiKey(), "env-key");
+  EXPECT_EQ(config.GetSite(), "datadoghq.eu");
+}
+
+TEST_F(ConfigurationTest, InitConfig_RepeatedSetup_UnsetTuningUsesDefaults) {
+  UnsetTestEnvVar(EnvironmentVariables::ApiKey);
+  UnsetAgentTransportEnvVars();
+  UnsetTuningEnvVars();
+
+  Configuration config;
+
+  // tuning settings are set
+  auto first = MakeFullyOverriddenProfilerConfig();
+  ASSERT_TRUE(InitializeConfiguration(&config, &first));
+
+  // read values from env vars except for tuning settings that have default values
+  auto second = MakeProfilerConfig();
+  ASSERT_TRUE(InitializeConfiguration(&config, &second));
+
+  // ensure that tuning values overriden in first are not reused, and defaults are
+  // applied
+  EXPECT_EQ(config.CpuWallTimeSamplingPeriod(), std::chrono::nanoseconds(20'000'000));
+  EXPECT_EQ(config.WalltimeThreadsThreshold(), 5);
+  EXPECT_EQ(config.CpuThreadsThreshold(), 64);
+  EXPECT_EQ(config.GetUploadInterval(), std::chrono::seconds(60));
+  EXPECT_TRUE(config.GetUserTags().empty());
+  EXPECT_TRUE(config.GetProfilesOutputDirectory().empty());
+  EXPECT_FALSE(config.AreCallstacksSymbolized());
+}
+
+TEST_F(ConfigurationTest, InitConfig_RepeatedSetup_NewOverridesAreAppliedAfterReset) {
+  SetTestEnvVar(EnvironmentVariables::Version, "env-version");
+  SetTestEnvVar(EnvironmentVariables::ServiceName, "env-service");
+  UnsetTestEnvVar(EnvironmentVariables::ApiKey);
+  UnsetAgentTransportEnvVars();
+
+  Configuration config;
+  auto first = MakeFullyOverriddenProfilerConfig();
+  ASSERT_TRUE(InitializeConfiguration(&config, &first));
+
+  auto second = MakeProfilerConfig();
+  second.serviceName = "second-service";
+  ASSERT_TRUE(InitializeConfiguration(&config, &second));
+
+  EXPECT_EQ(config.GetVersion(), "env-version");
+  EXPECT_EQ(config.GetServiceName(), "second-service");
+}
+
+struct EnvironmentReloadCase {
+  ProfileDeliveryMode mode;
+  const char* firstVersion;
+  const char* secondVersion;
+  const char* expectedVersion;
+  const char* name;
+};
+
+class EnvironmentReloadConfigurationTest
+    : public ConfigurationTest,
+      public testing::WithParamInterface<EnvironmentReloadCase> {};
+
+TEST_P(EnvironmentReloadConfigurationTest, RepeatedSetupReloadsCurrentEnvironment) {
+  const auto& testCase = GetParam();
+  UnsetTestEnvVar(EnvironmentVariables::ApiKey);
+  UnsetAgentTransportEnvVars();
+  SetTestEnvVar(EnvironmentVariables::Version, testCase.firstVersion);
+
+  Configuration config;
+  auto cfg = MakeProfilerConfig();
+  ASSERT_TRUE(InitializeConfiguration(&config, &cfg, testCase.mode));
+
+  SetTestEnvVar(EnvironmentVariables::Version, testCase.secondVersion);
+  ASSERT_TRUE(InitializeConfiguration(&config, &cfg, testCase.mode));
+  EXPECT_EQ(config.GetVersion(), testCase.expectedVersion);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    DeliveryModeAndEnvironmentTransition,
+    EnvironmentReloadConfigurationTest,
+    testing::Values(
+        EnvironmentReloadCase{
+            ProfileDeliveryMode::Http,
+            "first-env-version",
+            "second-env-version",
+            "second-env-version",
+            "HttpValueToValue"
+        },
+        EnvironmentReloadCase{
+            ProfileDeliveryMode::Http,
+            "first-env-version",
+            nullptr,
+            "Unspecified-Version",
+            "HttpValueToUnset"
+        },
+        EnvironmentReloadCase{
+            ProfileDeliveryMode::Http,
+            nullptr,
+            "second-env-version",
+            "second-env-version",
+            "HttpUnsetToValue"
+        },
+        EnvironmentReloadCase{
+            ProfileDeliveryMode::Callback,
+            "first-env-version",
+            "second-env-version",
+            "second-env-version",
+            "CallbackValueToValue"
+        },
+        EnvironmentReloadCase{
+            ProfileDeliveryMode::Callback,
+            "first-env-version",
+            nullptr,
+            "Unspecified-Version",
+            "CallbackValueToUnset"
+        },
+        EnvironmentReloadCase{
+            ProfileDeliveryMode::Callback,
+            nullptr,
+            "second-env-version",
+            "second-env-version",
+            "CallbackUnsetToValue"
+        }
+    ),
+    [](const testing::TestParamInfo<EnvironmentReloadCase>& info) {
+      return info.param.name;
+    }
+);
+
+TEST_F(
+    ConfigurationTest,
+    InitConfig_RepeatedSetup_NoEnvVarsTrueThenFalseReenablesEnvironment
+) {
+  SetTestEnvVar(EnvironmentVariables::ApiKey, "env-key");
+  SetTestEnvVar(EnvironmentVariables::Version, "env-version");
+  UnsetAgentTransportEnvVars();
+
+  Configuration config;
+  auto first = MakeProfilerConfig();
+  first.serviceVersion = "api-version";
+  ASSERT_TRUE(InitializeConfiguration(&config, &first));
+  ASSERT_EQ(config.GetVersion(), "api-version");
+
+  auto second = MakeProfilerConfig();
+  second.noEnvVars = true;
+  Configuration defaults;
+  defaults.ResetToDefaults();
+  ASSERT_TRUE(InitializeConfiguration(&config, &second, ProfileDeliveryMode::Callback));
+  EXPECT_EQ(config.GetVersion(), defaults.GetVersion());
+  EXPECT_TRUE(config.GetApiKey().empty());
+  EXPECT_EQ(config.GetSite(), defaults.GetSite());
+
+  second.noEnvVars = false;
+  ASSERT_TRUE(InitializeConfiguration(&config, &second, ProfileDeliveryMode::Callback));
+  EXPECT_EQ(config.GetApiKey(), "env-key");
+  EXPECT_EQ(config.GetVersion(), "env-version");
+}
+
+TEST_F(ConfigurationTest, InitConfig_CallbackNoEnvVarsDoesNotRequireHttpFields) {
+  Configuration config;
+  auto cfg = MakeProfilerConfig();
+  cfg.noEnvVars = true;
+
+  EXPECT_TRUE(InitializeConfiguration(&config, &cfg, ProfileDeliveryMode::Callback));
+  EXPECT_TRUE(config.GetApiKey().empty());
+  EXPECT_EQ(config.GetSite(), "datadoghq.com");
+}
+
+// ===========================================================================
+// Agentless mode: derived from DD_API_KEY presence
+// ===========================================================================
+
+TEST_F(ConfigurationTest, Agentless_ApiKeyAndSite) {
+  SetTestEnvVar(EnvironmentVariables::ApiKey, "my-api-key");
+  SetTestEnvVar(EnvironmentVariables::Site, "datadoghq.eu");
+
+  Configuration config;
+  EXPECT_TRUE(config.IsAgentless());
+  EXPECT_EQ(config.GetSite(), "datadoghq.eu");
+}
+
+TEST_F(ConfigurationTest, Agentless_ApiKeyOnly_DefaultSite) {
+  UnsetTestEnvVar(EnvironmentVariables::Site);
+  SetTestEnvVar(EnvironmentVariables::ApiKey, "my-api-key");
+
+  Configuration config;
+  // DD_SITE unset → defaults to datadoghq.com → agentless
+  EXPECT_TRUE(config.IsAgentless());
+  EXPECT_EQ(config.GetSite(), "datadoghq.com");
+}
+
+TEST_F(ConfigurationTest, Agent_NoApiKey) {
+  UnsetTestEnvVar(EnvironmentVariables::ApiKey);
+
+  Configuration config;
+  EXPECT_FALSE(config.IsAgentless());
+}
+
+TEST_F(ConfigurationTest, TransportValidationAndExportUseExplicitDeliveryMode) {
+  SetTestEnvVar(EnvironmentVariables::ApiKey, "my-api-key");
+  SetTestEnvVar(EnvironmentVariables::AgentUrl, "http://localhost:8126");
+
+  Configuration config;
+  config.SetExportEnabled(true);
+  EXPECT_TRUE(config.ValidateTransportConfig(ProfileDeliveryMode::Callback));
+  EXPECT_FALSE(config.IsExportEnabled(ProfileDeliveryMode::Callback));
+  EXPECT_FALSE(config.ValidateTransportConfig(ProfileDeliveryMode::Http));
+  EXPECT_TRUE(config.IsExportEnabled(ProfileDeliveryMode::Http));
+}
+
+TEST_F(ConfigurationTest, InitConfig_ConflictingTransportConfig_Fails) {
+  SetTestEnvVar(EnvironmentVariables::ApiKey, "my-api-key");
+  SetTestEnvVar(EnvironmentVariables::AgentUrl, "http://localhost:8126");
+
+  Configuration config;
+  ProfilerConfig cfg{};
+  cfg.size = sizeof(ProfilerConfig);
+
+  EXPECT_FALSE(InitializeConfiguration(&config, &cfg));
 }

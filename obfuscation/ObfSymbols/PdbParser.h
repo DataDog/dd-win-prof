@@ -3,8 +3,8 @@
 #pragma once
 
 #include <Windows.h>
-#include <atlbase.h>
 #include <dia2.h>
+#include <wrl/client.h>
 
 #include <string>
 #include <vector>
@@ -65,9 +65,9 @@ class PdbParser {
   bool _isValid;
   bool _comInitialized;
 
-  CComPtr<IDiaDataSource> _pSource;
-  CComPtr<IDiaSession> _pSession;
-  CComPtr<IDiaSymbol> _pGlobal;
+  Microsoft::WRL::ComPtr<IDiaDataSource> _pSource;
+  Microsoft::WRL::ComPtr<IDiaSession> _pSession;
+  Microsoft::WRL::ComPtr<IDiaSymbol> _pGlobal;
 
   // OMAP tables for address translation
   std::vector<OMAPRVA> _omapFrom;  // Original RVA -> Optimized RVA

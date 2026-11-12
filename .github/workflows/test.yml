@@ -2,7 +2,7 @@ name: Build and Test
 
 on:
   push:
-    branches: [ main, master, develop ]
+    branches: [ main, master, develop, 'mq-working-branch-*' ]
   pull_request:
     branches: [ main, master, develop ]
 
@@ -25,10 +25,22 @@ jobs:
         key: deps-${{ hashFiles('src/CMakeLists.txt') }}
 
     - name: Configure CMake
-      run: cmake -G "Visual Studio 17 2022" -A x64 -B build -DFETCHCONTENT_BASE_DIR=${{ github.workspace }}/.deps
+      run: cmake -G "Visual Studio 17 2022" -A x64 -B build -DDD_WIN_PROF_BUILD_OBFUSCATION=ON -DFETCHCONTENT_BASE_DIR=${{ github.workspace }}/.deps
 
     - name: Build
       run: cmake --build build --config ${{ matrix.configuration }}
+
+    - name: Validate Runner symbol file
+      shell: pwsh
+      run: |
+        $config  = "${{ matrix.configuration }}"
+        $obfExe  = "build/obfuscation/ObfSymbols/$config/ObfSymbols.exe"
+        $pdb     = "build/src/Runner/$config/Runner.pdb"
+        $symFile = "build/src/Runner/$config/Runner.sym"
+        Write-Host "Generating $symFile ..."
+        & $obfExe --pdb $pdb --out $symFile
+        if ($LASTEXITCODE -ne 0) { Write-Error "ObfSymbols failed (exit $LASTEXITCODE)"; exit 1 }
+        pwsh e2e-tests/validate-runner-sym.ps1 -SymFile $symFile
 
     - name: Run tests
       run: build/src/Tests/${{ matrix.configuration }}/Tests.exe
@@ -45,8 +57,78 @@ jobs:
 
     - name: Run integration tests
       if: matrix.configuration == 'Release'
-      run: pwsh src/integration-tests/test_rum_scenario.ps1 -Config Release
+      run: |
+        python -m unittest discover -s src/integration-tests -p "test_*.py" -v
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        pwsh src/integration-tests/test_rum_scenario.ps1 -Config Release
       shell: pwsh
+
+    - name: Run UI-hang integration tests
+      if: matrix.configuration == 'Release'
+      shell: pwsh
+      timeout-minutes: 5
+      run: |
+        pwsh src/integration-tests/test_ui_hangs.ps1 `
+          -Config Release `
+          -OutputRoot "${{ runner.temp }}/ui-hangs" `
+          -KeepArtifacts
+
+    - name: Upload UI-hang diagnostics on failure
+      if: failure() && matrix.configuration == 'Release'
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: ui-hang-diagnostics
+        path: ${{ runner.temp }}/ui-hangs
+
+    - name: Set up Go (for prof-analyze)
+      if: matrix.configuration == 'Release'
+      uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+      with:
+        go-version: '1.25.1'
+
+    - name: Cache prof-analyze binary
+      if: matrix.configuration == 'Release'
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: ~/go/bin
+        key: prof-analyze-v1.0.0
+
+    - name: Install prof-analyze
+      if: matrix.configuration == 'Release'
+      run: |
+        if (-not (Test-Path "$env:USERPROFILE\go\bin\prof-analyze.exe")) {
+          go install github.com/DataDog/prof-correctness/cmd/prof-analyze@v1.0.0
+        }
+      shell: pwsh
+
+    - name: Run Runner correctness scenarios
+      if: matrix.configuration == 'Release'
+      shell: pwsh
+      run: |
+        $root = "e2e-tests/runner-scenarios"
+        $outRoot = Join-Path $env:RUNNER_TEMP "runner-scenarios"
+        $failed = @()
+        $scenarios = Get-ChildItem $root -Directory | Where-Object { $_.Name -like 'scenario_*' } | Sort-Object Name
+        foreach ($scn in $scenarios) {
+            $num      = ($scn.Name -replace '^scenario_', '')
+            $pprofDir = Join-Path $outRoot $scn.Name
+            Write-Host "=== $($scn.Name) ===" -ForegroundColor Cyan
+            pwsh e2e-tests/capture-pprof.ps1 -Scenario $num -Iterations 5 -Config Release -PprofDir $pprofDir
+            if ($LASTEXITCODE -ne 0) { $failed += "$($scn.Name) (capture)"; continue }
+            prof-analyze -expectedJson (Join-Path $scn.FullName "expected_profile.json") -pprofPath $pprofDir
+            if ($LASTEXITCODE -ne 0) { $failed += "$($scn.Name) (analyze)" }
+        }
+        if ($failed.Count -gt 0) {
+            Write-Host "Failed scenarios: $($failed -join ', ')" -ForegroundColor Red
+            exit 1
+        }
+
+    - name: Upload runner-scenario pprofs on failure
+      if: failure() && matrix.configuration == 'Release'
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: runner-scenarios-pprof
+        path: ${{ runner.temp }}/runner-scenarios
 
     - name: Upload build artifacts
       if: matrix.configuration == 'Release'
@@ -63,8 +145,106 @@ jobs:
           build/src/ProfilerInjector/${{ matrix.configuration }}/ProfilerInjector.pdb
           build/src/Runner/${{ matrix.configuration }}/Runner.exe
           build/src/Runner/${{ matrix.configuration }}/Runner.pdb
+          build/src/UIApp/${{ matrix.configuration }}/UIApp.exe
+          build/src/UIApp/${{ matrix.configuration }}/UIApp.pdb
           build/src/Tests/${{ matrix.configuration }}/Tests.exe
         retention-days: 7
+
+  asan:
+    name: Tests (ASan, Debug)
+    runs-on: windows-2022
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+    # NOTE: distinct cache key from the other jobs. FetchContent records the
+    # generator in its subbuild state, so reusing the VS-generator cache here
+    # would fail with "generator does not match". Keying on "ninja-asan"
+    # keeps this job's deps separate from the multi-config matrix.
+    - name: Cache dependencies
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: .deps
+        key: deps-ninja-asan-${{ hashFiles('src/CMakeLists.txt') }}
+
+    # Sets up the MSVC Developer environment so that VCToolsInstallDir is
+    # exported (used by CMake to locate the ASan runtime DLL) and so that
+    # Ninja + cl.exe are on PATH. Done inline rather than via a third-party
+    # action to stay within the org's allowed-actions policy.
+    - name: Setup MSVC dev environment
+      shell: cmd
+      run: |
+        for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set VSINSTALL=%%i
+        call "%VSINSTALL%\VC\Auxiliary\Build\vcvars64.bat"
+        set >> %GITHUB_ENV%
+
+    - name: Configure CMake (ASan)
+      run: cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Debug -DDD_WIN_PROF_ENABLE_ASAN=ON -DFETCHCONTENT_BASE_DIR=${{ github.workspace }}/.deps
+
+    - name: Build
+      run: cmake --build build
+
+    # Sanity check: a binary compiled with /fsanitize=address has the linker
+    # auto-import clang_rt.asan_dynamic-x86_64.dll. If this grep returns
+    # nothing, ASan didn't actually instrument the TU even though configure
+    # advertised the flag -- fail the job so we don't get false confidence.
+    - name: Verify ASan instrumentation
+      shell: pwsh
+      run: |
+        $imports = & dumpbin /imports build/src/Tests/Tests.exe
+        $asan = $imports | Select-String -Pattern 'clang_rt\.asan'
+        if (-not $asan) {
+          Write-Error "Tests.exe does not import the ASan runtime; /fsanitize=address was NOT effective."
+          exit 1
+        }
+        Write-Host "ASan runtime import found:" -ForegroundColor Green
+        $asan | ForEach-Object { Write-Host "  $_" }
+
+    - name: Run unit tests under ASan
+      env:
+        # Make ASan failures fatal and produce useful diagnostics.
+        ASAN_OPTIONS: abort_on_error=1:halt_on_error=1:print_stacktrace=1:detect_leaks=0:symbolize=1
+      run: build/src/Tests/Tests.exe
+
+    - name: Setup Python
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      with:
+        python-version: '3.x'
+
+    - name: Install Python dependencies
+      run: pip install -r src/integration-tests/requirements.txt
+
+    # The Runner integration test loads the ASan-instrumented dd-win-prof.dll
+    # in-process, so the Runner itself runs under ASan too. -Config Debug
+    # matches the build above; find-runner.ps1 picks up the Ninja layout.
+    - name: Run integration tests under ASan
+      env:
+        ASAN_OPTIONS: abort_on_error=1:halt_on_error=1:print_stacktrace=1:detect_leaks=0:symbolize=1
+      run: pwsh src/integration-tests/test_rum_scenario.ps1 -Config Debug
+      shell: pwsh
+
+  # Builds a small project that consumes dd-win-prof via FetchContent and checks that
+  # nothing meant only for dd-win-prof developers leaks into it (GoogleTest, test
+  # targets, internal headers, source tree writes, install rules, cache variables).
+  consumer:
+    name: Consume as dependency
+    runs-on: windows-2022
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+    # Distinct cache key: this job's FetchContent state belongs to a different parent
+    # project than the other jobs', so it can't share their .deps directory.
+    - name: Cache dependencies
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: .deps
+        key: deps-consumer-${{ hashFiles('src/CMakeLists.txt', 'e2e-tests/consumer/CMakeLists.txt') }}
+
+    - name: Build and check a consuming project
+      run: pwsh scripts/test-consumer.ps1 -FetchContentBaseDir "${{ github.workspace }}/.deps"
 
   check-format:
     runs-on: windows-2022

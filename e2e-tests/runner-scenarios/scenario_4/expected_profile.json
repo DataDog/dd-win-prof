@@ -1,0 +1,67 @@
+{
+  "test_name": "runner_scenario_4",
+  "note": "Locks/sleep scenario: 4 waiter threads + a master that acquires mutex, semaphore and critical section, signals g_masterThreadReady, then holds all three for 3 s before releasing. Each waiter gates on g_masterThreadReady before contending, so it genuinely blocks on its primitive (~3 s/iteration; Sleep waiter ~2 s/iteration) over 5 iterations. With the handshake fix, Mutex and Semaphore waiter blocking is now tracked, so wait-time and wall-time are asserted for all four waiters as absolute nanoseconds (scale_by_duration=false). error_margin is a percentage tolerance (10% ~= 1.5 s / 1.1 s).",
+  "scale_by_duration": false,
+  "stacks": [
+    {
+      "profile-type": "wait-time",
+      "stack-content": [
+        {
+          "regular_expression": ".*",
+          "value": 15000000000, "error_margin": 5,
+          "labels": [{ "key": "thread_name", "values": ["Mutex Waiter"] }]
+        },
+        {
+          "regular_expression": ".*",
+          "value": 15000000000, "error_margin": 5,
+          "labels": [{ "key": "thread_name", "values": ["Semaphore Waiter"] }]
+        },
+        {
+          "regular_expression": ".*",
+          "value": 15000000000, "error_margin": 5,
+          "labels": [{ "key": "thread_name", "values": ["CriticalSection Waiter"] }]
+        },
+        {
+          "regular_expression": ".*",
+          "value": 10000000000, "error_margin": 5,
+          "labels": [{ "key": "thread_name", "values": ["Sleep Waiter"] }]
+        },
+        {
+          "regular_expression": ".*",
+          "value": 15000000000, "error_margin": 5,
+          "labels": [{ "key": "thread_name", "values": ["Wait Master"] }]
+        }
+      ]
+    },
+    {
+      "profile-type": "wall-time",
+      "stack-content": [
+        {
+          "regular_expression": ".*",
+          "value": 15000000000, "error_margin": 5,
+          "labels": [{ "key": "thread_name", "values": ["Mutex Waiter"] }]
+        },
+        {
+          "regular_expression": ".*",
+          "value": 15000000000, "error_margin": 5,
+          "labels": [{ "key": "thread_name", "values": ["Semaphore Waiter"] }]
+        },
+        {
+          "regular_expression": ".*",
+          "value": 15000000000, "error_margin": 5,
+          "labels": [{ "key": "thread_name", "values": ["CriticalSection Waiter"] }]
+        },
+        {
+          "regular_expression": ".*",
+          "value": 10000000000, "error_margin": 5,
+          "labels": [{ "key": "thread_name", "values": ["Sleep Waiter"] }]
+        },
+        {
+          "regular_expression": ".*",
+          "value": 15000000000, "error_margin": 5,
+          "labels": [{ "key": "thread_name", "values": ["Wait Master"] }]
+        }
+      ]
+    }
+  ]
+}

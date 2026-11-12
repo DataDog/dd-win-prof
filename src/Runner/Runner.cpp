@@ -15,9 +15,9 @@
 // Uuid.cpp is compiled directly into Runner (see CMakeLists.txt) since
 // dd-win-prof.dll doesn't export the symbol.
 #include "..\dd-win-prof\Uuid.h"
-#include "..\dd-win-prof\dd-win-rum-private.h"
 #include "Helpers.h"
 #include "Spinner.h"
+#include "internal/dd-win-rum-private.h"
 
 // scenarios
 //  1 : simple C functions
@@ -48,14 +48,17 @@ struct RunnerOptions {
 void ShowHelp(const char* programName);
 bool ParseCommandLine(int argc, char* argv[], RunnerOptions& opts);
 
-void SimpleCall2() { Spin(100); }
+// Noinline so each function stays observable as a distinct frame in
+// Release-build profiles. The prof-correctness analyzer asserts on
+// per-function CPU shares; inlining collapses them all into the caller.
+__declspec(noinline) void SimpleCall2() { Spin(100); }
 
-void SimpleCall1() {
+__declspec(noinline) void SimpleCall1() {
   Spin(200);
   SimpleCall2();
 }
 
-void SimpleCalls() {
+__declspec(noinline) void SimpleCalls() {
   for (int count = 0; count < 3; count++) {
     Spin(300);
     SimpleCall1();
@@ -157,6 +160,9 @@ DWORD WINAPI MutexThreadFunction(LPVOID lpParam) {
   // Signal that we're ready to wait
   ::SetEvent(params->readyEvent);
 
+  // Wait until the master owns the mutex so this acquisition actually blocks
+  ::WaitForSingleObject(g_masterThreadReady, INFINITE);
+
   // Wait for the mutex (will block until master thread releases it)
   DWORD result = ::WaitForSingleObject(g_mutex, INFINITE);
   if (result == WAIT_OBJECT_0) {
@@ -179,6 +185,9 @@ DWORD WINAPI SemaphoreThreadFunction(LPVOID lpParam) {
 
   // Signal that we're ready to wait
   ::SetEvent(params->readyEvent);
+
+  // Wait until the master owns the semaphore so this acquisition actually blocks
+  ::WaitForSingleObject(g_masterThreadReady, INFINITE);
 
   // Wait for the semaphore
   DWORD result = ::WaitForSingleObject(g_semaphore, INFINITE);
@@ -204,8 +213,8 @@ DWORD WINAPI CriticalSectionThreadFunction(LPVOID lpParam) {
   // Signal that we're ready to wait
   ::SetEvent(params->readyEvent);
 
-  // Small delay to ensure master thread has entered the critical section
-  ::Sleep(100);
+  // Wait until the master owns the critical section so this entry actually blocks
+  ::WaitForSingleObject(g_masterThreadReady, INFINITE);
 
   // Wait for the critical section
   ::EnterCriticalSection(&g_criticalSection);
@@ -258,6 +267,10 @@ DWORD WINAPI WaitMasterThreadFunction(LPVOID lpParam) {
   // Enter critical section (blocks CriticalSectionThreadFunction)
   ::EnterCriticalSection(&g_criticalSection);
 
+  // All locks are now owned by the master: release the waiters so they block on
+  // their respective primitives instead of acquiring them while still free.
+  ::SetEvent(g_masterThreadReady);
+
   // Hold all locks for a while to create contention
   ::Sleep(3000);
 
@@ -288,6 +301,10 @@ void RunWaitingThreads() {
   g_semaphore =
       ::CreateSemaphore(nullptr, 1, 1, nullptr);  // Initial count 1, max count 1
   ::InitializeCriticalSection(&g_criticalSection);
+
+  // Manual-reset event signaled once the master owns all locks, so every lock
+  // waiter is released by a single SetEvent and only then attempts its own lock.
+  g_masterThreadReady = ::CreateEvent(nullptr, TRUE, FALSE, nullptr);
 
   // Create ready events for each worker thread
   HANDLE* readyEvents = new HANDLE[4];
@@ -333,6 +350,8 @@ void RunWaitingThreads() {
 
   ::CloseHandle(g_mutex);
   ::CloseHandle(g_semaphore);
+  ::CloseHandle(g_masterThreadReady);
+  g_masterThreadReady = nullptr;
   ::DeleteCriticalSection(&g_criticalSection);
 }
 

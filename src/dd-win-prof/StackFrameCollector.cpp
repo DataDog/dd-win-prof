@@ -20,18 +20,19 @@ bool StackFrameCollector::CaptureStack(
 }
 
 bool StackFrameCollector::CaptureStack(
-    HANDLE hThread, uint64_t* pFrames, uint16_t& framesCount, bool& isTruncated
+    HANDLE hThread,
+    CONTEXT& seedContext,
+    uint64_t* pFrames,
+    uint16_t& framesCount,
+    bool& isTruncated
 ) {
   isTruncated = false;
   uint16_t maxFramesCount = framesCount;
 
-  CONTEXT context;
-  context.ContextFlags = CONTEXT_FULL;
-  BOOL hasInfo = ::GetThreadContext(hThread, &context);
-
-  if (!hasInfo) {
-    return false;
-  }
+  // No GetThreadContext call here: the suspend + fetch already happened in
+  // TrySuspendThread. RtlVirtualUnwind mutates `seedContext` as it walks
+  // frames; the caller (StackSamplerLoop) does not read it back, so we avoid
+  // the ~1.2 KB-per-sample copy that a const-ref + local snapshot would cost.
 
   // Get thread stack limits:
   DWORD64 stackLimit = 0;
@@ -54,13 +55,13 @@ bool StackFrameCollector::CaptureStack(
       isTruncated = true;
       break;
     }
-    pFrames[framesCount++] = context.Rip;
+    pFrames[framesCount++] = seedContext.Rip;
 
     __try {
       // Sometimes, we could hit an access violation, so catch it and just return.
       // We want to prevent this from killing the application
       pFunctionTableEntry =
-          ::RtlLookupFunctionEntry(context.Rip, &imageBaseAddress, &historyTable);
+          ::RtlLookupFunctionEntry(seedContext.Rip, &imageBaseAddress, &historyTable);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
       return false;
     }
@@ -97,12 +98,12 @@ bool StackFrameCollector::CaptureStack(
         // FIX: For a customer using the SentinelOne solution, it was not possible to
         // walk the stack
         //      of a thread so RSP was not valid
-        context.Rip = *reinterpret_cast<uint64_t*>(context.Rsp);
+        seedContext.Rip = *reinterpret_cast<uint64_t*>(seedContext.Rsp);
       } __except (EXCEPTION_EXECUTE_HANDLER) {
         return false;
       }
 
-      context.Rsp += 8;
+      seedContext.Rsp += 8;
     } else {
       // So, pFunctionTableEntry is not NULL. Unwind one frame.
       __try {
@@ -112,9 +113,9 @@ bool StackFrameCollector::CaptureStack(
         ::RtlVirtualUnwind(
             UNW_FLAG_NHANDLER,
             imageBaseAddress,
-            context.Rip,
+            seedContext.Rip,
             pFunctionTableEntry,
-            &context,
+            &seedContext,
             &pHandlerData,
             &establisherFrame,
             pNonVolatileContextPtrsIsNull
@@ -135,16 +136,18 @@ bool StackFrameCollector::CaptureStack(
       }
     }
 
-    if (!ValidatePointerInStack(context.Rsp, stackLimit, stackBase)) {
+    if (!ValidatePointerInStack(seedContext.Rsp, stackLimit, stackBase)) {
       return false;
     }
 
-  } while (context.Rip != 0);
+  } while (seedContext.Rip != 0);
 
   return true;
 }
 
-bool StackFrameCollector::TrySuspendThread(std::shared_ptr<ThreadInfo> pThreadInfo) {
+bool StackFrameCollector::TrySuspendThread(
+    std::shared_ptr<ThreadInfo> pThreadInfo, CONTEXT& seedContext
+) {
   HANDLE hThread = pThreadInfo->GetOsThreadHandle();
   DWORD suspendCount = ::SuspendThread(hThread);
   if (suspendCount == static_cast<DWORD>(-1)) {
@@ -160,9 +163,15 @@ bool StackFrameCollector::TrySuspendThread(std::shared_ptr<ThreadInfo> pThreadIn
   // suspension management (and we have biger problems if we do not), this should be
   // benign.
 
-  // SuspendThread is asynchronous and requires GetThreadContext to be called.
+  // SuspendThread is asynchronous; the kernel only guarantees the thread is fully
+  // stopped once we have observed its register state. We need the CONTEXT anyway
+  // as the unwind seed, so fetch it here with CONTEXT_FULL. This single
+  // GetThreadContext call serves as both the suspend fence and the seed for
+  // CaptureStack, replacing the previous double-fetch (one CONTEXT_INTEGER fence
+  // + one CONTEXT_FULL seed).
   // https://devblogs.microsoft.com/oldnewthing/20150205-00/?p=44743
-  if (EnsureThreadIsSuspended(hThread)) {
+  seedContext.ContextFlags = CONTEXT_FULL;
+  if (::GetThreadContext(hThread, &seedContext)) {
     return true;
   }
 

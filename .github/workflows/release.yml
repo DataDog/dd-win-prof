@@ -1,0 +1,128 @@
+name: Release
+
+# Triggered when a vX.Y.Z tag is pushed. Builds the Release configuration
+# (profiler DLL + FFI + ObfSymbols), assembles dd-win-prof.zip matching the
+# layout used for the v0.2.0 hand-packaged release, creates a *draft*
+# GitHub Release with auto-generated notes, and uploads the zip as the
+# single asset. The release is left as a draft so the maintainer can edit
+# the notes and publish manually.
+#
+# Also supports workflow_dispatch with an explicit tag, for re-running
+# against an existing tag (e.g. to re-upload assets).
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        type: string
+        description: "Existing tag to (re)build a release for, e.g. v0.3.0"
+        required: true
+
+# Token model: the default GITHUB_TOKEN is org-capped to `contents: read`,
+# which is enough to checkout but not to create a release. We federate an
+# elevated token via Octo-STS (policy at
+# .github/chainguard/self.github.release.publish.sts.yaml) and use it
+# for the `gh release` calls. `id-token: write` is required on the job
+# so the runner can mint the OIDC token that Octo-STS exchanges.
+permissions:
+  contents: read
+  id-token: write
+  actions: read
+
+jobs:
+  build-and-release:
+    runs-on: windows-2022
+
+    steps:
+      - name: Resolve tag
+        id: tag
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $tag = "${{ inputs.release_tag }}"
+          } else {
+            $tag = "${{ github.ref_name }}"
+          }
+          if ($tag -notmatch '^v\d+\.\d+\.\d+$') {
+            Write-Error "Tag '$tag' does not match vX.Y.Z"
+            exit 1
+          }
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Releasing tag: $tag"
+
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - name: Verify version.h matches tag
+        shell: pwsh
+        run: pwsh scripts/check-version.ps1 -Tag "${{ steps.tag.outputs.tag }}"
+
+      - name: Cache dependencies
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .deps
+          key: deps-${{ hashFiles('src/CMakeLists.txt') }}
+
+      - name: Configure CMake
+        run: cmake -G "Visual Studio 17 2022" -A x64 -B build -DDD_WIN_PROF_BUILD_OBFUSCATION=ON -DFETCHCONTENT_BASE_DIR=${{ github.workspace }}/.deps
+
+      - name: Build Release
+        run: cmake --build build --config Release
+
+      # Layout, file list, and licensing bundle are all owned by CMake
+      # install() rules; this step just drives them. See:
+      #   src/dd-win-prof/CMakeLists.txt     (Profiler/*)
+      #   obfuscation/ObfSymbols/CMakeLists.txt (Obfuscation/ObfSymbols.exe)
+      #   CMakeLists.txt                      (LICENSE, NOTICE, licenses/*)
+      - name: Stage release assets
+        id: stage
+        shell: pwsh
+        run: |
+          $stagingRoot = Join-Path $env:RUNNER_TEMP "release-staging"
+          $pkgDir      = Join-Path $stagingRoot "dd-win-prof"
+          if (Test-Path $stagingRoot) { Remove-Item $stagingRoot -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $pkgDir | Out-Null
+
+          cmake --install build --config Release --prefix $pkgDir
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $zipPath = Join-Path $stagingRoot "dd-win-prof.zip"
+          Compress-Archive -Path $pkgDir -DestinationPath $zipPath
+          Write-Host "Created $zipPath"
+          Get-ChildItem $stagingRoot -Recurse | Select-Object FullName, Length
+
+          "zip_path=$zipPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Federate GH token via Octo-STS
+        uses: DataDog/dd-octo-sts-action@96a25462dbcb10ebf0bfd6e2ccc917d2ab235b9a # v1.0.4
+        id: octo-sts
+        with:
+          scope: DataDog/dd-win-prof
+          policy: self.github.release.publish
+
+      - name: Create or update draft release
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ steps.octo-sts.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $tag = "${{ steps.tag.outputs.tag }}"
+          $zip = "${{ steps.stage.outputs.zip_path }}"
+
+          $exists = (gh release view $tag 2>$null)
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "Release $tag already exists; uploading asset with --clobber"
+            gh release upload $tag $zip --clobber
+          } else {
+            Write-Host "Creating draft release $tag"
+            gh release create $tag $zip `
+              --title "$tag" `
+              --generate-notes `
+              --draft
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
