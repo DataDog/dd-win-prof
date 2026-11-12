@@ -128,7 +128,7 @@ if ($gtest.Count -gt 0) {
 }
 
 # No test or tool projects may have been generated.
-$unwanted = '^(Tests|Runner|Runner_runtime_deps|ProfilerInjector|ObfSymbols|TestSymbols.*|gtest.*|gmock.*|Continuous|Experimental|Nightly.*)$'
+$unwanted = '^(exporter_protocol_tests|exporter_probe|aggregation_tests|aggregation_collision_tests|aggregation_bench|Tests|Runner|Runner_runtime_deps|ProfilerInjector|ObfSymbols|TestSymbols.*|gtest.*|gmock.*|Continuous|Experimental|Nightly.*)$'
 $projects = @(
     Get-ChildItem $buildDir -Recurse -Filter '*.vcxproj' |
         Where-Object { $_.FullName -notmatch '-subbuild|CMakeFiles' } |

@@ -1,0 +1,1416 @@
+{
+  "validation": {
+    "result": "PASS",
+    "runs": 312,
+    "crt": [
+      {
+        "project": "bench_core.vcxproj",
+        "line": "104",
+        "value": "<RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>"
+      },
+      {
+        "project": "bench_core.vcxproj",
+        "line": "158",
+        "value": "<RuntimeLibrary>MultiThreaded</RuntimeLibrary>"
+      },
+      {
+        "project": "bench_core.vcxproj",
+        "line": "214",
+        "value": "<RuntimeLibrary>MultiThreaded</RuntimeLibrary>"
+      },
+      {
+        "project": "bench_core.vcxproj",
+        "line": "271",
+        "value": "<RuntimeLibrary>MultiThreaded</RuntimeLibrary>"
+      },
+      {
+        "project": "bench_core_timed.vcxproj",
+        "line": "104",
+        "value": "<RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>"
+      },
+      {
+        "project": "bench_core_timed.vcxproj",
+        "line": "158",
+        "value": "<RuntimeLibrary>MultiThreaded</RuntimeLibrary>"
+      },
+      {
+        "project": "bench_core_timed.vcxproj",
+        "line": "214",
+        "value": "<RuntimeLibrary>MultiThreaded</RuntimeLibrary>"
+      },
+      {
+        "project": "bench_core_timed.vcxproj",
+        "line": "271",
+        "value": "<RuntimeLibrary>MultiThreaded</RuntimeLibrary>"
+      },
+      {
+        "project": "bench_v19.vcxproj",
+        "line": "104",
+        "value": "<RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>"
+      },
+      {
+        "project": "bench_v19.vcxproj",
+        "line": "158",
+        "value": "<RuntimeLibrary>MultiThreaded</RuntimeLibrary>"
+      },
+      {
+        "project": "bench_v19.vcxproj",
+        "line": "214",
+        "value": "<RuntimeLibrary>MultiThreaded</RuntimeLibrary>"
+      },
+      {
+        "project": "bench_v19.vcxproj",
+        "line": "271",
+        "value": "<RuntimeLibrary>MultiThreaded</RuntimeLibrary>"
+      },
+      {
+        "project": "core_bench_library.vcxproj",
+        "line": "97",
+        "value": "<RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>"
+      },
+      {
+        "project": "core_bench_library.vcxproj",
+        "line": "138",
+        "value": "<RuntimeLibrary>MultiThreaded</RuntimeLibrary>"
+      },
+      {
+        "project": "core_bench_library.vcxproj",
+        "line": "181",
+        "value": "<RuntimeLibrary>MultiThreaded</RuntimeLibrary>"
+      },
+      {
+        "project": "core_bench_library.vcxproj",
+        "line": "225",
+        "value": "<RuntimeLibrary>MultiThreaded</RuntimeLibrary>"
+      },
+      {
+        "project": "core_timed_bench_library.vcxproj",
+        "line": "97",
+        "value": "<RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>"
+      },
+      {
+        "project": "core_timed_bench_library.vcxproj",
+        "line": "138",
+        "value": "<RuntimeLibrary>MultiThreaded</RuntimeLibrary>"
+      },
+      {
+        "project": "core_timed_bench_library.vcxproj",
+        "line": "181",
+        "value": "<RuntimeLibrary>MultiThreaded</RuntimeLibrary>"
+      },
+      {
+        "project": "core_timed_bench_library.vcxproj",
+        "line": "225",
+        "value": "<RuntimeLibrary>MultiThreaded</RuntimeLibrary>"
+      }
+    ]
+  },
+  "latency": [
+    {
+      "backend": "c",
+      "workload": "repeated",
+      "runs": 3,
+      "record_p50_ns": {
+        "median": 100,
+        "min": 100,
+        "max": 100
+      },
+      "record_p95_ns": {
+        "median": 200,
+        "min": 200,
+        "max": 200
+      },
+      "record_p99_ns": {
+        "median": 300,
+        "min": 300,
+        "max": 300
+      },
+      "record_max_ns": {
+        "median": 657300,
+        "min": 653800,
+        "max": 673000
+      },
+      "maxima": [
+        {
+          "run": "033-latency-core-repeated-t1-r1",
+          "index": 65536,
+          "ns": 653800
+        },
+        {
+          "run": "061-latency-core-repeated-t1-r3",
+          "index": 65536,
+          "ns": 657300
+        },
+        {
+          "run": "156-latency-core-repeated-t1-r2",
+          "index": 65536,
+          "ns": 673000
+        }
+      ]
+    },
+    {
+      "backend": "v19_cffi",
+      "workload": "repeated",
+      "runs": 3,
+      "record_p50_ns": {
+        "median": 400,
+        "min": 400,
+        "max": 400
+      },
+      "record_p95_ns": {
+        "median": 500,
+        "min": 500,
+        "max": 600
+      },
+      "record_p99_ns": {
+        "median": 500,
+        "min": 500,
+        "max": 700
+      },
+      "record_max_ns": {
+        "median": 68500,
+        "min": 66900,
+        "max": 76900
+      },
+      "maxima": [
+        {
+          "run": "046-latency-v19-repeated-t1-r2",
+          "index": 2048,
+          "ns": 66900
+        },
+        {
+          "run": "121-latency-v19-repeated-t1-r3",
+          "index": 2048,
+          "ns": 76900
+        },
+        {
+          "run": "173-latency-v19-repeated-t1-r1",
+          "index": 2048,
+          "ns": 68500
+        }
+      ]
+    },
+    {
+      "backend": "c",
+      "workload": "unique",
+      "runs": 3,
+      "record_p50_ns": {
+        "median": 300,
+        "min": 300,
+        "max": 300
+      },
+      "record_p95_ns": {
+        "median": 600,
+        "min": 600,
+        "max": 600
+      },
+      "record_p99_ns": {
+        "median": 2600,
+        "min": 2600,
+        "max": 3600
+      },
+      "record_max_ns": {
+        "median": 5987700,
+        "min": 5665700,
+        "max": 6555700
+      },
+      "maxima": [
+        {
+          "run": "160-latency-core-unique-t1-r2",
+          "index": 58852,
+          "ns": 5987700
+        },
+        {
+          "run": "192-latency-core-unique-t1-r1",
+          "index": 58852,
+          "ns": 6555700
+        },
+        {
+          "run": "301-latency-core-unique-t1-r3",
+          "index": 58852,
+          "ns": 5665700
+        }
+      ]
+    },
+    {
+      "backend": "v19_cffi",
+      "workload": "unique",
+      "runs": 3,
+      "record_p50_ns": {
+        "median": 400,
+        "min": 400,
+        "max": 500
+      },
+      "record_p95_ns": {
+        "median": 600,
+        "min": 600,
+        "max": 700
+      },
+      "record_p99_ns": {
+        "median": 800,
+        "min": 700,
+        "max": 800
+      },
+      "record_max_ns": {
+        "median": 1728500,
+        "min": 1617800,
+        "max": 1758700
+      },
+      "maxima": [
+        {
+          "run": "102-latency-v19-unique-t1-r1",
+          "index": 57343,
+          "ns": 1728500
+        },
+        {
+          "run": "177-latency-v19-unique-t1-r2",
+          "index": 57343,
+          "ns": 1617800
+        },
+        {
+          "run": "300-latency-v19-unique-t1-r3",
+          "index": 57343,
+          "ns": 1758700
+        }
+      ]
+    },
+    {
+      "backend": "c",
+      "workload": "deep256",
+      "runs": 3,
+      "record_p50_ns": {
+        "median": 500,
+        "min": 500,
+        "max": 500
+      },
+      "record_p95_ns": {
+        "median": 500,
+        "min": 500,
+        "max": 600
+      },
+      "record_p99_ns": {
+        "median": 700,
+        "min": 700,
+        "max": 700
+      },
+      "record_max_ns": {
+        "median": 696800,
+        "min": 695500,
+        "max": 747500
+      },
+      "maxima": [
+        {
+          "run": "151-latency-core-deep256-t1-r1",
+          "index": 65536,
+          "ns": 696800
+        },
+        {
+          "run": "218-latency-core-deep256-t1-r3",
+          "index": 65536,
+          "ns": 747500
+        },
+        {
+          "run": "296-latency-core-deep256-t1-r2",
+          "index": 65536,
+          "ns": 695500
+        }
+      ]
+    },
+    {
+      "backend": "v19_cffi",
+      "workload": "deep256",
+      "runs": 3,
+      "record_p50_ns": {
+        "median": 1800,
+        "min": 1700,
+        "max": 1800
+      },
+      "record_p95_ns": {
+        "median": 1800,
+        "min": 1800,
+        "max": 1800
+      },
+      "record_p99_ns": {
+        "median": 2000,
+        "min": 1900,
+        "max": 2100
+      },
+      "record_max_ns": {
+        "median": 77400,
+        "min": 76300,
+        "max": 81800
+      },
+      "maxima": [
+        {
+          "run": "146-latency-v19-deep256-t1-r3",
+          "index": 2048,
+          "ns": 76300
+        },
+        {
+          "run": "252-latency-v19-deep256-t1-r1",
+          "index": 2048,
+          "ns": 77400
+        },
+        {
+          "run": "270-latency-v19-deep256-t1-r2",
+          "index": 2048,
+          "ns": 81800
+        }
+      ]
+    },
+    {
+      "backend": "c",
+      "workload": "labels",
+      "runs": 3,
+      "record_p50_ns": {
+        "median": 400,
+        "min": 400,
+        "max": 400
+      },
+      "record_p95_ns": {
+        "median": 600,
+        "min": 500,
+        "max": 700
+      },
+      "record_p99_ns": {
+        "median": 2100,
+        "min": 2000,
+        "max": 2200
+      },
+      "record_max_ns": {
+        "median": 4554500,
+        "min": 4344500,
+        "max": 4599900
+      },
+      "maxima": [
+        {
+          "run": "052-latency-core-labels-t1-r3",
+          "index": 58852,
+          "ns": 4344500
+        },
+        {
+          "run": "138-latency-core-labels-t1-r1",
+          "index": 58852,
+          "ns": 4554500
+        },
+        {
+          "run": "188-latency-core-labels-t1-r2",
+          "index": 58852,
+          "ns": 4599900
+        }
+      ]
+    },
+    {
+      "backend": "v19_cffi",
+      "workload": "labels",
+      "runs": 3,
+      "record_p50_ns": {
+        "median": 800,
+        "min": 800,
+        "max": 800
+      },
+      "record_p95_ns": {
+        "median": 1000,
+        "min": 1000,
+        "max": 1000
+      },
+      "record_p99_ns": {
+        "median": 1200,
+        "min": 1200,
+        "max": 1200
+      },
+      "record_max_ns": {
+        "median": 1747600,
+        "min": 1617400,
+        "max": 1817800
+      },
+      "maxima": [
+        {
+          "run": "141-latency-v19-labels-t1-r3",
+          "index": 57344,
+          "ns": 1617400
+        },
+        {
+          "run": "175-latency-v19-labels-t1-r1",
+          "index": 57344,
+          "ns": 1817800
+        },
+        {
+          "run": "206-latency-v19-labels-t1-r2",
+          "index": 57344,
+          "ns": 1747600
+        }
+      ]
+    },
+    {
+      "backend": "c",
+      "workload": "churn",
+      "runs": 3,
+      "record_p50_ns": {
+        "median": 300,
+        "min": 300,
+        "max": 300
+      },
+      "record_p95_ns": {
+        "median": 400,
+        "min": 400,
+        "max": 400
+      },
+      "record_p99_ns": {
+        "median": 3500,
+        "min": 2300,
+        "max": 3600
+      },
+      "record_max_ns": {
+        "median": 128400,
+        "min": 122500,
+        "max": 129800
+      },
+      "maxima": [
+        {
+          "run": "191-latency-core-churn-t1-r2",
+          "index": 89791,
+          "ns": 122500
+        },
+        {
+          "run": "248-latency-core-churn-t1-r3",
+          "index": 85791,
+          "ns": 129800
+        },
+        {
+          "run": "251-latency-core-churn-t1-r1",
+          "index": 76791,
+          "ns": 128400
+        }
+      ]
+    },
+    {
+      "backend": "v19_cffi",
+      "workload": "churn",
+      "runs": 3,
+      "record_p50_ns": {
+        "median": 400,
+        "min": 400,
+        "max": 500
+      },
+      "record_p95_ns": {
+        "median": 600,
+        "min": 500,
+        "max": 600
+      },
+      "record_p99_ns": {
+        "median": 3500,
+        "min": 3000,
+        "max": 4100
+      },
+      "record_max_ns": {
+        "median": 50600,
+        "min": 40700,
+        "max": 53700
+      },
+      "maxima": [
+        {
+          "run": "037-latency-v19-churn-t1-r1",
+          "index": 61640,
+          "ns": 50600
+        },
+        {
+          "run": "088-latency-v19-churn-t1-r2",
+          "index": 88640,
+          "ns": 53700
+        },
+        {
+          "run": "216-latency-v19-churn-t1-r3",
+          "index": 17640,
+          "ns": 40700
+        }
+      ]
+    }
+  ],
+  "growth_association": [
+    {
+      "workload": "repeated",
+      "latency_run": "033-latency-core-repeated-t1-r1",
+      "max_index": 65536,
+      "max_ns": 653800,
+      "same_recipe_diagnostic_allocations": [
+        {
+          "cycle": "0",
+          "sample_index": "65536",
+          "phase": "ingest",
+          "operation": "alloc",
+          "requested_bytes": "6291456",
+          "live_bytes": "9487707",
+          "peak_bytes": "9487707",
+          "highwater_growth_bytes": "4718592"
+        }
+      ]
+    },
+    {
+      "workload": "repeated",
+      "latency_run": "061-latency-core-repeated-t1-r3",
+      "max_index": 65536,
+      "max_ns": 657300,
+      "same_recipe_diagnostic_allocations": [
+        {
+          "cycle": "0",
+          "sample_index": "65536",
+          "phase": "ingest",
+          "operation": "alloc",
+          "requested_bytes": "6291456",
+          "live_bytes": "9487707",
+          "peak_bytes": "9487707",
+          "highwater_growth_bytes": "4718592"
+        }
+      ]
+    },
+    {
+      "workload": "repeated",
+      "latency_run": "156-latency-core-repeated-t1-r2",
+      "max_index": 65536,
+      "max_ns": 673000,
+      "same_recipe_diagnostic_allocations": [
+        {
+          "cycle": "0",
+          "sample_index": "65536",
+          "phase": "ingest",
+          "operation": "alloc",
+          "requested_bytes": "6291456",
+          "live_bytes": "9487707",
+          "peak_bytes": "9487707",
+          "highwater_growth_bytes": "4718592"
+        }
+      ]
+    },
+    {
+      "workload": "unique",
+      "latency_run": "160-latency-core-unique-t1-r2",
+      "max_index": 58852,
+      "max_ns": 5987700,
+      "same_recipe_diagnostic_allocations": [
+        {
+          "cycle": "0",
+          "sample_index": "58852",
+          "phase": "ingest",
+          "operation": "alloc",
+          "requested_bytes": "8912904",
+          "live_bytes": "30198147",
+          "peak_bytes": "30198147",
+          "highwater_growth_bytes": "8912904"
+        }
+      ]
+    },
+    {
+      "workload": "unique",
+      "latency_run": "192-latency-core-unique-t1-r1",
+      "max_index": 58852,
+      "max_ns": 6555700,
+      "same_recipe_diagnostic_allocations": [
+        {
+          "cycle": "0",
+          "sample_index": "58852",
+          "phase": "ingest",
+          "operation": "alloc",
+          "requested_bytes": "8912904",
+          "live_bytes": "30198147",
+          "peak_bytes": "30198147",
+          "highwater_growth_bytes": "8912904"
+        }
+      ]
+    },
+    {
+      "workload": "unique",
+      "latency_run": "301-latency-core-unique-t1-r3",
+      "max_index": 58852,
+      "max_ns": 5665700,
+      "same_recipe_diagnostic_allocations": [
+        {
+          "cycle": "0",
+          "sample_index": "58852",
+          "phase": "ingest",
+          "operation": "alloc",
+          "requested_bytes": "8912904",
+          "live_bytes": "30198147",
+          "peak_bytes": "30198147",
+          "highwater_growth_bytes": "8912904"
+        }
+      ]
+    },
+    {
+      "workload": "deep256",
+      "latency_run": "151-latency-core-deep256-t1-r1",
+      "max_index": 65536,
+      "max_ns": 696800,
+      "same_recipe_diagnostic_allocations": [
+        {
+          "cycle": "0",
+          "sample_index": "65536",
+          "phase": "ingest",
+          "operation": "alloc",
+          "requested_bytes": "6291456",
+          "live_bytes": "9487707",
+          "peak_bytes": "9487707",
+          "highwater_growth_bytes": "4718592"
+        }
+      ]
+    },
+    {
+      "workload": "deep256",
+      "latency_run": "218-latency-core-deep256-t1-r3",
+      "max_index": 65536,
+      "max_ns": 747500,
+      "same_recipe_diagnostic_allocations": [
+        {
+          "cycle": "0",
+          "sample_index": "65536",
+          "phase": "ingest",
+          "operation": "alloc",
+          "requested_bytes": "6291456",
+          "live_bytes": "9487707",
+          "peak_bytes": "9487707",
+          "highwater_growth_bytes": "4718592"
+        }
+      ]
+    },
+    {
+      "workload": "deep256",
+      "latency_run": "296-latency-core-deep256-t1-r2",
+      "max_index": 65536,
+      "max_ns": 695500,
+      "same_recipe_diagnostic_allocations": [
+        {
+          "cycle": "0",
+          "sample_index": "65536",
+          "phase": "ingest",
+          "operation": "alloc",
+          "requested_bytes": "6291456",
+          "live_bytes": "9487707",
+          "peak_bytes": "9487707",
+          "highwater_growth_bytes": "4718592"
+        }
+      ]
+    },
+    {
+      "workload": "labels",
+      "latency_run": "052-latency-core-labels-t1-r3",
+      "max_index": 58852,
+      "max_ns": 4344500,
+      "same_recipe_diagnostic_allocations": [
+        {
+          "cycle": "0",
+          "sample_index": "58852",
+          "phase": "ingest",
+          "operation": "alloc",
+          "requested_bytes": "8912904",
+          "live_bytes": "24042147",
+          "peak_bytes": "24042147",
+          "highwater_growth_bytes": "8817480"
+        }
+      ]
+    },
+    {
+      "workload": "labels",
+      "latency_run": "138-latency-core-labels-t1-r1",
+      "max_index": 58852,
+      "max_ns": 4554500,
+      "same_recipe_diagnostic_allocations": [
+        {
+          "cycle": "0",
+          "sample_index": "58852",
+          "phase": "ingest",
+          "operation": "alloc",
+          "requested_bytes": "8912904",
+          "live_bytes": "24042147",
+          "peak_bytes": "24042147",
+          "highwater_growth_bytes": "8817480"
+        }
+      ]
+    },
+    {
+      "workload": "labels",
+      "latency_run": "188-latency-core-labels-t1-r2",
+      "max_index": 58852,
+      "max_ns": 4599900,
+      "same_recipe_diagnostic_allocations": [
+        {
+          "cycle": "0",
+          "sample_index": "58852",
+          "phase": "ingest",
+          "operation": "alloc",
+          "requested_bytes": "8912904",
+          "live_bytes": "24042147",
+          "peak_bytes": "24042147",
+          "highwater_growth_bytes": "8817480"
+        }
+      ]
+    },
+    {
+      "workload": "churn",
+      "latency_run": "191-latency-core-churn-t1-r2",
+      "max_index": 89791,
+      "max_ns": 122500,
+      "same_recipe_diagnostic_allocations": [
+        {
+          "cycle": "89",
+          "sample_index": "89791",
+          "phase": "ingest",
+          "operation": "alloc",
+          "requested_bytes": "139272",
+          "live_bytes": "471651",
+          "peak_bytes": "1476780",
+          "highwater_growth_bytes": "0"
+        }
+      ]
+    },
+    {
+      "workload": "churn",
+      "latency_run": "248-latency-core-churn-t1-r3",
+      "max_index": 85791,
+      "max_ns": 129800,
+      "same_recipe_diagnostic_allocations": [
+        {
+          "cycle": "85",
+          "sample_index": "85791",
+          "phase": "ingest",
+          "operation": "alloc",
+          "requested_bytes": "139272",
+          "live_bytes": "471651",
+          "peak_bytes": "1476780",
+          "highwater_growth_bytes": "0"
+        }
+      ]
+    },
+    {
+      "workload": "churn",
+      "latency_run": "251-latency-core-churn-t1-r1",
+      "max_index": 76791,
+      "max_ns": 128400,
+      "same_recipe_diagnostic_allocations": [
+        {
+          "cycle": "76",
+          "sample_index": "76791",
+          "phase": "ingest",
+          "operation": "alloc",
+          "requested_bytes": "139272",
+          "live_bytes": "471651",
+          "peak_bytes": "1476780",
+          "highwater_growth_bytes": "0"
+        }
+      ]
+    }
+  ],
+  "recovery": [
+    {
+      "backend": "c",
+      "timestamped": true,
+      "phases": {
+        "small": {
+          "current_working_set_bytes": {
+            "median": 12816384.0,
+            "min": 12808192,
+            "max": 12816384
+          },
+          "private_committed_bytes": {
+            "median": 6598656.0,
+            "min": 6586368,
+            "max": 6598656
+          }
+        },
+        "burst": {
+          "current_working_set_bytes": {
+            "median": 13070336.0,
+            "min": 12816384,
+            "max": 13328384
+          },
+          "private_committed_bytes": {
+            "median": 6787072.0,
+            "min": 5632000,
+            "max": 8126464
+          }
+        },
+        "recovery": {
+          "current_working_set_bytes": {
+            "median": 12894208.0,
+            "min": 12894208,
+            "max": 13205504
+          },
+          "private_committed_bytes": {
+            "median": 5763072.0,
+            "min": 5763072,
+            "max": 7155712
+          }
+        }
+      }
+    },
+    {
+      "backend": "v19_cffi",
+      "timestamped": false,
+      "phases": {
+        "small": {
+          "current_working_set_bytes": {
+            "median": 13029376.0,
+            "min": 13012992,
+            "max": 13164544
+          },
+          "private_committed_bytes": {
+            "median": 11030528.0,
+            "min": 11014144,
+            "max": 11583488
+          }
+        },
+        "burst": {
+          "current_working_set_bytes": {
+            "median": 13447168.0,
+            "min": 13303808,
+            "max": 13488128
+          },
+          "private_committed_bytes": {
+            "median": 11634688.0,
+            "min": 11370496,
+            "max": 11665408
+          }
+        },
+        "recovery": {
+          "current_working_set_bytes": {
+            "median": 13430784.0,
+            "min": 13430784,
+            "max": 13443072
+          },
+          "private_committed_bytes": {
+            "median": 11612160.0,
+            "min": 11608064,
+            "max": 11640832
+          }
+        }
+      }
+    },
+    {
+      "backend": "c",
+      "timestamped": false,
+      "phases": {
+        "small": {
+          "current_working_set_bytes": {
+            "median": 12816384.0,
+            "min": 12812288,
+            "max": 12832768
+          },
+          "private_committed_bytes": {
+            "median": 5623808.0,
+            "min": 5619712,
+            "max": 5677056
+          }
+        },
+        "burst": {
+          "current_working_set_bytes": {
+            "median": 13611008.0,
+            "min": 13180928,
+            "max": 13619200
+          },
+          "private_committed_bytes": {
+            "median": 7606272.0,
+            "min": 6516736,
+            "max": 8536064
+          }
+        },
+        "recovery": {
+          "current_working_set_bytes": {
+            "median": 12861440.0,
+            "min": 12857344,
+            "max": 12861440
+          },
+          "private_committed_bytes": {
+            "median": 5668864.0,
+            "min": 5668864,
+            "max": 5668864
+          }
+        }
+      }
+    },
+    {
+      "backend": "v19_cffi",
+      "timestamped": true,
+      "phases": {
+        "small": {
+          "current_working_set_bytes": {
+            "median": 13045760.0,
+            "min": 13000704,
+            "max": 13119488
+          },
+          "private_committed_bytes": {
+            "median": 11542528.0,
+            "min": 11182080,
+            "max": 11571200
+          }
+        },
+        "burst": {
+          "current_working_set_bytes": {
+            "median": 13307904.0,
+            "min": 13115392,
+            "max": 13352960
+          },
+          "private_committed_bytes": {
+            "median": 11517952.0,
+            "min": 11128832,
+            "max": 11550720
+          }
+        },
+        "recovery": {
+          "current_working_set_bytes": {
+            "median": 13348864.0,
+            "min": 13340672,
+            "max": 13348864
+          },
+          "private_committed_bytes": {
+            "median": 11571200.0,
+            "min": 11526144,
+            "max": 11571200
+          }
+        }
+      }
+    }
+  ],
+  "memory": [
+    {
+      "backend": "c",
+      "workload": "repeated",
+      "repetitions": 7,
+      "stages": {
+        "beforecreate": {
+          "current_working_set_bytes": 12664832,
+          "peak_working_set_bytes": 13946880,
+          "private_committed_bytes": 5582848,
+          "peak_process_commit_bytes": 5713920
+        },
+        "aftersetup": {
+          "current_working_set_bytes": 12742656,
+          "peak_working_set_bytes": 13946880,
+          "private_committed_bytes": 5677056,
+          "peak_process_commit_bytes": 5713920
+        },
+        "beforeflush": {
+          "current_working_set_bytes": 19099648,
+          "peak_working_set_bytes": 20611072,
+          "private_committed_bytes": 13533184,
+          "peak_process_commit_bytes": 16703488
+        },
+        "afterencode": {
+          "current_working_set_bytes": 17842176,
+          "peak_working_set_bytes": 20611072,
+          "private_committed_bytes": 12140544,
+          "peak_process_commit_bytes": 16703488
+        },
+        "afterreset+free": {
+          "current_working_set_bytes": 12992512,
+          "peak_working_set_bytes": 20611072,
+          "private_committed_bytes": 6078464,
+          "peak_process_commit_bytes": 16703488
+        },
+        "afterdestroy": {
+          "current_working_set_bytes": 12992512,
+          "peak_working_set_bytes": 20611072,
+          "private_committed_bytes": 6078464,
+          "peak_process_commit_bytes": 16703488
+        }
+      }
+    },
+    {
+      "backend": "v19_cffi",
+      "workload": "repeated",
+      "repetitions": 7,
+      "stages": {
+        "beforecreate": {
+          "current_working_set_bytes": 12800000,
+          "peak_working_set_bytes": 14004224,
+          "private_committed_bytes": 5562368,
+          "peak_process_commit_bytes": 5734400
+        },
+        "aftersetup": {
+          "current_working_set_bytes": 12967936,
+          "peak_working_set_bytes": 14004224,
+          "private_committed_bytes": 11005952,
+          "peak_process_commit_bytes": 11014144
+        },
+        "beforeflush": {
+          "current_working_set_bytes": 13631488,
+          "peak_working_set_bytes": 14004224,
+          "private_committed_bytes": 11005952,
+          "peak_process_commit_bytes": 11014144
+        },
+        "afterencode": {
+          "current_working_set_bytes": 13541376,
+          "peak_working_set_bytes": 14749696,
+          "private_committed_bytes": 11530240,
+          "peak_process_commit_bytes": 17551360
+        },
+        "afterreset+free": {
+          "current_working_set_bytes": 13533184,
+          "peak_working_set_bytes": 14749696,
+          "private_committed_bytes": 11972608,
+          "peak_process_commit_bytes": 17551360
+        },
+        "afterdestroy": {
+          "current_working_set_bytes": 12976128,
+          "peak_working_set_bytes": 14749696,
+          "private_committed_bytes": 5656576,
+          "peak_process_commit_bytes": 17551360
+        }
+      }
+    },
+    {
+      "backend": "c",
+      "workload": "unique",
+      "repetitions": 7,
+      "stages": {
+        "beforecreate": {
+          "current_working_set_bytes": 12664832,
+          "peak_working_set_bytes": 13942784,
+          "private_committed_bytes": 5578752,
+          "peak_process_commit_bytes": 5705728
+        },
+        "aftersetup": {
+          "current_working_set_bytes": 12738560,
+          "peak_working_set_bytes": 13942784,
+          "private_committed_bytes": 5672960,
+          "peak_process_commit_bytes": 5705728
+        },
+        "beforeflush": {
+          "current_working_set_bytes": 49053696,
+          "peak_working_set_bytes": 49053696,
+          "private_committed_bytes": 45465600,
+          "peak_process_commit_bytes": 45465600
+        },
+        "afterencode": {
+          "current_working_set_bytes": 49725440,
+          "peak_working_set_bytes": 50737152,
+          "private_committed_bytes": 46415872,
+          "peak_process_commit_bytes": 47759360
+        },
+        "afterreset+free": {
+          "current_working_set_bytes": 13352960,
+          "peak_working_set_bytes": 50737152,
+          "private_committed_bytes": 6553600,
+          "peak_process_commit_bytes": 47759360
+        },
+        "afterdestroy": {
+          "current_working_set_bytes": 13352960,
+          "peak_working_set_bytes": 50737152,
+          "private_committed_bytes": 6553600,
+          "peak_process_commit_bytes": 47759360
+        }
+      }
+    },
+    {
+      "backend": "v19_cffi",
+      "workload": "unique",
+      "repetitions": 7,
+      "stages": {
+        "beforecreate": {
+          "current_working_set_bytes": 12795904,
+          "peak_working_set_bytes": 13996032,
+          "private_committed_bytes": 5554176,
+          "peak_process_commit_bytes": 5718016
+        },
+        "aftersetup": {
+          "current_working_set_bytes": 12951552,
+          "peak_working_set_bytes": 13996032,
+          "private_committed_bytes": 10985472,
+          "peak_process_commit_bytes": 10993664
+        },
+        "beforeflush": {
+          "current_working_set_bytes": 31219712,
+          "peak_working_set_bytes": 31219712,
+          "private_committed_bytes": 29368320,
+          "peak_process_commit_bytes": 29368320
+        },
+        "afterencode": {
+          "current_working_set_bytes": 14860288,
+          "peak_working_set_bytes": 33366016,
+          "private_committed_bytes": 13271040,
+          "peak_process_commit_bytes": 37257216
+        },
+        "afterreset+free": {
+          "current_working_set_bytes": 13127680,
+          "peak_working_set_bytes": 33366016,
+          "private_committed_bytes": 11137024,
+          "peak_process_commit_bytes": 37257216
+        },
+        "afterdestroy": {
+          "current_working_set_bytes": 13099008,
+          "peak_working_set_bytes": 33366016,
+          "private_committed_bytes": 5795840,
+          "peak_process_commit_bytes": 37257216
+        }
+      }
+    },
+    {
+      "backend": "c",
+      "workload": "deep256",
+      "repetitions": 7,
+      "stages": {
+        "beforecreate": {
+          "current_working_set_bytes": 12664832,
+          "peak_working_set_bytes": 13942784,
+          "private_committed_bytes": 5574656,
+          "peak_process_commit_bytes": 5701632
+        },
+        "aftersetup": {
+          "current_working_set_bytes": 12738560,
+          "peak_working_set_bytes": 13942784,
+          "private_committed_bytes": 5664768,
+          "peak_process_commit_bytes": 5701632
+        },
+        "beforeflush": {
+          "current_working_set_bytes": 19107840,
+          "peak_working_set_bytes": 20627456,
+          "private_committed_bytes": 13533184,
+          "peak_process_commit_bytes": 16699392
+        },
+        "afterencode": {
+          "current_working_set_bytes": 17965056,
+          "peak_working_set_bytes": 20627456,
+          "private_committed_bytes": 12300288,
+          "peak_process_commit_bytes": 16699392
+        },
+        "afterreset+free": {
+          "current_working_set_bytes": 13119488,
+          "peak_working_set_bytes": 20627456,
+          "private_committed_bytes": 6066176,
+          "peak_process_commit_bytes": 16699392
+        },
+        "afterdestroy": {
+          "current_working_set_bytes": 13119488,
+          "peak_working_set_bytes": 20627456,
+          "private_committed_bytes": 6066176,
+          "peak_process_commit_bytes": 16699392
+        }
+      }
+    },
+    {
+      "backend": "v19_cffi",
+      "workload": "deep256",
+      "repetitions": 7,
+      "stages": {
+        "beforecreate": {
+          "current_working_set_bytes": 12795904,
+          "peak_working_set_bytes": 14004224,
+          "private_committed_bytes": 5554176,
+          "peak_process_commit_bytes": 5734400
+        },
+        "aftersetup": {
+          "current_working_set_bytes": 12963840,
+          "peak_working_set_bytes": 14004224,
+          "private_committed_bytes": 11001856,
+          "peak_process_commit_bytes": 11001856
+        },
+        "beforeflush": {
+          "current_working_set_bytes": 13668352,
+          "peak_working_set_bytes": 14004224,
+          "private_committed_bytes": 11026432,
+          "peak_process_commit_bytes": 11026432
+        },
+        "afterencode": {
+          "current_working_set_bytes": 13975552,
+          "peak_working_set_bytes": 15450112,
+          "private_committed_bytes": 12111872,
+          "peak_process_commit_bytes": 18792448
+        },
+        "afterreset+free": {
+          "current_working_set_bytes": 13062144,
+          "peak_working_set_bytes": 15450112,
+          "private_committed_bytes": 11059200,
+          "peak_process_commit_bytes": 18792448
+        },
+        "afterdestroy": {
+          "current_working_set_bytes": 13033472,
+          "peak_working_set_bytes": 15450112,
+          "private_committed_bytes": 5697536,
+          "peak_process_commit_bytes": 18792448
+        }
+      }
+    },
+    {
+      "backend": "c",
+      "workload": "labels",
+      "repetitions": 7,
+      "stages": {
+        "beforecreate": {
+          "current_working_set_bytes": 12656640,
+          "peak_working_set_bytes": 13934592,
+          "private_committed_bytes": 5578752,
+          "peak_process_commit_bytes": 5705728
+        },
+        "aftersetup": {
+          "current_working_set_bytes": 12726272,
+          "peak_working_set_bytes": 13934592,
+          "private_committed_bytes": 5664768,
+          "peak_process_commit_bytes": 5705728
+        },
+        "beforeflush": {
+          "current_working_set_bytes": 38510592,
+          "peak_working_set_bytes": 38510592,
+          "private_committed_bytes": 34938880,
+          "peak_process_commit_bytes": 36167680
+        },
+        "afterencode": {
+          "current_working_set_bytes": 39002112,
+          "peak_working_set_bytes": 39915520,
+          "private_committed_bytes": 35471360,
+          "peak_process_commit_bytes": 36843520
+        },
+        "afterreset+free": {
+          "current_working_set_bytes": 13156352,
+          "peak_working_set_bytes": 39915520,
+          "private_committed_bytes": 6144000,
+          "peak_process_commit_bytes": 36843520
+        },
+        "afterdestroy": {
+          "current_working_set_bytes": 13156352,
+          "peak_working_set_bytes": 39915520,
+          "private_committed_bytes": 6144000,
+          "peak_process_commit_bytes": 36843520
+        }
+      }
+    },
+    {
+      "backend": "v19_cffi",
+      "workload": "labels",
+      "repetitions": 7,
+      "stages": {
+        "beforecreate": {
+          "current_working_set_bytes": 12795904,
+          "peak_working_set_bytes": 13996032,
+          "private_committed_bytes": 5554176,
+          "peak_process_commit_bytes": 5718016
+        },
+        "aftersetup": {
+          "current_working_set_bytes": 12959744,
+          "peak_working_set_bytes": 13996032,
+          "private_committed_bytes": 10997760,
+          "peak_process_commit_bytes": 10997760
+        },
+        "beforeflush": {
+          "current_working_set_bytes": 28590080,
+          "peak_working_set_bytes": 28590080,
+          "private_committed_bytes": 25673728,
+          "peak_process_commit_bytes": 26750976
+        },
+        "afterencode": {
+          "current_working_set_bytes": 14442496,
+          "peak_working_set_bytes": 30257152,
+          "private_committed_bytes": 13586432,
+          "peak_process_commit_bytes": 33275904
+        },
+        "afterreset+free": {
+          "current_working_set_bytes": 13066240,
+          "peak_working_set_bytes": 30257152,
+          "private_committed_bytes": 11104256,
+          "peak_process_commit_bytes": 33275904
+        },
+        "afterdestroy": {
+          "current_working_set_bytes": 13037568,
+          "peak_working_set_bytes": 30257152,
+          "private_committed_bytes": 5873664,
+          "peak_process_commit_bytes": 33275904
+        }
+      }
+    }
+  ],
+  "core_allocator": [
+    {
+      "workload": "labels",
+      "timestamped": true,
+      "samples": 100000,
+      "peak_requested_core_bytes": 30432603,
+      "live_before_final_encode": 29223963,
+      "retained_after_reset": 307,
+      "ingest_allocations": 374
+    },
+    {
+      "workload": "unique",
+      "timestamped": true,
+      "samples": 100000,
+      "peak_requested_core_bytes": 40673772,
+      "live_before_final_encode": 39697371,
+      "retained_after_reset": 307,
+      "ingest_allocations": 1012
+    },
+    {
+      "workload": "unique",
+      "timestamped": false,
+      "samples": 100000,
+      "peak_requested_core_bytes": 44081652,
+      "live_before_final_encode": 43105251,
+      "retained_after_reset": 307,
+      "ingest_allocations": 1027
+    },
+    {
+      "workload": "churn",
+      "timestamped": false,
+      "samples": 100000,
+      "peak_requested_core_bytes": 1530036,
+      "live_before_final_encode": 553635,
+      "retained_after_reset": 307,
+      "ingest_allocations": 3200
+    },
+    {
+      "workload": "repeated",
+      "timestamped": true,
+      "samples": 100000,
+      "peak_requested_core_bytes": 9487707,
+      "live_before_final_encode": 6341979,
+      "retained_after_reset": 307,
+      "ingest_allocations": 14
+    },
+    {
+      "workload": "repeated",
+      "timestamped": false,
+      "samples": 100000,
+      "peak_requested_core_bytes": 1027908,
+      "live_before_final_encode": 51507,
+      "retained_after_reset": 307,
+      "ingest_allocations": 2
+    },
+    {
+      "workload": "deep256",
+      "timestamped": true,
+      "samples": 100000,
+      "peak_requested_core_bytes": 9487707,
+      "live_before_final_encode": 6341979,
+      "retained_after_reset": 307,
+      "ingest_allocations": 14
+    },
+    {
+      "workload": "deep256",
+      "timestamped": false,
+      "samples": 100000,
+      "peak_requested_core_bytes": 1027908,
+      "live_before_final_encode": 51507,
+      "retained_after_reset": 307,
+      "ingest_allocations": 2
+    },
+    {
+      "workload": "churn",
+      "timestamped": true,
+      "samples": 100000,
+      "peak_requested_core_bytes": 1476780,
+      "live_before_final_encode": 500379,
+      "retained_after_reset": 307,
+      "ingest_allocations": 2300
+    },
+    {
+      "workload": "labels",
+      "timestamped": false,
+      "samples": 100000,
+      "peak_requested_core_bytes": 33840483,
+      "live_before_final_encode": 32631843,
+      "retained_after_reset": 307,
+      "ingest_allocations": 389
+    }
+  ],
+  "limitations": [
+    "Growth events come from separate deterministic-recipe diagnostic runs, not the same timed process.",
+    "Afterencode states differ: v19 has already reset, while C still retains the populated profile.",
+    "Recovery traces are short synthetic runs, not a full-profiler soak.",
+    "Peak working set and peak process commit are process-lifetime counters."
+  ]
+}

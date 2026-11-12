@@ -50,17 +50,16 @@ target_compile_definitions(Tests PRIVATE DD_WIN_PROF_STATIC_LINK)
 # The dd-win-prof shared sources include headers by short name relative to their
 # own directory; adding that directory ensures they resolve correctly when
 # compiled as part of this target (include/ holds the public dd-win-prof.h).
-# libdatadog and spdlog headers are propagated via dd_win_prof_libdatadog_dynamic
-# and dd_win_prof_spdlog INTERFACE_INCLUDE_DIRECTORIES.
+# C aggregation and spdlog headers are propagated by their targets.
 target_include_directories(Tests PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/../dd-win-prof"
     "${CMAKE_CURRENT_SOURCE_DIR}/../dd-win-prof/include"
 )
 
-# Tests links the dynamic FFI library so that profiling API calls go through
-# the DLL ABI boundary, mirroring how the profiler is consumed at runtime.
+# Tests use the same C core as production, with no Rust test runtime.
 target_link_libraries(Tests PRIVATE
-    dd_win_prof_libdatadog_dynamic
+    profile_aggregation
+    profile_exporter
     dd_win_prof_spdlog
     GTest::gtest
     dbghelp.lib
@@ -78,21 +77,6 @@ target_link_libraries(Tests PRIVATE
 
 # Link-time code generation (whole-program optimisation) in Release builds only.
 set_property(TARGET Tests PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
-
-set(_ld_dyn "${libdatadog_SOURCE_DIR}/${DD_WIN_PROF_LIBDATADOG_CONFIG_DIR}/dynamic")
-
-# Tests.exe must find the libdatadog DLL at launch; copy it alongside the
-# executable (mirrors the CopyLibDatadogDlls MSBuild target in Tests.vcxproj).
-add_custom_command(TARGET Tests POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy
-        "${_ld_dyn}/datadog_profiling_ffi.dll"
-        "$<TARGET_FILE_DIR:Tests>/datadog_profiling_ffi.dll"
-    COMMAND ${CMAKE_COMMAND} -E copy
-        "${_ld_dyn}/datadog_profiling_ffi.pdb"
-        "$<TARGET_FILE_DIR:Tests>/datadog_profiling_ffi.pdb"
-    VERBATIM
-    COMMENT "Copying libdatadog DLLs to Tests output directory"
-)
 
 # When building with /fsanitize=address, Tests.exe depends on the MSVC ASan
 # runtime DLL, which lives inside the Visual Studio install and is not on PATH

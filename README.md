@@ -10,6 +10,20 @@
 
 Implementation of a Windows CPU profiler
 
+## PROF-16455 experimental branch
+
+Aggregation, interning and streaming Zstd pprof encoding now use the separate
+[pure C package](packages/profile-aggregation/README.md) in both delivery modes.
+SDK callback bytes are **Zstd, not LZ4**. No libdatadog runtime is required.
+Standalone HTTP now uses an [experimental pure-C WinHTTP exporter](packages/profile-exporter/README.md).
+It sends the existing Zstd bytes synchronously, without Rust or a second compression pass.
+Existing agent/agentless settings apply. Callback delivery does not create or invoke the
+HTTP exporter; MSVC delay-loads the system WinHTTP DLL only when HTTP is used.
+Local-debug capture also works with HTTP export disabled. This transport is not
+production-qualified. Real intake acceptance and backend indexing still require validation.
+See package documentation for tests, limitations and licensing.
+
+
 ## Usage : how to profile your 64-bit Windows application
 
 In your project, you need the following files:
@@ -22,8 +36,7 @@ Use the headers and import library supplied with the DLL.
 The following files are required in the folder from where the application runs:
 
 - **dd-win-prof.dll**: profiling code
-- **datadog_profiling_ffi.dll**: responsible for serializing and sending the profiles to Datadog via HTTP
-  *Note: the corresponding .pdb files are available for debugging purposes*
+*Note: the corresponding .pdb files are available for debugging purposes*
 
 ## CMake Setup
 
@@ -45,7 +58,7 @@ Then you can use `target_link_libraries` to configure your project's include pat
 target_link_libraries(your_application PRIVATE dd-win-prof)
 ```
 
-To ensure that your development builds will have the requisite DLLs present alongside the application binary, you can call `dd_win_prof_copy_runtime_deps`, which adds a `POST_BUILD` command to copy `dd-win-prof.dll` and `datadog_profiling_ffi.dll` alongside your application's binaries:
+To ensure that your development builds will have the requisite DLLs present alongside the application binary, you can call `dd_win_prof_copy_runtime_deps`, which adds a `POST_BUILD` command to copy `dd-win-prof.dll` alongside your application's binaries:
 
 ```
 dd_win_prof_copy_runtime_deps(your_application)
@@ -53,7 +66,7 @@ dd_win_prof_copy_runtime_deps(your_application)
 
 (You can optionally supply `INCLUDE_PDBS` to copy `.pdb` files for these libraries as well.)
 
-Finally, if you're generating installed builds of your CMake project, you'll also want to ensure that `dd-win-prof` is added to the export set (to make `dd-win-prof.dll` available alongside your binaries, and to make the `dd-win-prof` CMake target accessible), and that `datadog_profiling_ffi.dll` is also copied to the same directory:
+Finally, if you're generating installed builds of your CMake project, you'll also want to ensure that `dd-win-prof` is added to the export set (to make `dd-win-prof.dll` available alongside your binaries, and to make the `dd-win-prof` CMake target accessible):
 
 ```cmake
 install(TARGETS dd-win-prof
@@ -65,7 +78,6 @@ install(TARGETS dd-win-prof
 # there too. ${dd-win-prof_SOURCE_DIR} is set by FetchContent; with add_subdirectory
 # use the path you added.
 install(FILES "${dd-win-prof_SOURCE_DIR}/src/dd-win-prof/include/dd-win-prof.h" DESTINATION include)
-install(FILES "$<TARGET_FILE:dd_win_prof_libdatadog_dynamic>" DESTINATION bin)
 ```
 
 ## Configuration
@@ -172,9 +184,9 @@ DLL unloading with `FreeLibrary()`.
 
 ### Dependencies
 
-All dependencies are downloaded automatically by CMake at configure time via `FetchContent`:
+Aggregation vendors are pinned in `packages/profile-aggregation/`. Other dependencies are fetched by CMake:
 
-- **libdatadog v19.0.0** — profile serialization and upload
+- **Verstable / rapidhash / nanopb / Zstd** — vendored pure C aggregation/encoding
 - **spdlog v1.14.1** — logging
 - **Google Test v1.14.0** — unit testing
 
@@ -226,7 +238,7 @@ To switch back to a non-ASan build, just open the original `build\` solution
 dd-win-prof/
 ├── CMakeLists.txt                  # Root CMake configuration
 ├── src/
-│   ├── CMakeLists.txt              # Dependencies (libdatadog, spdlog, googletest via FetchContent)
+│   ├── CMakeLists.txt              # Dependencies (spdlog, googletest via FetchContent)
 │   ├── dd-win-prof/                # Main profiler DLL
 │   ├── Runner/                     # Example app for testing the profiler
 │   ├── Tests/                      # Unit tests (Google Test)
@@ -243,16 +255,15 @@ dd-win-prof/
 
 After building, the key artifacts are:
 
-| Artifact                            | Location                                       |
-| ----------------------------------- | ---------------------------------------------- |
-| `dd-win-prof.dll` / `.lib` / `.pdb` | `build\src\dd-win-prof\<Config>\`              |
-| `datadog_profiling_ffi.dll`         | `build\_deps\libdatadog-src\<config>\dynamic\` |
-| `Runner.exe`                        | `build\src\Runner\<Config>\`                   |
-| `Tests.exe`                         | `build\src\Tests\<Config>\`                    |
-| `ProfilerInjector.exe`              | `build\src\ProfilerInjector\<Config>\`         |
-| **All runtime DLLs together**       | `src\reference\` (copied by POST_BUILD)        |
+| Artifact | Location |
+|----------|----------|
+| `dd-win-prof.dll` / `.lib` / `.pdb` | `build\src\dd-win-prof\<Config>\` |
+| `Runner.exe` | `build\src\Runner\<Config>\` |
+| `Tests.exe` | `build\src\Tests\<Config>\` |
+| `ProfilerInjector.exe` | `build\src\ProfilerInjector\<Config>\` |
+| **All runtime DLLs together** | `src\reference\` (copied by POST_BUILD) |
 
-The `src\reference\` directory is the easiest way to get all the files needed at runtime — after a successful build it contains `dd-win-prof.dll`, `dd-win-prof.lib`, `dd-win-prof.pdb`, `datadog_profiling_ffi.dll`, and `datadog_profiling_ffi.pdb`. It is only populated when dd-win-prof is built as the top-level project (or with `DD_WIN_PROF_DEVELOPMENT=ON` / `DD_WIN_PROF_BUILD_RUNNER=ON`). Projects that consume dd-win-prof via `FetchContent` or `add_subdirectory` should call `dd_win_prof_copy_runtime_deps(<target>)` instead.
+The `src\reference\` directory is the easiest way to get all the files needed at runtime — after a successful build it contains `dd-win-prof.dll`, `dd-win-prof.lib`, and `dd-win-prof.pdb`. It is only populated when dd-win-prof is built as the top-level project (or with `DD_WIN_PROF_DEVELOPMENT=ON` / `DD_WIN_PROF_BUILD_RUNNER=ON`). Projects that consume dd-win-prof via `FetchContent` or `add_subdirectory` should call `dd_win_prof_copy_runtime_deps(<target>)` instead.
 
 ### Packaging a release
 

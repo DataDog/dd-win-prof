@@ -1,0 +1,36 @@
+{
+  "note": "Only postprocessors and wire tests changed after the measured source snapshot. No production/driver change.",
+  "changes": [
+    {
+      "path": "packages/profile-aggregation/benchmarks/harness/inspect_results.py",
+      "measured_sha256": "1b74688b8645ca0baf044c5cb209ef0080cd37a39298178ad160c2521ec39fd5",
+      "reviewed_sha256": "6880719accf91a158733447b68d36202788aca40241f8b8719bfadda26ded482"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/harness/result_metadata.py",
+      "measured_sha256": "c70bb51b84a0db4941234f109c37937e800bf6f99472cbee43829089b866ac5d",
+      "reviewed_sha256": "d7725b667eb6e676a6e6ee3ad8ef0f6c3b5d9b2c5b5a0da44d6f047abc6de929"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/harness/summarize_results.py",
+      "measured_sha256": "705433e6986d5edd84fae7e95113d671c3177927409053a15b72e4538fa61d5e",
+      "reviewed_sha256": "7082b9f96be529c09c05b2c6e5900ff80babef314e04cbc8ccd5c98d971c7ac0"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/harness/test_results.py",
+      "measured_sha256": "bc8905d45ac4e276c98e81bba7760d089f4b699b533a6678ab78523f95af6e49",
+      "reviewed_sha256": "184a8844c2df776612b4537e59e5e2e268119ff0e648d0a5faec141f71d6987d"
+    },
+    {
+      "path": "src/Tests/PprofAggregatorTests.cpp",
+      "measured_sha256": "9e830f95419e1027ffcaee64e331fe2861116c215165da785fcc07f6313b817c",
+      "reviewed_sha256": "90ed7ef605634f35265e8051894bcfcc9e0a2a6caf22ea027d20f04ffde2ce4f"
+    },
+    {
+      "path": "src/integration-tests/test_profile_serialization.py",
+      "measured_sha256": "df6af7b8afc3bde4acdd535bae925979ec93b18dd4330047f18a424f957618b9",
+      "reviewed_sha256": "e4391a7f7ff5d6fb13f34998470afd530c8e1b51a97497f79741a7c2f63d3ff9"
+    }
+  ],
+  "unchanged_entries": 263
+}

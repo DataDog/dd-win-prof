@@ -37,7 +37,7 @@ pip install -r requirements.txt
 ### Local test (no API key required)
 
 Validates local output only: pprof files, RUM labels, view/session JSON records.
-Uses a dummy URL so no network access or API key is needed. **This is what CI runs.**
+Disables HTTP export while retaining local capture, so no network access or API key is needed. **This is what CI runs.**
 
 ```powershell
 .\test_rum_scenario.ps1
@@ -49,6 +49,7 @@ Uses a dummy URL so no network access or API key is needed. **This is what CI ru
 |-----------|---------|-------------|
 | `-Config` | `Auto` | Build config: `Debug`, `Release`, or `Auto` (tries Debug first) |
 | `-Iterations` | `3` | Number of Runner iterations (more iterations = more samples) |
+| `-RunnerPath` | empty | Explicit executable path for a non-default build directory |
 
 ### UI-hang test (no API key required)
 
@@ -70,6 +71,7 @@ pwsh .\test_ui_hangs.ps1 -Config Release
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `-Config` | `Auto` | Build config: `Debug`, `Release`, or `Auto` |
+| `-UIAppPath` | empty | Explicit UIApp executable for a non-default build directory; invalid paths fail without fallback |
 | `-HangDurationMs` | `1500` | Freeze duration per hang |
 | `-Cycles` | `2` | Number of hangs per kind |
 | `-OutputRoot` | `%TEMP%\dd-ui-hang-test` | Parent folder; each run creates a `yyyyMMdd_HHmmss` subfolder holding per-kind `pprof`/`logs` |
@@ -82,9 +84,9 @@ build/src/UIApp/Debug/UIApp.exe --auto-hang all --hang-duration-ms 1500 `
   --hang-cycles 1 --pprofdir "$env:TEMP/ui-hangs" --symbolize
 ```
 
-### Send test (API key required)
+### Send test (unsupported on this experimental branch)
 
-Validates everything in the local test **plus** that the profile was successfully sent to the backend (HTTP 200). Requires a real Datadog agent URL and API key.
+Standalone HTTP is rejected until libdatadog exposes a supported compressed-byte request API. The legacy commands below do not work on this branch. They remain as the baseline test recipe; callback delivery is tested separately. Do not supply credentials to work around this limitation.
 
 ```powershell
 .\test_rum_scenario_send.ps1 -Url http://localhost:8126 -ApiKey <your-key>

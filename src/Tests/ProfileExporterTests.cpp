@@ -4,6 +4,7 @@
 
 #include <Windows.h>
 #include <gtest/gtest.h>
+#include <winsock2.h>
 
 #include <filesystem>
 #include <memory>
@@ -17,6 +18,7 @@
 #include "../dd-win-prof/TagsHelper.h"
 #include "../dd-win-prof/ThreadInfo.h"
 #include "LocalHttpServer.h"
+#include "ProfileTestOutput.h"
 #include "pch.h"
 
 class ProfileExporterExportTests : public ::testing::Test {
@@ -326,10 +328,8 @@ TEST_F(ProfileExporterExportTests, ExporterWithDebugOutputDir) {
   }
 }
 
-TEST_F(ProfileExporterExportTests, ExporterInitializesWithDefaultsAndExportEnabled) {
-  // Validates the full InitializeExporter / BuildExportUrl / tag preparation path.
-  // Agent mode with localhost:8126 -- the exporter object is created without
-  // connecting.
+TEST_F(ProfileExporterExportTests, StandaloneExportInitializesWithoutConnecting) {
+  // Initialization opens a WinHTTP session, not a network connection.
   auto agentConfig = std::make_unique<Configuration>();
   agentConfig->ResetToDefaults();
   agentConfig->SetExportEnabled(true);
@@ -340,30 +340,30 @@ TEST_F(ProfileExporterExportTests, ExporterInitializesWithDefaultsAndExportEnabl
   Sample::SetValuesCount(types.size());
 
   auto exp = std::make_unique<ProfileExporter>(agentConfig.get(), types);
-  ASSERT_TRUE(exp->Initialize());
+  EXPECT_TRUE(exp->Initialize());
   EXPECT_TRUE(exp->IsInitialized());
 
   // Explicit cleanup before destruction to avoid potential deadlocks
   exp->Cleanup();
 }
 TEST(ProfileExporterEndpointTests, AgentlessCopiesEndpointInputs) {
-  ddog_prof_ProfileExporter_Result created;
+  pe_exporter* created = nullptr;
+  pe_result result{};
   {
     const std::string site = "example.invalid";
     const std::string key = "local-test-key";
-    auto endpoint = ddog_prof_Endpoint_agentless(
-        {site.data(), site.size()}, {key.data(), key.size()}, 10000, false
-    );
-    created = ddog_prof_Exporter_new(
-        {"endpoint-test", 13}, {"1", 1}, {"windows", 7}, nullptr, endpoint
-    );
+    pe_config config{
+        {site.data(), site.size()},
+        {key.data(), key.size()},
+        {"endpoint-test", 13},
+        {"1", 1},
+        10000,
+        1
+    };
+    ASSERT_EQ(pe_exporter_create(&config, &created, &result), PE_OK);
   }
-  ASSERT_EQ(created.tag, DDOG_PROF_PROFILE_EXPORTER_RESULT_OK_HANDLE_PROFILE_EXPORTER);
-  auto runtime = ddog_prof_Exporter_init_runtime(&created.ok);
-  EXPECT_EQ(runtime.tag, DDOG_VOID_RESULT_OK);
-  if (runtime.tag == DDOG_VOID_RESULT_ERR) ddog_Error_drop(&runtime.err);
-  ddog_prof_Exporter_drop(&created.ok);
-  EXPECT_EQ(created.ok.inner, nullptr);
+  ASSERT_NE(created, nullptr);
+  pe_exporter_destroy(created);
 }
 
 namespace {
@@ -519,4 +519,84 @@ TEST_F(ProfileExporterExportTests, HttpTimeoutIsBoundedAndRecoverableTransportEr
   EXPECT_TRUE(exp.Export(true));
   exp.Cleanup();
   EXPECT_EQ(server.Requests().size(), 2u);
+}
+
+TEST_F(ProfileExporterExportTests, HttpFailureStillResetsAndAllowsNextExport) {
+  WSADATA data{};
+  ASSERT_EQ(WSAStartup(MAKEWORD(2, 2), &data), 0);
+  struct WinsockCleanup {
+    ~WinsockCleanup() { WSACleanup(); }
+  } winsock;
+  SOCKET socket = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  ASSERT_NE(socket, INVALID_SOCKET);
+  struct SocketCleanup {
+    SOCKET s;
+    ~SocketCleanup() { closesocket(s); }
+  } close{socket};
+  sockaddr_in address{};
+  address.sin_family = AF_INET;
+  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  ASSERT_EQ(bind(socket, reinterpret_cast<sockaddr*>(&address), sizeof(address)), 0);
+  int size = sizeof(address);
+  ASSERT_EQ(getsockname(socket, reinterpret_cast<sockaddr*>(&address), &size), 0);
+  const char* variable = "DD_TRACE_AGENT_URL";
+  DWORD length = GetEnvironmentVariableA(variable, nullptr, 0);
+  std::string previous(length, '\0');
+  if (length) ASSERT_NE(GetEnvironmentVariableA(variable, previous.data(), length), 0u);
+  struct RestoreEnvironment {
+    const char* name;
+    const std::string& value;
+    ~RestoreEnvironment() {
+      SetEnvironmentVariableA(name, value.empty() ? nullptr : value.c_str());
+    }
+  } restore{variable, previous};
+  auto endpoint = "http://127.0.0.1:" + std::to_string(ntohs(address.sin_port));
+  ASSERT_TRUE(SetEnvironmentVariableA(variable, endpoint.c_str()));
+  Configuration httpConfig;
+  httpConfig.SetApiKey("");
+  httpConfig.SetExportEnabled(true);
+  int resetCalls = 0;
+  // The encoding API has C function pointers, so track resets on this test thread.
+  static thread_local int* resets;
+  resets = &resetCalls;
+  dd_win_prof::ProfileEncodingApi api;
+  api.reset = [](pa_profile* p) {
+    ++*resets;
+    return pa_reset(p);
+  };
+  ProfileExporter http(&httpConfig, sampleTypes, nullptr, {}, api);
+  ASSERT_TRUE(http.Initialize());
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_TRUE(http.Add(CreateTestSample()));
+    EXPECT_EQ(http.Export(i == 2), i < 2);
+    EXPECT_EQ(resetCalls, i + 1);
+  }
+  http.Cleanup();
+  resets = nullptr;
+}
+
+TEST_F(ProfileExporterExportTests, HttpCustomDefinitionsSurviveReset) {
+  LocalHttpServer server;
+  auto httpConfig = HttpConfiguration(server);
+  const std::vector<SampleValueType> definitions{
+      {std::string("wait\0time", 9), std::string("nano\0seconds", 12)},
+      {"cpu-time", "count"}
+  };
+  ProfileExporter exp(&httpConfig, definitions);
+  ASSERT_TRUE(exp.Initialize());
+  for (int cycle = 0; cycle < 2; ++cycle) {
+    ASSERT_TRUE(exp.Add(CreateTestSample()));
+    ASSERT_TRUE(exp.Export(cycle == 1));
+  }
+  exp.Cleanup();
+  ASSERT_TRUE(server.Error().empty()) << server.Error();
+  const auto requests = server.Requests();
+  ASSERT_EQ(requests.size(), 2u);
+  for (size_t i = 0; i < requests.size(); ++i) {
+    EXPECT_EQ(Tag(requests[i].body, "profile_seq"), std::to_string(i));
+    EXPECT_NE(requests[i].body.find("service:exporter-test"), std::string::npos);
+    WriteHttpTestProfile(
+        "http-custom-" + std::to_string(i + 1) + ".pprof", requests[i].body
+    );
+  }
 }

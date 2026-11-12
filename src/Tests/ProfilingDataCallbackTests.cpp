@@ -13,8 +13,8 @@
 
 #include "Configuration.h"
 #include "EnvironmentVariables.h"
-#include "LibDatadogHelper.h"
 #include "ProfileExporter.h"
+#include "ProfileTestOutput.h"
 #include "Profiler.h"
 #include "internal/dd-win-rum-private.h"
 #include "pch.h"
@@ -22,60 +22,30 @@
 namespace {
 struct EncodingFailureState {
   bool serialize = false;
-  bool bytes = false;
+  bool output = false;
   bool reset = false;
   int serializeCalls = 0;
-  int bytesCalls = 0;
   int resetCalls = 0;
 };
 thread_local EncodingFailureState encodingFailure;
 
-ddog_Error MakeNativeError() {
-  // The FFI has no error constructor; tag validation produces a Rust-owned error.
-  auto tags = ddog_Vec_Tag_new();
-  auto result = ddog_Vec_Tag_push(
-      &tags, dd_win_prof::to_CharSlice(""), dd_win_prof::to_CharSlice("")
-  );
-  ddog_Vec_Tag_drop(tags);
-  if (result.tag != DDOG_VEC_TAG_PUSH_RESULT_ERR) {
-    throw std::runtime_error("Empty tag unexpectedly accepted");
-  }
-  return result.err;
-}
-
-ddog_prof_Profile_SerializeResult SerializeWithFailure(
-    ddog_prof_Profile* profile, const ddog_Timespec* start, const ddog_Timespec* end
+pa_status SerializeWithFailure(
+    pa_profile* profile, int64_t start, int64_t end, pa_sink sink, void* context
 ) {
   ++encodingFailure.serializeCalls;
-  if (std::exchange(encodingFailure.serialize, false)) {
-    ddog_prof_Profile_SerializeResult result{};
-    result.tag = DDOG_PROF_PROFILE_SERIALIZE_RESULT_ERR;
-    result.err = MakeNativeError();
-    return result;
+  if (std::exchange(encodingFailure.serialize, false)) return PA_COMPRESSION;
+  if (std::exchange(encodingFailure.output, false)) {
+    auto failingSink = [](void*, const uint8_t*, size_t) -> pa_status {
+      return PA_OUTPUT;
+    };
+    return pa_serialize(profile, start, end, failingSink, nullptr);
   }
-  return ddog_prof_Profile_serialize(profile, start, end);
+  return pa_serialize(profile, start, end, sink, context);
 }
-
-ddog_prof_Result_ByteSlice ReadBytesWithFailure(ddog_prof_EncodedProfile* profile) {
-  ++encodingFailure.bytesCalls;
-  if (std::exchange(encodingFailure.bytes, false)) {
-    ddog_prof_Result_ByteSlice result{};
-    result.tag = DDOG_PROF_RESULT_BYTE_SLICE_ERR_BYTE_SLICE;
-    result.err = MakeNativeError();
-    return result;
-  }
-  return ddog_prof_EncodedProfile_bytes(profile);
-}
-
-ddog_prof_Profile_Result ResetWithFailure(ddog_prof_Profile* profile) {
+pa_status ResetWithFailure(pa_profile* profile) {
   ++encodingFailure.resetCalls;
-  if (std::exchange(encodingFailure.reset, false)) {
-    ddog_prof_Profile_Result result{};
-    result.tag = DDOG_PROF_PROFILE_RESULT_ERR;
-    result.err = MakeNativeError();
-    return result;
-  }
-  return ddog_prof_Profile_reset(profile);
+  if (std::exchange(encodingFailure.reset, false)) return PA_NOMEM;
+  return pa_reset(profile);
 }
 
 }  // namespace
@@ -332,21 +302,18 @@ TEST_F(ProfilingDataCallbackTests, CallbackDiscardsRumRecordsWithoutMetadataFile
 }
 
 TEST_F(ProfilingDataCallbackTests, EncodingErrorsReturnCodesAndNextExportRecovers) {
-  for (const auto code :
-       {ProfilingErrorCode::SerializationFailed,
-        ProfilingErrorCode::ProfileBytesUnavailable}) {
+  for (const bool outputFailure : {false, true}) {
+    const auto code = ProfilingErrorCode::SerializationFailed;
     SCOPED_TRACE(static_cast<uint32_t>(code));
     encodingFailure = {};
-    encodingFailure.serialize = code == ProfilingErrorCode::SerializationFailed;
-    encodingFailure.bytes = code == ProfilingErrorCode::ProfileBytesUnavailable;
+    encodingFailure.serialize = !outputFailure;
+    encodingFailure.output = outputFailure;
     std::vector<ProfilingData> results;
     ProfilingDataCallback callback = [&](ProfilingData data) {
       results.push_back(std::move(data));
     };
     ASSERT_TRUE(SetupProfilingDataCallback(callback));
-    const dd_win_prof::ProfileEncodingApi api{
-        SerializeWithFailure, ReadBytesWithFailure, ResetWithFailure
-    };
+    const dd_win_prof::ProfileEncodingApi api{SerializeWithFailure, ResetWithFailure};
     std::vector<SampleValueType> types{{"cpu-time", "nanoseconds"}};
     ProfileExporter exporter(
         Profiler::GetConfiguration(), types, profiler.get(), callback, api
@@ -359,10 +326,6 @@ TEST_F(ProfilingDataCallbackTests, EncodingErrorsReturnCodesAndNextExportRecover
     ASSERT_TRUE(SetRumSession(nullptr));
     EXPECT_FALSE(exporter.Export());
     EXPECT_EQ(encodingFailure.serializeCalls, 1);
-    EXPECT_EQ(
-        encodingFailure.bytesCalls,
-        code == ProfilingErrorCode::SerializationFailed ? 0 : 1
-    );
     EXPECT_EQ(encodingFailure.resetCalls, 1);
     ASSERT_EQ(results.size(), 1u);
     EXPECT_EQ(results.front().result, static_cast<uint32_t>(code));
@@ -381,8 +344,8 @@ TEST_F(ProfilingDataCallbackTests, EncodingErrorsReturnCodesAndNextExportRecover
     EXPECT_EQ(results.back().result, 0u);
     EXPECT_FALSE(results.back().pprof.empty());
     EXPECT_TRUE(results.back().isLast);
-    encodingFailure.serialize = code == ProfilingErrorCode::SerializationFailed;
-    encodingFailure.bytes = code == ProfilingErrorCode::ProfileBytesUnavailable;
+    encodingFailure.serialize = !outputFailure;
+    encodingFailure.output = outputFailure;
     EXPECT_FALSE(exporter.Export(true));
     ASSERT_EQ(results.size(), 3u);
     EXPECT_EQ(results.back().result, static_cast<uint32_t>(code));
@@ -402,9 +365,7 @@ TEST_F(ProfilingDataCallbackTests, ThrowingErrorCallbackDoesNotRecurse) {
     errors.push_back(data.result);
     throw std::runtime_error("diagnostic callback failed");
   };
-  const dd_win_prof::ProfileEncodingApi api{
-      SerializeWithFailure, ReadBytesWithFailure, ResetWithFailure
-  };
+  const dd_win_prof::ProfileEncodingApi api{SerializeWithFailure, ResetWithFailure};
   std::vector<SampleValueType> types{{"cpu-time", "nanoseconds"}};
   ProfileExporter exporter(Profiler::GetConfiguration(), types, nullptr, callback, api);
   ASSERT_TRUE(exporter.Initialize());
@@ -418,9 +379,7 @@ TEST_F(ProfilingDataCallbackTests, ThrowingErrorCallbackDoesNotRecurse) {
 TEST_F(ProfilingDataCallbackTests, InternalExportUsesBooleanResults) {
   encodingFailure = {};
   Profiler::GetConfiguration()->SetExportEnabled(false);
-  const dd_win_prof::ProfileEncodingApi api{
-      SerializeWithFailure, ReadBytesWithFailure, ResetWithFailure
-  };
+  const dd_win_prof::ProfileEncodingApi api{SerializeWithFailure, ResetWithFailure};
   std::vector<SampleValueType> types{{"cpu-time", "nanoseconds"}};
   ProfileExporter exporter(Profiler::GetConfiguration(), types, nullptr, {}, api);
   EXPECT_FALSE(exporter.Export());
@@ -429,7 +388,6 @@ TEST_F(ProfilingDataCallbackTests, InternalExportUsesBooleanResults) {
   ASSERT_TRUE(exporter.Initialize());
   encodingFailure.serialize = true;
   EXPECT_FALSE(exporter.Export(true));
-  EXPECT_EQ(encodingFailure.bytesCalls, 0);
   EXPECT_EQ(encodingFailure.resetCalls, 1);
   EXPECT_TRUE(exporter.Export(true));
   exporter.Cleanup();
@@ -442,7 +400,7 @@ TEST_F(ProfilingDataCallbackTests, BackgroundErrorCanBeExplainedAfterCallbackRet
         encodingFailure = {};
         encodingFailure.serialize = true;
         const dd_win_prof::ProfileEncodingApi api{
-            SerializeWithFailure, ReadBytesWithFailure, ResetWithFailure
+            SerializeWithFailure, ResetWithFailure
         };
         std::vector<SampleValueType> types{{"cpu-time", "nanoseconds"}};
         ProfileExporter exporter(
@@ -558,7 +516,8 @@ TEST(ProfilingDataExportTests, ResultIsFirstAggregateFieldAndDefaultsToSuccess) 
 TEST(ProfilingDataExportTests, CallbackBypassesHttpAndOwnsBytes) {
   Configuration config;
   config.ResetToDefaults();
-  config.SetApiKey("unused");
+  config.SetApiKey("invalid\r\nkey");
+  config.SetEndpoint("not a site");
   std::vector<ProfilingData> results;
   ProfilingDataCallback callback = [&](ProfilingData data) {
     results.push_back(std::move(data));
@@ -682,4 +641,31 @@ TEST(ProfilingDataExportTests, ThrowingCallbackDoesNotPreventNextExport) {
   EXPECT_TRUE(exporter.Export(true));
   EXPECT_EQ(calls, 3);
   exporter.Cleanup();
+}
+
+TEST(ProfilingDataExportTests, CallbackCustomDefinitionsSurviveResetAndCleanup) {
+  Configuration config;
+  config.ResetToDefaults();
+  std::vector<ProfilingData> results;
+  const std::vector<SampleValueType> definitions{
+      {std::string("wait\0time", 9), std::string("nano\0seconds", 12)},
+      {"cpu-time", "count"}
+  };
+  {
+    ProfileExporter exporter(&config, definitions, nullptr, [&](ProfilingData data) {
+      results.push_back(std::move(data));
+    });
+    ASSERT_TRUE(exporter.Initialize());
+    ASSERT_TRUE(exporter.Export());
+    ASSERT_TRUE(exporter.Export(true));
+    exporter.Cleanup();
+  }
+  ASSERT_EQ(results.size(), 2u);
+  for (size_t i = 0; i < results.size(); ++i) {
+    EXPECT_EQ(results[i].result, 0u);
+    EXPECT_EQ(results[i].isLast, i == 1);
+    WriteTestProfile(
+        "callback-custom-" + std::to_string(i + 1) + ".pprof", results[i].pprof
+    );
+  }
 }

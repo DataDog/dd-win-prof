@@ -1,0 +1,23 @@
+[
+  {
+    "file": "callback.zst.pprof",
+    "samples": 316,
+    "locations": 28,
+    "mappings": 7,
+    "functions": 1
+  },
+  {
+    "file": "core-native.zst.pprof",
+    "samples": 4,
+    "locations": 1,
+    "mappings": 2,
+    "functions": 1
+  },
+  {
+    "file": "standalone/profile_1794219120322_0.zst.pprof",
+    "samples": 292,
+    "locations": 88,
+    "mappings": 8,
+    "functions": 45
+  }
+]

@@ -416,3 +416,10 @@ tools/dumps/
 
 # libdatadog and other third-party dependencies
 third-party/
+
+# First-party, independently buildable native aggregation package (not NuGet).
+!/packages/profile-aggregation/
+!/packages/profile-aggregation/**
+
+# First-party standalone C exporter (not NuGet).
+!/packages/profile-exporter/

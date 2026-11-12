@@ -1,0 +1,99 @@
+{
+  "result": "PASS",
+  "source_commit": "a89a90bccd03664e84e145f1dd3a8d2cad50fa04",
+  "job": "20261109T151035Z-run-script-dd-win-prof-ea675e2d",
+  "behavioral_tests": 220,
+  "core_suites": 2,
+  "rum_assertions": 101,
+  "ui_hang_assertions": 23,
+  "checks": [
+    "Zstd frame",
+    "protobuf parse",
+    "string indices",
+    "unique metadata IDs",
+    "mapping/function/location references",
+    "sample value type counts"
+  ],
+  "profiles": [
+    {
+      "file": "callback.zst.pprof",
+      "samples": 311,
+      "locations": 31,
+      "functions": 1,
+      "mappings": 7,
+      "strings": 32,
+      "compressed_bytes": 5431,
+      "sha256": "72c30beac52dda7f63ce3175198ab4bcbd52082ab0b7c851fed4fd7f9bcbb4ea"
+    },
+    {
+      "file": "core-native.zst.pprof",
+      "samples": 4,
+      "locations": 1,
+      "functions": 1,
+      "mappings": 2,
+      "strings": 15,
+      "compressed_bytes": 324,
+      "sha256": "1bff5a40afa1ab836568eee63bbebfb7769f0fd9bc6164974eef54d08bfc33fa"
+    },
+    {
+      "file": "standalone/profile_1794237346132_0.zst.pprof",
+      "samples": 292,
+      "locations": 103,
+      "functions": 47,
+      "mappings": 8,
+      "strings": 94,
+      "compressed_bytes": 8265,
+      "sha256": "77ee648dfd8ad58e03509908331f2f0d4e7c772278da1a3b281d1f44911ff7f6"
+    },
+    {
+      "file": "ui-hangs/20261109_161712/cpu/pprof/profile_1794237449790_0.zst.pprof",
+      "samples": 1971,
+      "locations": 267,
+      "functions": 103,
+      "mappings": 12,
+      "strings": 163,
+      "compressed_bytes": 35664,
+      "sha256": "80e088eaefd7152fadd0d77871b6cc7a4689bb49268fe2d81f63a7fb74970017"
+    },
+    {
+      "file": "ui-hangs/20261109_161712/lifecycle/pprof/profile_1794237453080_0.zst.pprof",
+      "samples": 1136,
+      "locations": 242,
+      "functions": 117,
+      "mappings": 14,
+      "strings": 182,
+      "compressed_bytes": 24144,
+      "sha256": "3529fe20a2b03b417296b6e0696016186dd32370626d0398bf566da28312534b"
+    },
+    {
+      "file": "ui-hangs/20261109_161712/lifecycle/pprof/profile_1794237456131_0.zst.pprof",
+      "samples": 1131,
+      "locations": 224,
+      "functions": 100,
+      "mappings": 14,
+      "strings": 163,
+      "compressed_bytes": 23549,
+      "sha256": "ae899949a18fb025eede44c4d8025453544a1dfea73962b39f2b18e41e98105a"
+    },
+    {
+      "file": "ui-hangs/20261109_161712/sleep/pprof/profile_1794237439157_0.zst.pprof",
+      "samples": 1893,
+      "locations": 254,
+      "functions": 109,
+      "mappings": 13,
+      "strings": 169,
+      "compressed_bytes": 33372,
+      "sha256": "ce45a893e26e84a8b7cc5fa9c02dfc0793079c732feefa5feade8c798ea86fea"
+    },
+    {
+      "file": "ui-hangs/20261109_161712/wait/pprof/profile_1794237444481_0.zst.pprof",
+      "samples": 1770,
+      "locations": 226,
+      "functions": 103,
+      "mappings": 14,
+      "strings": 167,
+      "compressed_bytes": 31747,
+      "sha256": "279e6170fa5cdea86be52e78e87e9084b2966650f6b3829981d493512da3e1a5"
+    }
+  ]
+}
