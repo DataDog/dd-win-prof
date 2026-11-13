@@ -346,6 +346,96 @@ TEST_F(ProfileExporterExportTests, ExporterInitializesWithDefaultsAndExportEnabl
   // Explicit cleanup before destruction to avoid potential deadlocks
   exp->Cleanup();
 }
+
+// BuildRumTags is the tag-construction step extracted out of PrepareAdditionalTags
+// for testability (ddog_Tag is opaque, so we can't read entries back out of the
+// resulting ddog_Vec_Tag and have to pin the contract upstream of the push).
+
+TEST(ProfileExporterBuildRumTags, NoApplicationIdNoSessionsNoViewsProducesEmptyList) {
+  auto tags = ProfileExporter::BuildRumTags("", {}, {});
+  EXPECT_TRUE(tags.empty());
+}
+
+TEST(ProfileExporterBuildRumTags, ApplicationIdOnlyProducesSingleEntry) {
+  auto tags = ProfileExporter::BuildRumTags("app-uuid", {});
+  ASSERT_EQ(tags.size(), 1u);
+  EXPECT_EQ(tags[0].first, "rum.application_id");
+  EXPECT_EQ(tags[0].second, "app-uuid");
+}
+
+TEST(ProfileExporterBuildRumTags, SingleSessionEmitsOneSessionTag) {
+  auto tags = ProfileExporter::BuildRumTags("app-uuid", {"s1"});
+  ASSERT_EQ(tags.size(), 2u);
+  EXPECT_EQ(tags[0].first, "rum.application_id");
+  EXPECT_EQ(tags[0].second, "app-uuid");
+  EXPECT_EQ(tags[1].first, "rum.session_id");
+  EXPECT_EQ(tags[1].second, "s1");
+}
+
+TEST(ProfileExporterBuildRumTags, MultipleSessionsEmitOneEntryEach) {
+  auto tags = ProfileExporter::BuildRumTags("app-uuid", {"s1", "s2", "s3"});
+  ASSERT_EQ(tags.size(), 4u);
+  EXPECT_EQ(tags[0].first, "rum.application_id");
+  EXPECT_EQ(tags[0].second, "app-uuid");
+  // All three session entries reuse the same key and carry distinct values --
+  // this is the "repeated tag entries with the same key" multi-value shape.
+  EXPECT_EQ(tags[1].first, "rum.session_id");
+  EXPECT_EQ(tags[1].second, "s1");
+  EXPECT_EQ(tags[2].first, "rum.session_id");
+  EXPECT_EQ(tags[2].second, "s2");
+  EXPECT_EQ(tags[3].first, "rum.session_id");
+  EXPECT_EQ(tags[3].second, "s3");
+}
+
+TEST(ProfileExporterBuildRumTags, EmptyApplicationIdSuppressesAppEntryOnly) {
+  auto tags = ProfileExporter::BuildRumTags("", {"s1", "s2"});
+  ASSERT_EQ(tags.size(), 2u);
+  EXPECT_EQ(tags[0].first, "rum.session_id");
+  EXPECT_EQ(tags[0].second, "s1");
+  EXPECT_EQ(tags[1].first, "rum.session_id");
+  EXPECT_EQ(tags[1].second, "s2");
+}
+
+TEST(ProfileExporterBuildRumTags, EmptyIdsAreSkipped) {
+  auto tags =
+      ProfileExporter::BuildRumTags("app-uuid", {"s1", "", "s2"}, {"", "v1", "", "v2"});
+  ASSERT_EQ(tags.size(), 5u);
+  EXPECT_EQ(tags[0].first, "rum.application_id");
+  EXPECT_EQ(tags[1], std::make_pair(std::string("rum.session_id"), std::string("s1")));
+  EXPECT_EQ(tags[2], std::make_pair(std::string("rum.session_id"), std::string("s2")));
+  EXPECT_EQ(tags[3], std::make_pair(std::string("rum.view_id"), std::string("v1")));
+  EXPECT_EQ(tags[4], std::make_pair(std::string("rum.view_id"), std::string("v2")));
+}
+
+TEST(ProfileExporterBuildRumTags, ViewsWithoutApplicationOrSessionsEmitOneEntryEach) {
+  auto tags = ProfileExporter::BuildRumTags("", {}, {"v1", "v2"});
+  ASSERT_EQ(tags.size(), 2u);
+  EXPECT_EQ(tags[0], std::make_pair(std::string("rum.view_id"), std::string("v1")));
+  EXPECT_EQ(tags[1], std::make_pair(std::string("rum.view_id"), std::string("v2")));
+}
+
+TEST(ProfileExporterBuildRumTags, AllSessionAndViewIdsAreEmittedWithoutACap) {
+  std::vector<std::string> sessionIds;
+  std::vector<std::string> viewIds;
+  for (size_t i = 0; i < 32; ++i) {
+    sessionIds.push_back("s" + std::to_string(i));
+    viewIds.push_back("v" + std::to_string(i));
+  }
+
+  auto tags = ProfileExporter::BuildRumTags("app-uuid", sessionIds, viewIds);
+  ASSERT_EQ(tags.size(), 1u + sessionIds.size() + viewIds.size());
+  EXPECT_EQ(tags[0].first, "rum.application_id");
+  EXPECT_EQ(tags[0].second, "app-uuid");
+  for (size_t i = 0; i < sessionIds.size(); ++i) {
+    EXPECT_EQ(tags[1 + i].first, "rum.session_id");
+    EXPECT_EQ(tags[1 + i].second, sessionIds[i]);
+  }
+  for (size_t i = 0; i < viewIds.size(); ++i) {
+    EXPECT_EQ(tags[1 + sessionIds.size() + i].first, "rum.view_id");
+    EXPECT_EQ(tags[1 + sessionIds.size() + i].second, viewIds[i]);
+  }
+}
+
 TEST(ProfileExporterEndpointTests, AgentlessCopiesEndpointInputs) {
   ddog_prof_ProfileExporter_Result created;
   {
@@ -439,6 +529,9 @@ TEST_F(
           "\"duration\":1000"}) {
       EXPECT_NE(body.find(field), std::string::npos) << field;
     }
+    EXPECT_EQ(Tag(body, "rum.application_id"), "test-application");
+    EXPECT_EQ(Tag(body, "rum.session_id"), "test-session");
+    EXPECT_EQ(Tag(body, "rum.view_id"), "test-view");
     EXPECT_EQ(Tag(body, "profile_seq"), std::to_string(i));
     EXPECT_FALSE(Tag(body, "runtime-id").empty());
     EXPECT_EQ(Tag(body, "runtime-id"), Tag(requests[0].body, "runtime-id"));
@@ -446,6 +539,60 @@ TEST_F(
     EXPECT_NE(body.find("filename=\"profile.pprof\""), std::string::npos);
     EXPECT_NE(body.find(std::string("\x28\xb5\x2f\xfd", 4)), std::string::npos);
   }
+}
+
+TEST_F(ProfileExporterExportTests, HttpEmitsAllRumTagsWithoutACapOrStaleIds) {
+  class BufferedRumRecords : public IRumRecordProvider {
+   public:
+    std::vector<RumViewRecord> views;
+    std::vector<RumSessionRecord> sessions;
+
+    void ConsumeViewRecords(std::vector<RumViewRecord>& records) override {
+      views.swap(records);
+    }
+    void ConsumeSessionRecords(std::vector<RumSessionRecord>& records) override {
+      sessions.swap(records);
+    }
+    std::string GetCurrentSessionId() const override { return {}; }
+  } records;
+
+  records.sessions.push_back({});
+  records.views.push_back({});
+  for (size_t i = 0; i < 32; ++i) {
+    records.sessions.push_back({0, 1, "session-" + std::to_string(i)});
+    records.views.push_back({0, 1, "view-" + std::to_string(i), "", {}});
+  }
+
+  LocalHttpServer server;
+  auto httpConfig = HttpConfiguration(server);
+  ProfileExporter exp(&httpConfig, sampleTypes, &records);
+  exp.SetRumApplicationId("test-application");
+  ASSERT_TRUE(exp.Initialize());
+  ASSERT_TRUE(exp.Add(CreateTestSample()));
+  EXPECT_TRUE(exp.Export());
+  ASSERT_TRUE(exp.Add(CreateTestSample()));
+  EXPECT_TRUE(exp.Export(true));
+  exp.Cleanup();
+
+  EXPECT_TRUE(server.Error().empty()) << server.Error();
+  const auto requests = server.Requests();
+  ASSERT_EQ(requests.size(), 2u);
+  const auto& body = requests[0].body;
+  for (size_t i = 0; i < 32; ++i) {
+    SCOPED_TRACE(i);
+    EXPECT_NE(
+        body.find("rum.session_id:session-" + std::to_string(i) + ","),
+        std::string::npos
+    );
+    EXPECT_NE(
+        body.find("rum.view_id:view-" + std::to_string(i) + ","), std::string::npos
+    );
+  }
+  EXPECT_EQ(body.find("rum.session_id:,"), std::string::npos);
+  EXPECT_EQ(body.find("rum.view_id:,"), std::string::npos);
+  EXPECT_EQ(Tag(requests[1].body, "rum.application_id"), "test-application");
+  EXPECT_TRUE(Tag(requests[1].body, "rum.session_id").empty());
+  EXPECT_TRUE(Tag(requests[1].body, "rum.view_id").empty());
 }
 
 TEST_F(ProfileExporterExportTests, HttpResponsePolicyAcrossFinalThreadTransition) {

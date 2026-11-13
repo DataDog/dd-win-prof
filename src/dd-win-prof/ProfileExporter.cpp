@@ -284,8 +284,11 @@ bool ProfileExporter::ExportCurrentProfile(
     return ReportError(ProfilingErrorCode::SerializationFailed, lastCall);
   }
 
-  auto rumRecordsJson =
-      _profilingDataCallback ? std::string{} : CollectRumRecordsJson();
+  std::vector<std::string> rumSessionIds;
+  std::vector<std::string> rumViewIds;
+  auto rumRecordsJson = _profilingDataCallback
+                            ? std::string{}
+                            : CollectRumRecordsJson(rumSessionIds, rumViewIds);
   WriteDebugFiles(profile.get(), rumRecordsJson, endUnixTimeMs);
 
   // HTTP export consumes the profile, so read its bytes first.
@@ -305,7 +308,9 @@ bool ProfileExporter::ExportCurrentProfile(
     return DeliverProfileToCallback(bytes.ok, startUnixTimeMs, endUnixTimeMs, lastCall);
   }
   if (_exportEnabled) {
-    const bool success = ExportProfile(profile.get(), _currentExportId, rumRecordsJson);
+    const bool success = ExportProfile(
+        profile.get(), _currentExportId, rumRecordsJson, rumSessionIds, rumViewIds
+    );
     if (!success) {
       Log::Error("Failed to export profile to backend");
     }
@@ -314,7 +319,9 @@ bool ProfileExporter::ExportCurrentProfile(
   return true;
 }
 
-std::string ProfileExporter::CollectRumRecordsJson() {
+std::string ProfileExporter::CollectRumRecordsJson(
+    std::vector<std::string>& sessionIds, std::vector<std::string>& viewIds
+) {
   if (_pRumRecordProvider == nullptr) {
     return {};
   }
@@ -325,6 +332,15 @@ std::string ProfileExporter::CollectRumRecordsJson() {
   }
 
   auto json = SerializeRumRecordsToJson(_viewRecordsBuffer, _sessionRecordsBuffer);
+  // Preserve the IDs for tags before clearing the records used by metadata.
+  sessionIds.reserve(_sessionRecordsBuffer.size());
+  for (const auto& rec : _sessionRecordsBuffer) {
+    sessionIds.push_back(rec.session_id);
+  }
+  viewIds.reserve(_viewRecordsBuffer.size());
+  for (const auto& rec : _viewRecordsBuffer) {
+    viewIds.push_back(rec.view_id);
+  }
   _viewRecordsBuffer.clear();
   _sessionRecordsBuffer.clear();
   return json;
@@ -1496,7 +1512,9 @@ bool ProfileExporter::CreateExporterEndpoint(ddog_prof_Endpoint& endpoint) {
 bool ProfileExporter::ExportProfile(
     const ddog_prof_EncodedProfile* encodedProfile,
     uint32_t profileSeq,
-    const std::string& rumRecordsJson
+    const std::string& rumRecordsJson,
+    const std::vector<std::string>& rumSessionIds,
+    const std::vector<std::string>& rumViewIds
 ) {
   if (!encodedProfile) {
     Log::Error("Invalid profile");
@@ -1509,7 +1527,7 @@ bool ProfileExporter::ExportProfile(
 
   // Prepare additional tags (per-export metadata)
   ddog_Vec_Tag additionalTags = ddog_Vec_Tag_new();
-  if (!PrepareAdditionalTags(additionalTags, profileSeq)) {
+  if (!PrepareAdditionalTags(additionalTags, profileSeq, rumSessionIds, rumViewIds)) {
     ddog_Vec_Tag_drop(additionalTags);
     return false;
   }
@@ -1590,7 +1608,12 @@ bool ProfileExporter::ExportProfile(
   return responseOk;
 }
 
-bool ProfileExporter::PrepareAdditionalTags(ddog_Vec_Tag& tags, uint32_t profileSeq) {
+bool ProfileExporter::PrepareAdditionalTags(
+    ddog_Vec_Tag& tags,
+    uint32_t profileSeq,
+    const std::vector<std::string>& rumSessionIds,
+    const std::vector<std::string>& rumViewIds
+) {
   // Add profile sequence number
   if (!AddSingleTag(tags, TAG_PROFILE_SEQ, std::to_string(profileSeq))) {
     return false;
@@ -1601,18 +1624,35 @@ bool ProfileExporter::PrepareAdditionalTags(ddog_Vec_Tag& tags, uint32_t profile
     return false;
   }
 
-  // Add RUM application ID tag (set once via SetRumApplicationId)
-  if (!_rumApplicationId.empty()) {
-    if (!AddSingleTag(tags, TAG_RUM_APPLICATION_ID, _rumApplicationId)) {
+  for (const auto& kv : BuildRumTags(_rumApplicationId, rumSessionIds, rumViewIds)) {
+    if (!AddSingleTag(tags, kv.first, kv.second)) {
       return false;
     }
   }
 
-  // Note: RUM session IDs are no longer emitted as a tag. They are now
-  // embedded in the optional_internal_metadata_json payload under
-  // "rum_session_ids", alongside the per-view vitals.
-
   return true;
+}
+
+std::vector<std::pair<std::string, std::string>> ProfileExporter::BuildRumTags(
+    const std::string& applicationId,
+    const std::vector<std::string>& sessionIds,
+    const std::vector<std::string>& viewIds
+) {
+  std::vector<std::pair<std::string, std::string>> result;
+  if (!applicationId.empty()) {
+    result.emplace_back(TAG_RUM_APPLICATION_ID, applicationId);
+  }
+  for (const auto& sid : sessionIds) {
+    if (!sid.empty()) {
+      result.emplace_back(TAG_RUM_SESSION_ID, sid);
+    }
+  }
+  for (const auto& vid : viewIds) {
+    if (!vid.empty()) {
+      result.emplace_back(TAG_RUM_VIEW_ID, vid);
+    }
+  }
+  return result;
 }
 
 bool ProfileExporter::CheckExportResponse(uint16_t responseCode) {

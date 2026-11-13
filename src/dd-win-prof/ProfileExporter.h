@@ -79,9 +79,23 @@ class ProfileExporter {
   bool ExportProfile(
       const ddog_prof_EncodedProfile* encodedProfile,
       uint32_t profileSeq,
-      const std::string& rumRecordsJson = {}
+      const std::string& rumRecordsJson = {},
+      const std::vector<std::string>& rumSessionIds = {},
+      const std::vector<std::string>& rumViewIds = {}
   );
-  bool PrepareAdditionalTags(ddog_Vec_Tag& tags, uint32_t profileSeq);
+  bool PrepareAdditionalTags(
+      ddog_Vec_Tag& tags,
+      uint32_t profileSeq,
+      const std::vector<std::string>& rumSessionIds = {},
+      const std::vector<std::string>& rumViewIds = {}
+  );
+
+  // Kept separate for testing because ddog_Tag is opaque.
+  static std::vector<std::pair<std::string, std::string>> BuildRumTags(
+      const std::string& applicationId,
+      const std::vector<std::string>& sessionIds,
+      const std::vector<std::string>& viewIds = {}
+  );
   bool CheckExportResponse(uint16_t responseCode);
   void CleanupExporter();
 
@@ -95,7 +109,9 @@ class ProfileExporter {
   bool ExportCurrentProfile(
       bool lastCall, int64_t startUnixTimeMs, int64_t endUnixTimeMs
   );
-  std::string CollectRumRecordsJson();
+  std::string CollectRumRecordsJson(
+      std::vector<std::string>& sessionIds, std::vector<std::string>& viewIds
+  );
   void DiscardRumRecords();
   void WriteDebugFiles(
       const ddog_prof_EncodedProfile* profile,
@@ -171,10 +187,10 @@ class ProfileExporter {
   static constexpr const char* TAG_GPU_CHIP_PREFIX = "gpu_chip_";
   static constexpr const char* TAG_GPU_RAM_PREFIX = "gpu_ram_";
 
-  // RUM tags (per-export)
+  // Tag cardinality is not a concern here: emit all session and view IDs.
   static constexpr const char* TAG_RUM_APPLICATION_ID = "rum.application_id";
-  // Session IDs are no longer emitted as a tag; they are carried in the
-  // internal metadata JSON payload (optional_internal_metadata_json).
+  static constexpr const char* TAG_RUM_SESSION_ID = "rum.session_id";
+  static constexpr const char* TAG_RUM_VIEW_ID = "rum.view_id";
 
   // TODO: how to define metrics? With tags? With separate json file?
   static constexpr const char* TAG_RAM_SIZE = "ram_size";
