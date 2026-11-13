@@ -5,6 +5,7 @@ add_executable(Tests
     DynamicModuleTests.cpp
     PprofAggregatorTests.cpp
     ProfileExporterTests.cpp
+    UiHangProfileTests.cpp
     ProfilerShutdownTests.cpp
     ProfilingDataCallbackTests.cpp
     ProfilingErrorMessageTests.cpp
