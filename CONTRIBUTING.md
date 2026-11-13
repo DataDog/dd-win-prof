@@ -46,11 +46,12 @@ For new features:
 
 ### Dependencies
 
-All dependencies are downloaded automatically by CMake at configure time via `FetchContent`:
+CMake downloads dependencies at configure time via `FetchContent`. The pinned
+versions are defined in [`src/CMakeLists.txt`](src/CMakeLists.txt):
 
-- **libdatadog v19.0.0**: profile serialization and upload
-- **spdlog v1.14.1**: logging
-- **Google Test v1.14.0**: unit testing
+- **libdatadog**: profile serialization and upload
+- **spdlog**: logging
+- **Google Test**: unit testing
 
 ### Building
 

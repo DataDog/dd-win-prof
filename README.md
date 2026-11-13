@@ -8,7 +8,7 @@
 > **Use in production environments at your own risk.** Please thoroughly test in your specific 
 > environment before considering any production deployment.
 
-Implementation of a Windows CPU and wall-time profiler
+Implementation of a Windows profiler
 
 ## Usage : how to profile your 64-bit Windows application
 
@@ -19,12 +19,7 @@ In your project, you need the following files:
 
 Use the headers and import library supplied with the DLL.
 
-Deploy **dd-win-prof.dll** next to your application's executable. It links
-libdatadog statically for profile serialization and upload.
-
-The separate **datadog_profiling_ffi.dll** is needed by the unit-test executable,
-not by applications that only link `dd-win-prof.lib`. The corresponding `.pdb`
-files are available for debugging.
+Deploy **dd-win-prof.dll** next to your application's executable.
 
 ## CMake Setup
 
@@ -46,8 +41,8 @@ Then you can use `target_link_libraries` to configure your project's include pat
 target_link_libraries(your_application PRIVATE dd-win-prof)
 ```
 
-To copy the profiler beside your application's binary after each build, call
-`dd_win_prof_copy_runtime_deps`. The helper also copies the FFI DLL used by tests:
+To copy the runtime dependencies beside your application's binary after each build,
+call `dd_win_prof_copy_runtime_deps`:
 
 ```
 dd_win_prof_copy_runtime_deps(your_application)
@@ -75,12 +70,6 @@ The profiler can be configured in two main ways: **code-based** (via `ProfilerCo
 
 ### Option 1: Code-based configuration
 
-Each `SetupProfiler()` call replaces the previous configuration: it starts from
-defaults and the current environment (unless `noEnvVars=true`), then applies the
-supplied overrides. Omitted fields do not retain previous API overrides.
-`StopProfiler()` preserves configuration for a later `StartProfiler()` call
-without another setup.
-
 Define your configuration in a `ProfilerConfig` instance and pass it to `SetupProfiler` before calling `StartProfiler`:
 
 ```C++
@@ -91,35 +80,13 @@ Define your configuration in a `ProfilerConfig` instance and pass it to `SetupPr
     config.serviceName = "my-windows-app";
     config.serviceVersion = "1.2.3";
     if (!SetupProfiler(&config)) {
-        // Setup failed (e.g. mandatory fields missing when noEnvVars=true)
         return -1;
     }
 ```
 
-**No-env-vars mode** (`config.noEnvVars = true`): Uses struct values and defaults
-instead of environment-based profiler settings. In this mode, `url` and `apiKey`
-are **mandatory**; `SetupProfiler` returns `false` if either is missing.
-Set these fields before calling `SetupProfiler`. `url` is a Datadog site name,
-not a full intake URL:
-
-```C++
-    config.noEnvVars = true;
-    config.url = "datadoghq.com";
-    config.apiKey = "your_datadog_api_key_here";
-    config.serviceName = "my-windows-app";
-```
-
-**ProfilerConfig fields** (see `dd-win-prof.h`):
-
-| Field | Description |
-|-------|-------------|
-| `noEnvVars` | If true, use struct values and defaults instead of environment-based profiler settings (default: false) |
-| `serviceName`, `serviceEnvironment`, `serviceVersion` | Application metadata |
-| `url`, `apiKey` | Mandatory when `noEnvVars=true`; otherwise can come from env |
-| `pprofOutputDirectory` | Override for local pprof debug output (default: empty) |
-| `tags`, `symbolizeCallstacks` | Tags and symbolization options |
-
-**Note:** Log output directory is **not** configurable via `ProfilerConfig`. It is set at DLL load time via the `DD_TRACE_LOG_DIRECTORY` environment variable (default: `%PROGRAMDATA%\Datadog Tracer\logs`).
+See [configuration details and examples](docs/configuration.md) for code-only
+configuration, repeated setup calls, and logging. The complete field reference
+is in [`dd-win-prof.h`](src/dd-win-prof/include/dd-win-prof.h).
 
 **NOTE:** Method names are obfuscated by default. Add `config.symbolizeCallstacks = true` to enable symbolization.
 
