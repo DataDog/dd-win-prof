@@ -23,6 +23,7 @@ param(
     [ValidateSet("Debug", "Release", "Auto")]
     [string]$Config = "Auto",
     [int]$Iterations = 3,
+    [string]$RunnerPath = '',
     [switch]$KeepArtifacts
 )
 
@@ -40,7 +41,7 @@ Write-Host ""
 $pythonCmd = Find-Python
 
 . (Join-Path $runnerDir "find-runner.ps1")
-$runner = Find-Runner -ScriptDir $runnerDir -Config $Config
+$runner = if ($RunnerPath) { (Resolve-Path -LiteralPath $RunnerPath).Path } else { Find-Runner -ScriptDir $runnerDir -Config $Config }
 
 # -- Setup temp directories ----------------------------------------------------
 
@@ -60,14 +61,14 @@ Write-Host ""
 $rumAppId     = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 $rumSessionId = "11111111-2222-3333-4444-555555555555"
 
+$previousLogDirectory = $env:DD_TRACE_LOG_DIRECTORY
+$previousExportEnabled = $env:DD_INTERNAL_PROFILING_EXPORT_ENABLED
 $env:DD_TRACE_LOG_DIRECTORY = $logDir
+$env:DD_INTERNAL_PROFILING_EXPORT_ENABLED = '0'
 
 $runnerArgs = @(
     "--scenario",       5,
     "--iterations",     $Iterations,
-    "--noenvvars",
-    "--url",            "https://localhost:0/no-upload",
-    "--apikey",         "integration-test-key",
     "--pprofdir",       $pprofDir,
     "--rum-app-id",     $rumAppId,
     "--rum-session-id", $rumSessionId
@@ -76,10 +77,13 @@ $runnerArgs = @(
 Write-Host "Running: $runner $($runnerArgs -join ' ')" -ForegroundColor Yellow
 Write-Host ""
 
-& $runner @runnerArgs
-$runnerExit = $LASTEXITCODE
-
-Remove-Item Env:\DD_TRACE_LOG_DIRECTORY -ErrorAction SilentlyContinue
+try {
+    & $runner @runnerArgs
+    $runnerExit = $LASTEXITCODE
+} finally {
+    $env:DD_TRACE_LOG_DIRECTORY = $previousLogDirectory
+    $env:DD_INTERNAL_PROFILING_EXPORT_ENABLED = $previousExportEnabled
+}
 
 Write-Host ""
 Write-Host "-- Assertions --" -ForegroundColor Cyan
@@ -94,11 +98,11 @@ Assert ($logFiles.Count -gt 0) "Profiler log file exists ($($logFiles.Count) fou
 if ($logFiles.Count -gt 0) {
     $logContent = Get-Content $logFiles[0].FullName -Raw
 
-    $wroteMatch = $logContent | Select-String "Successfully wrote .+ bytes to pprof file"
-    Assert ($null -ne $wroteMatch) "Log contains 'Successfully wrote ... bytes to pprof file'"
+    $wroteMatch = $logContent | Select-String "C profile #[0-9]+.*compressed bytes: [1-9][0-9]*"
+    Assert ($null -ne $wroteMatch) "Log contains a serialized C profile"
 
-    $lastExportMatch = $logContent | Select-String "Export last profile #"
-    Assert ($null -ne $lastExportMatch) "Log contains 'Export last profile #' (final export ran)"
+    $lastExportMatch = $logContent | Select-String "C profile #[0-9]+ final, compressed bytes:"
+    Assert ($null -ne $lastExportMatch) "Log contains the final C profile export"
 }
 
 # -- Validate pprof content ----------------------------------------------------

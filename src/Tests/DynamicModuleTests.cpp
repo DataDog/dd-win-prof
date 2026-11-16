@@ -6,66 +6,16 @@
 #include "pch.h"
 
 // Include libdatadog headers for string storage
-#include "datadog/common.h"
-#include "datadog/profiling.h"
 
 // Test fixture for dynamic module management
 class DynamicModuleTest : public ::testing::Test {
  protected:
-  void SetUp() override {
-    // Initialize managed string storage for tests
-    auto storageResult = ddog_prof_ManagedStringStorage_new();
-    if (storageResult.tag == DDOG_PROF_MANAGED_STRING_STORAGE_NEW_RESULT_OK) {
-      _stringStorage = storageResult.ok;
-      _hasStringStorage = true;
-    } else {
-      _hasStringStorage = false;
-    }
-
-    // Initialize symbolication for each test
-    ASSERT_TRUE(symbolication.Initialize(storageResult.ok, true))
-        << "Symbolication should initialize successfully";
-    ASSERT_TRUE(_hasStringStorage) << "String storage should be initialized";
+  void SetUp() override { ASSERT_TRUE(symbolication.Initialize(true)); }
+  void TearDown() override { symbolication.Cleanup(); }
+  std::string GetFunctionName(const CachedSymbolInfo& info) {
+    return std::string(info.FunctionName);
   }
-
-  void TearDown() override {
-    // Cleanup after each test
-    symbolication.Cleanup();
-
-    if (_hasStringStorage) {
-      ddog_prof_ManagedStringStorage_drop(_stringStorage);
-      _hasStringStorage = false;
-    }
-  }
-
-  // Helper to get function name as string for debugging
-  std::string GetFunctionName(const CachedSymbolInfo& symbolInfo) {
-    if (!_hasStringStorage || symbolInfo.FunctionNameId.value == 0) {
-      return "<unknown>";
-    }
-
-    ddog_StringWrapperResult result = ddog_prof_ManagedStringStorage_get_string(
-        _stringStorage, symbolInfo.FunctionNameId
-    );
-    if (result.tag != DDOG_STRING_WRAPPER_RESULT_OK) {
-      return "<error>";
-    }
-
-    // Access the string data from the Vec_U8
-    const char* str_data = reinterpret_cast<const char*>(result.ok.message.ptr);
-    size_t str_len = result.ok.message.len;
-
-    std::string functionName(str_data, str_len);
-
-    // Clean up the string wrapper
-    ddog_StringWrapper_drop(&result.ok);
-
-    return functionName;
-  }
-
   Symbolication symbolication;
-  ddog_prof_ManagedStringStorage _stringStorage;
-  bool _hasStringStorage;
 };
 
 TEST_F(DynamicModuleTest, TestRefreshModules) {
@@ -126,8 +76,7 @@ TEST_F(DynamicModuleTest, TestActualDynamicLoading) {
 
   // Try symbolication before refresh (might not work since module was loaded after
   // init)
-  auto beforeRefreshOpt =
-      symbolication.SymbolicateAndIntern(testAddress, _stringStorage);
+  auto beforeRefreshOpt = symbolication.SymbolicateAndIntern(testAddress);
   CachedSymbolInfo beforeRefresh;
   if (!beforeRefreshOpt.has_value()) {
     std::cout << "Before refresh - No value returned" << std::endl;
@@ -148,8 +97,7 @@ TEST_F(DynamicModuleTest, TestActualDynamicLoading) {
   EXPECT_TRUE(refreshResult) << "RefreshModules should succeed";
 
   // Try symbolication after refresh (should work now)
-  auto afterRefreshOpt =
-      symbolication.SymbolicateAndIntern(testAddress, _stringStorage);
+  auto afterRefreshOpt = symbolication.SymbolicateAndIntern(testAddress);
   CachedSymbolInfo afterRefresh;
   if (!afterRefreshOpt.has_value()) {
     std::cout << "After refresh - No value returned" << std::endl;
@@ -194,8 +142,7 @@ TEST_F(DynamicModuleTest, TestSymbolicationWithRefresh) {
             << testAddress << std::endl;
 
   // Try symbolication before refresh
-  auto beforeRefreshOpt2 =
-      symbolication.SymbolicateAndIntern(testAddress, _stringStorage);
+  auto beforeRefreshOpt2 = symbolication.SymbolicateAndIntern(testAddress);
   CachedSymbolInfo beforeRefresh;
   if (!beforeRefreshOpt2.has_value()) {
     std::cout << "Before refresh - No value returned" << std::endl;
@@ -215,8 +162,7 @@ TEST_F(DynamicModuleTest, TestSymbolicationWithRefresh) {
   EXPECT_TRUE(refreshResult) << "RefreshModules should succeed";
 
   // Try symbolication after refresh
-  auto afterRefreshOpt2 =
-      symbolication.SymbolicateAndIntern(testAddress, _stringStorage);
+  auto afterRefreshOpt2 = symbolication.SymbolicateAndIntern(testAddress);
   CachedSymbolInfo afterRefresh;
   if (!afterRefreshOpt2.has_value()) {
     std::cout << "After refresh - No value returned" << std::endl;
@@ -251,7 +197,7 @@ TEST_F(DynamicModuleTest, TestRefreshAfterInitialization) {
   extern void GlobalTestFunction();
   uint64_t testAddress = reinterpret_cast<uint64_t>(&GlobalTestFunction);
 
-  auto symbolInfoOpt = symbolication.SymbolicateAndIntern(testAddress, _stringStorage);
+  auto symbolInfoOpt = symbolication.SymbolicateAndIntern(testAddress);
   ASSERT_TRUE(symbolInfoOpt.has_value()) << "Symbolication should return a value";
   CachedSymbolInfo symbolInfo = symbolInfoOpt.value();
   std::cout << "Symbolication after refresh - Valid: "

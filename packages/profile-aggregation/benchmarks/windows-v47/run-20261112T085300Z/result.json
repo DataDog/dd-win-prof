@@ -1,0 +1,8 @@
+﻿{
+    "result":  "PASS",
+    "resultVersion":  "v2-v47",
+    "baselineVersion":  "v47.0.0",
+    "seconds":  69.9292112,
+    "jobs":  312,
+    "powerSchemeAfter":  "Power Scheme GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (Balanced)"
+}

@@ -1,0 +1,186 @@
+{
+  "baseline-1": [
+    {
+      "file": "0.lz4.pprof",
+      "samples": 774,
+      "locations": 56,
+      "mappings": 8,
+      "functions": 1,
+      "timestamp_labels": 774,
+      "compressed_bytes": 16152,
+      "protobuf_bytes": 44282
+    },
+    {
+      "file": "1.lz4.pprof",
+      "samples": 786,
+      "locations": 76,
+      "mappings": 9,
+      "functions": 1,
+      "timestamp_labels": 786,
+      "compressed_bytes": 16767,
+      "protobuf_bytes": 45284
+    },
+    {
+      "file": "2.lz4.pprof",
+      "samples": 787,
+      "locations": 34,
+      "mappings": 7,
+      "functions": 1,
+      "timestamp_labels": 787,
+      "compressed_bytes": 16155,
+      "protobuf_bytes": 44608
+    },
+    {
+      "file": "3.lz4.pprof",
+      "samples": 758,
+      "locations": 155,
+      "mappings": 10,
+      "functions": 1,
+      "timestamp_labels": 758,
+      "compressed_bytes": 18410,
+      "protobuf_bytes": 46159
+    },
+    {
+      "file": "4.lz4.pprof",
+      "samples": 748,
+      "locations": 72,
+      "mappings": 9,
+      "functions": 1,
+      "timestamp_labels": 748,
+      "compressed_bytes": 17373,
+      "protobuf_bytes": 44810
+    },
+    {
+      "file": "5.lz4.pprof",
+      "samples": 736,
+      "locations": 102,
+      "mappings": 8,
+      "functions": 1,
+      "timestamp_labels": 736,
+      "compressed_bytes": 17280,
+      "protobuf_bytes": 44234
+    },
+    {
+      "file": "6.lz4.pprof",
+      "samples": 788,
+      "locations": 47,
+      "mappings": 9,
+      "functions": 1,
+      "timestamp_labels": 788,
+      "compressed_bytes": 16507,
+      "protobuf_bytes": 44952
+    },
+    {
+      "file": "7.lz4.pprof",
+      "samples": 788,
+      "locations": 37,
+      "mappings": 8,
+      "functions": 1,
+      "timestamp_labels": 788,
+      "compressed_bytes": 16302,
+      "protobuf_bytes": 44740
+    },
+    {
+      "file": "8.lz4.pprof",
+      "samples": 770,
+      "locations": 32,
+      "mappings": 7,
+      "functions": 1,
+      "timestamp_labels": 770,
+      "compressed_bytes": 15850,
+      "protobuf_bytes": 43645
+    }
+  ],
+  "c-core-1": [
+    {
+      "file": "0.zst.pprof",
+      "samples": 776,
+      "locations": 32,
+      "mappings": 8,
+      "functions": 1,
+      "timestamp_labels": 776,
+      "compressed_bytes": 11367,
+      "protobuf_bytes": 44016
+    },
+    {
+      "file": "1.zst.pprof",
+      "samples": 790,
+      "locations": 37,
+      "mappings": 7,
+      "functions": 1,
+      "timestamp_labels": 790,
+      "compressed_bytes": 11421,
+      "protobuf_bytes": 44728
+    },
+    {
+      "file": "2.zst.pprof",
+      "samples": 787,
+      "locations": 66,
+      "mappings": 8,
+      "functions": 1,
+      "timestamp_labels": 787,
+      "compressed_bytes": 11948,
+      "protobuf_bytes": 45073
+    },
+    {
+      "file": "3.zst.pprof",
+      "samples": 737,
+      "locations": 88,
+      "mappings": 8,
+      "functions": 1,
+      "timestamp_labels": 737,
+      "compressed_bytes": 12265,
+      "protobuf_bytes": 44016
+    },
+    {
+      "file": "4.zst.pprof",
+      "samples": 757,
+      "locations": 148,
+      "mappings": 10,
+      "functions": 1,
+      "timestamp_labels": 757,
+      "compressed_bytes": 13396,
+      "protobuf_bytes": 46452
+    },
+    {
+      "file": "5.zst.pprof",
+      "samples": 760,
+      "locations": 129,
+      "mappings": 10,
+      "functions": 1,
+      "timestamp_labels": 760,
+      "compressed_bytes": 13139,
+      "protobuf_bytes": 46319
+    },
+    {
+      "file": "6.zst.pprof",
+      "samples": 781,
+      "locations": 43,
+      "mappings": 7,
+      "functions": 1,
+      "timestamp_labels": 781,
+      "compressed_bytes": 11517,
+      "protobuf_bytes": 44361
+    },
+    {
+      "file": "7.zst.pprof",
+      "samples": 789,
+      "locations": 48,
+      "mappings": 8,
+      "functions": 1,
+      "timestamp_labels": 789,
+      "compressed_bytes": 11798,
+      "protobuf_bytes": 44941
+    },
+    {
+      "file": "8.zst.pprof",
+      "samples": 775,
+      "locations": 42,
+      "mappings": 7,
+      "functions": 1,
+      "timestamp_labels": 775,
+      "compressed_bytes": 11342,
+      "protobuf_bytes": 44023
+    }
+  ]
+}

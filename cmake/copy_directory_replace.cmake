@@ -1,11 +1,6 @@
-# Copy every file from SRC into DST. Unlike `cmake -E copy_directory`, this
-# succeeds when a destination file is mapped into another process (typical on
-# Windows for a DLL that a running app — or a leftover global hook — still
-# has loaded): the in-use file is renamed aside and the new copy takes its
-# name. Loaded modules can be renamed even when they cannot be overwritten.
-#
-# Usage:
-#   cmake -D SRC=<dir> -D DST=<dir> -P cmake/copy_directory_replace.cmake
+# Copy selected FILES from SRC into DST, renaming an in-use destination aside
+# if it cannot be overwritten. Without FILES, copy all files in SRC.
+# Usage: cmake -DSRC=<dir> -DDST=<dir> "-DFILES=file1;file2" -P <this-script>
 
 if(NOT SRC OR NOT DST)
     message(FATAL_ERROR "copy_directory_replace.cmake requires -DSRC=<dir> and -DDST=<dir>")
@@ -17,7 +12,14 @@ endif()
 
 file(MAKE_DIRECTORY "${DST}")
 
-file(GLOB _entries LIST_DIRECTORIES true "${SRC}/*")
+if(DEFINED FILES)
+    set(_entries)
+    foreach(_name IN LISTS FILES)
+        list(APPEND _entries "${SRC}/${_name}")
+    endforeach()
+else()
+    file(GLOB _entries LIST_DIRECTORIES true "${SRC}/*")
+endif()
 foreach(_src IN LISTS _entries)
     if(IS_DIRECTORY "${_src}")
         continue()

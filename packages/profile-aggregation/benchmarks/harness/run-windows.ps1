@@ -1,0 +1,2 @@
+# Copyright 2026 Datadog, Inc. SPDX-License-Identifier: Apache-2.0
+throw 'The historical v19/v47 matrix launcher is retired. It required private compression hooks absent from libdd-c. Historical results remain unchanged; reproduce their recipe at consumer commit 86dd462ebad979855ac7119017a813fe9748f9ad. For public-API smoke checks, build bench_core from this directory. Do not treat new measurements as historical v47 results.'

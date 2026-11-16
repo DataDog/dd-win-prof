@@ -1,0 +1,1083 @@
+{
+  "head": "b605bb242957d0f17002f15f69048d3082ed32e7",
+  "base_commit": "96d14f8a83f1267830bdb8877f50222aec0b1b84",
+  "description": "Post-rebase dirty source; all non-Markdown tracked/unignored files hashed. Markdown docs excluded to permit evidence updates without changing executable snapshot.",
+  "files": [
+    {
+      "path": ".clang-format",
+      "sha256": "5e3b4490c71ae74ba3f01620ceb6da822bea0baf3588796b85521f90fc4611ae"
+    },
+    {
+      "path": ".github/chainguard/self.github.release.publish.sts.yaml",
+      "sha256": "2c2a27ce440f36926c080be64723aadb4ce4a854622bba8c96c0f9c80f3c864e"
+    },
+    {
+      "path": ".github/workflows/e2e.yml",
+      "sha256": "30b73a00b5ea53e09a1c14ebbcf151c405a5e7a3edeb748f01d032b845a82cab"
+    },
+    {
+      "path": ".github/workflows/obfuscation.yml",
+      "sha256": "2f0d09a7593f0208d5c7985ad5b21df672acb0d1d851f5ded1eced721d163067"
+    },
+    {
+      "path": ".github/workflows/release.yml",
+      "sha256": "d67f0f38c27c77d6b4ecd02690ee8b44effb7cdb7e2f61fb8648ec0556cf4def"
+    },
+    {
+      "path": ".github/workflows/test.yml",
+      "sha256": "745a2b4730a494d5e2b7fe26ae1c70eff2de7c8643a65d1c5ff7b73b017e66e4"
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "c44bc3eba024090aec72fb25a8122be08a7dfe6a6fc929e0843edbfdb76b3f25"
+    },
+    {
+      "path": "CMakeLists.txt",
+      "sha256": "75a250184e7977fa9696427c8f2fc4fdaa4c600081d36a37b0a87cbeb424d76e"
+    },
+    {
+      "path": "CODEOWNERS",
+      "sha256": "67d0f3000182c4355981322fdf5bed183d14a2665a7426681cffebc402d2188b"
+    },
+    {
+      "path": "LICENSE",
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+    },
+    {
+      "path": "LICENSE-3rdparty.csv",
+      "sha256": "c840a0135098ddc5e5873d55777825ba6c9d2ab5f54c8d75de98f0187bbe1ddc"
+    },
+    {
+      "path": "NOTICE",
+      "sha256": "f9b62fbba878fb2756c5ec9429cf8efe3b5c2f16ac1b498ac230100c0a782580"
+    },
+    {
+      "path": "cmake/asan.cmake",
+      "sha256": "7a16119f08c0ec95dc9395e1594238d597c3bae5893af716e4582df5929f7b86"
+    },
+    {
+      "path": "cmake/clang-format.cmake",
+      "sha256": "d612938b9806c474dcb0c0c133bf333c6310a9dedad3fbbf1c81ed25ba40fb9e"
+    },
+    {
+      "path": "cmake/copy_directory_replace.cmake",
+      "sha256": "b4f5c70211d5e7d9e960027f8d1789e448b713b5eba93c645cd367b3d85a7b8b"
+    },
+    {
+      "path": "e2e-tests/c-aggregation-small-app/CMakeLists.txt",
+      "sha256": "d9a99c97aeebc8a7af7c3ef0300a2fee96e337320b7b336de190ba491b3116bc"
+    },
+    {
+      "path": "e2e-tests/c-aggregation-small-app/main.cpp",
+      "sha256": "a39c66ab77c6effb4cc3becb70a28215b84aa20425e0f5bed39152d53f72a3f9"
+    },
+    {
+      "path": "e2e-tests/capture-pprof.ps1",
+      "sha256": "c79f5bc80fd02cbbe74d844bbfb7fd40552203e382e53931e1b5401c78fbae51"
+    },
+    {
+      "path": "e2e-tests/consumer/CMakeLists.txt",
+      "sha256": "595bcfd17b834fdebc7126798658c2c77e0bb10f9dfe079e9129db9257116aca"
+    },
+    {
+      "path": "e2e-tests/consumer/downstream/CMakeLists.txt",
+      "sha256": "6979e5e68919bd16e7ad07b042487b3b30553dfe764189c585d736ab0aeaf90e"
+    },
+    {
+      "path": "e2e-tests/consumer/main.cpp",
+      "sha256": "0528f848978182c4ab025572e26f4f06656bbe09125b817ad03cb57e200389ce"
+    },
+    {
+      "path": "e2e-tests/consumer/sdk-internal.cpp",
+      "sha256": "bece60c45f164b1bd8566c44825d1dbf0be57595f166638e38a8bfa80b40f573"
+    },
+    {
+      "path": "e2e-tests/patch_vulkan_for_profiling.ps1",
+      "sha256": "31ce4078fd341ab4c6c5f9d5165d843a93ed738a13525c994854e3d6d1b87f72"
+    },
+    {
+      "path": "e2e-tests/runner-scenarios/scenario_1/expected_profile.json",
+      "sha256": "cd2b32f66abc8ca3f6f1d515a3ca92eebdabbd9f80ecd56b2727ed54daf88410"
+    },
+    {
+      "path": "e2e-tests/runner-scenarios/scenario_4/expected_profile.json",
+      "sha256": "ab7afcc0323f2e2c22be1b9105d972f8eaf3c22611397e35ab0cdcbd1b1d3e7d"
+    },
+    {
+      "path": "e2e-tests/runner-scenarios/scenario_5/expected_profile.json",
+      "sha256": "734e2286248938af536b2c9fa3208f4065a7c516c384fdf514c6083b319d9485"
+    },
+    {
+      "path": "e2e-tests/runner-scenarios/scenario_5/scenario.env",
+      "sha256": "fd5578e46ee6b7969b5410804632cdf21fe463dc588bbfc4289941fae702d570"
+    },
+    {
+      "path": "e2e-tests/setup_glm.ps1",
+      "sha256": "a225371c9b37edecbc06dc5a4bfccbe3ec4663fdf04bb8d0ffbf327f7c5f3ce9"
+    },
+    {
+      "path": "e2e-tests/validate-c-aggregation.ps1",
+      "sha256": "e0ad7449713a1fec5b95a47e28869852c0499376b736cb1e3c1c3d394d155aea"
+    },
+    {
+      "path": "e2e-tests/validate-runner-sym.ps1",
+      "sha256": "ed5122be3e1551c6096e7c6ee6e801fa29e4c5eaf59388d46b4274b4ef0684a9"
+    },
+    {
+      "path": "e2e-tests/vulcan_quickstart.ps1",
+      "sha256": "25009f115d951c6b7028b33d55cfaf98cba64aec2127083a58ce9dcd80976b5c"
+    },
+    {
+      "path": "licenses/BSD-3-Clause.txt",
+      "sha256": "b26add03887fa796f15bad95f2bfbf9d7f0e20a2f57fc841c850fec2b58acea6"
+    },
+    {
+      "path": "licenses/MIT.txt",
+      "sha256": "a14485c4ee102c88ce881ed342011de65202d531b0d31c47e72c3b09dffa3fc6"
+    },
+    {
+      "path": "obfuscation/CMakeLists.txt",
+      "sha256": "045fba7e09aa34df0c899b26bb397e2694e88ca50ce8bb75ac10f21facaef11a"
+    },
+    {
+      "path": "obfuscation/ObfSymbols/CMakeLists.txt",
+      "sha256": "24ecb48c508a3e295cd26283de0bc33375cb49957b1a23e678584311cb0d74d3"
+    },
+    {
+      "path": "obfuscation/ObfSymbols/ObfSymbols.cpp",
+      "sha256": "5376bd708de61e7f568d38abbb3007930cccc55b2112cc8b185eed0389acff24"
+    },
+    {
+      "path": "obfuscation/ObfSymbols/ObfSymbols.rc",
+      "sha256": "ecae069712899f123e488ca8fcbf005dc44633c3f2f62a6780ea7e8a62372dc1"
+    },
+    {
+      "path": "obfuscation/ObfSymbols/PdbParser.cpp",
+      "sha256": "fb3b26391be558ea89930218d73448c552f7d5eb314ebb340f3245b8ef18513d"
+    },
+    {
+      "path": "obfuscation/ObfSymbols/PdbParser.h",
+      "sha256": "6bb096cbd11aa086e269edebd79fa70b5240f5c4768b511bfa4bc86f491e01d6"
+    },
+    {
+      "path": "obfuscation/ObfSymbols/TestSymbols.sym",
+      "sha256": "9ce583a8024e06450fc74a03d41333f07bdd63f20756f2ac831cdb0c311f90b0"
+    },
+    {
+      "path": "obfuscation/ObfSymbols/TestSymbols_obf.sym",
+      "sha256": "e5d8113277eca6b26a0d3b977820129080edb8dfe2334470a2cf0f75967dba45"
+    },
+    {
+      "path": "obfuscation/ObfSymbols/msdia140.dll",
+      "sha256": "c6cb047398680aa7093e3d4f1768977ef8ded90ad961225d633407a0ed1c881f"
+    },
+    {
+      "path": "obfuscation/ObfSymbols/resource.h",
+      "sha256": "762d9591e4218d4e354d64a7f127cb9411f4d8b07709de3df473bd49d139ac10"
+    },
+    {
+      "path": "obfuscation/TestSymbols/CMakeLists.txt",
+      "sha256": "024c145f46df5f6a45696462d516a7afee60c08300755339d0ef8c51408bd286"
+    },
+    {
+      "path": "obfuscation/TestSymbols/TestSymbols.cpp",
+      "sha256": "500b1a486730a42783f15f9316af468f85c4cee2764bbab1e5db067612d40932"
+    },
+    {
+      "path": "obfuscation/TestSymbolsDll/CMakeLists.txt",
+      "sha256": "c2137fa8e84a2b3a2fa7dc36ed365366cc02412cef9fda87141789f8a68abae0"
+    },
+    {
+      "path": "obfuscation/TestSymbolsDll/TestSymbolsDll.cpp",
+      "sha256": "ad6e760c0d24e4d4148e3d0aaafd18b71d0508959ba99768de6e24a1c15cf266"
+    },
+    {
+      "path": "obfuscation/TestSymbolsDll/TestSymbolsDll.h",
+      "sha256": "2a721af421ba599e1c3c0ebd5c713a8bfb99bb881300ccc5f462ad4b39ef6a13"
+    },
+    {
+      "path": "obfuscation/build.bat",
+      "sha256": "8995bea4e865ac8f01e2e707c6d1765fd0be7eb0204c0c5c2328f1dd1bb353b8"
+    },
+    {
+      "path": "obfuscation/build.ps1",
+      "sha256": "646ac4966238f9fc97b8d97c4371ef64ca1ce709dc3e2eaa37fc9c21f6c0b5b9"
+    },
+    {
+      "path": "obfuscation/test.ps1",
+      "sha256": "fe767bb0e8b1b4a9280a2b22fb4db9f9bd2236d46a48a26f131a06c07f610859"
+    },
+    {
+      "path": "packages/profile-aggregation/CMakeLists.txt",
+      "sha256": "7afa957e69d31daa3fd839681ca7211358880ef1518faeccb53f18de26f306dc"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/baseline-1.csv",
+      "sha256": "91c34f587414f4a3a494cf2b88eb2538d42485a6b8d06be148d13e32b7214361"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/baseline-2.csv",
+      "sha256": "fb559dd1726ef8ad89d7ce5df942842647023c1a553113ff49badb3f6df26873"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/baseline-3.csv",
+      "sha256": "5c49257f9159779dcd10a2918226cff4cd30565e5a26c3324b8d738e24aa7159"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/core-1.csv",
+      "sha256": "74e3fef63aa4267f0e5a932d1760cb432b78c33ccd6bc83f53f9222d709563f5"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/core-2.csv",
+      "sha256": "ce86830c2988e474fc18f7c1013d25ef3765ccae556e67c4b1c4733e4ac8bbdc"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/core-3.csv",
+      "sha256": "a241a0866fde58cf7ba694bcfc1e8473d6a69420de53c517c159aa8588ab5c62"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/core-churn-1000000.csv",
+      "sha256": "54d94c9043989dc0c1367f616522ed47eb0fa8f098ca4d5f3f319664fd235c18"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/core-small-6000.csv",
+      "sha256": "16c5a1a264f701ab082235069cb7cc8a2cf67177d2b994736dcd78cefcbc23d1"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/harness/CMakeLists.txt",
+      "sha256": "a25069e4c73c29559d00ca93e49b682306ab6b77dd9b7ee4abe9148cdec9d11b"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/harness/compare_fixtures.py",
+      "sha256": "50ef8ff9e765c45bd4bd5014cfe4ea4394addc0e8c05229c4503f346e39c881a"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/harness/compression_hooks.h",
+      "sha256": "3ddfb464c9d019554e97476b2925d075af7a515b802884141e8df804c4871b54"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/harness/driver.cpp",
+      "sha256": "b45c15a0d66cf41fa3a46f4cdb2dcc6fcfb23065e85e7dc395c1eec28c643748"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/harness/inspect_results.py",
+      "sha256": "1b74688b8645ca0baf044c5cb209ef0080cd37a39298178ad160c2521ec39fd5"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/harness/result_metadata.py",
+      "sha256": "c70bb51b84a0db4941234f109c37937e800bf6f99472cbee43829089b866ac5d"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/harness/run-windows.ps1",
+      "sha256": "c0b1647edf75a06e81476a49f58fce7fc3bf15608406b2620a41d84d0e80c913"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/harness/summarize_results.py",
+      "sha256": "705433e6986d5edd84fae7e95113d671c3177927409053a15b72e4538fa61d5e"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/harness/test_harness.py",
+      "sha256": "e1f8dc602fa5c4a46a781430751419b1d0fcdd4e19227578205432bc63cbd003"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/harness/test_results.py",
+      "sha256": "bc8905d45ac4e276c98e81bba7760d089f4b699b533a6678ab78523f95af6e49"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-small-app/baseline-0.csv",
+      "sha256": "aa4d68277cf9f29680f0716328caa30f33fb24a459996371d575d7bdf39ae6bc"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-small-app/baseline-1.csv",
+      "sha256": "99019e3e5b2f4ab0e65fb47b650950ed8e686167868d949f3dce489aafe2c757"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-small-app/c-core-0.csv",
+      "sha256": "7182f0c610480a440256ecc8e48acfbd4e0b008ebd35f3e24e642460a6141667"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-small-app/c-core-1.csv",
+      "sha256": "02a8e17c2bff3da733230a8d79b356f66d79286b00c0b36885fbaea6857ee0e8"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-small-app/run-20261109T151820Z/baseline-0.csv",
+      "sha256": "396f3b39f9889f1925ae8cdc9b1f47d1c382998b474ee72d21e683fdce651ab9"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-small-app/run-20261109T151820Z/baseline-1.csv",
+      "sha256": "a059c1527706d177e37b20dbf33269dd5a50a38dd05e92e5c4eca1d16bc2b7a7"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-small-app/run-20261109T151820Z/c-core-0.csv",
+      "sha256": "2098529358c422ad5b37dbc7d92a790e86fe5e38eb03b361e2455eaa01fb931c"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-small-app/run-20261109T151820Z/c-core-1.csv",
+      "sha256": "934d9065b1bd05e8bd949a2571bd750b61e1c8e37fdc53b9e6f546290082c17f"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-small-app/run-20261109T151820Z/summary.json",
+      "sha256": "12d70792c9696e3245053dc845cc11b13c8f096e567c91d4f69d2951ab2bfea9"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-small-app/run-20261109T151820Z/unloaded-0.csv",
+      "sha256": "fd436d1ab7f1329163443b867bfe896197bd54f8bb7e599e0dd871dec271a92a"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-small-app/summary.json",
+      "sha256": "6a1d7f6bbac908a4e9c3a3e48b989f2f82f016c55f30e27f5f84560515e17c5e"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-small-app/unloaded-0.csv",
+      "sha256": "b37f6d946771fa049243e263f68eea45075b7c5db633a181fb4ae7a9bdf182f3"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T110202Z/CMakeCache.txt",
+      "sha256": "5063c4a5dff20628a675f3d14b3067a0dc0f56f081679f34a69bff86b69b935d"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T110202Z/details.json",
+      "sha256": "2d80add2b0589de4f182cc43b1e2c7aeaad9ede4dc736d803d3a7fb166803b53"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T110202Z/jobs.csv",
+      "sha256": "c59f8d051333f4905348689c1c9b18b0d8747c646abb25ab6ecc833666753a10"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T110202Z/measurements.csv",
+      "sha256": "19d93b982efd0bd6ecbf5a55b6253bd6553f0fa17d61e798b90bc6d5e669c5ce"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T110202Z/metadata.json",
+      "sha256": "84434dc76edb25b18fd1697379f3dd016b51d55811aef5dc1b36bd6b4c138222"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T110202Z/profile_aggregation.c",
+      "sha256": "0af8420dce8cee595dbfc8de28d4a8ba1b8585930d63829838912577c67668ae"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T110202Z/recovery-memory.csv",
+      "sha256": "fb169527a7b0268183e0031d2b7d38fd81dfec71b48069e16e1c05589ed452e8"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T110202Z/result.json",
+      "sha256": "5fcb43a2a2725cf35058c9f075c3bd89e6207f9bfe065314e237d87cb417a9a0"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T110202Z/runtime-config.csv",
+      "sha256": "fd4c899d24bc0998261f5b133b01b5b9239ea2b4b183bf158d5790fb97f78e53"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T110202Z/semantic-comparison.json",
+      "sha256": "ea772000fc94a6eef2b4a393eb50be209be7eb57fe8876e2bd0e339b1581b7d7"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T110202Z/summary.json",
+      "sha256": "55286a543ff37e36d092693041cf6597832f188f8166d0f59018e48de925eed7"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T110202Z/wire-shape.json",
+      "sha256": "aeafdb1e70e5e57afe134cc109dad18aed1000d5f75c58fb40927d4e39e7cd0c"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T111821Z/CMakeCache.txt",
+      "sha256": "5063c4a5dff20628a675f3d14b3067a0dc0f56f081679f34a69bff86b69b935d"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T111821Z/details.json",
+      "sha256": "969c8603cc879d8430299027266cb6517f89fa42c0cc79f3a3e6d80722d72741"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T111821Z/jobs.csv",
+      "sha256": "99024400de7b0c9ad74c0db9b06c0507ca4f93483704ee37b25fdc980b5c4fe3"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T111821Z/measurements.csv",
+      "sha256": "6bd03c605cda015eadd197cbb3d08364b4b8c1be3666a4a2b8947a6f677e48c1"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T111821Z/metadata.json",
+      "sha256": "d409c53c4670d5f99ac6de11e0da9dd004c4b15c4956d191cf49012fa560eafa"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T111821Z/profile_aggregation.c",
+      "sha256": "79f87504a78079c75262b1082cbfb57308d1823fdf3dfad581661b7b6b80bbb4"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T111821Z/recovery-memory.csv",
+      "sha256": "af3984d8f3872c659a9366025a8ad493627bd15dc47b69136a9393704d915ac0"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T111821Z/result.json",
+      "sha256": "0df1009105256811e005dc4d8a5ffcda329a3ecc2ec21e5235ce993a7612dc82"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T111821Z/runtime-config.csv",
+      "sha256": "fd4c899d24bc0998261f5b133b01b5b9239ea2b4b183bf158d5790fb97f78e53"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T111821Z/semantic-comparison.json",
+      "sha256": "7cf4d021cf1803381e07e866025c521faa948910f2908f6ca94d9e29810bc062"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T111821Z/summary.json",
+      "sha256": "4f07b46fd5da619f9ec14aa1a684d64ce45af3e66a49e37e792061627e2d802f"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T145716Z/CMakeCache.txt",
+      "sha256": "5063c4a5dff20628a675f3d14b3067a0dc0f56f081679f34a69bff86b69b935d"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T145716Z/details.json",
+      "sha256": "c977bc60a75b783fcec844da28c78a6e686e29cdebd5ca07318db5cf8e334077"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T145716Z/jobs.csv",
+      "sha256": "ebba3387f630810f1dd5251149ce4d45cf6ba1f9400ea93370494ca49a122d13"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T145716Z/measurements.csv",
+      "sha256": "125b1cc0da5354d089adbbbc449937256a2043736dd4d8f59a3c592729651f87"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T145716Z/metadata.json",
+      "sha256": "55c06fab5e824c703d4b42f48e73c0193991f2a005d1cf6e82a347988a3b71e3"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T145716Z/profile_aggregation.c",
+      "sha256": "07d9853786b7b5f8b3bc272520f59c41a61c209e4116f0d92a19cf6e28c41f0e"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T145716Z/profile_aggregation.h",
+      "sha256": "d1bd027050f0a8c8a2ff8dc33e9c8c2fa3c7370c991208a015887534084d6450"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T145716Z/recovery-memory.csv",
+      "sha256": "f1b9b5eb3ac3e9938f6e94830339bb709aa57dd59e6fa164c2ebb80ef88f3b8a"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T145716Z/result.json",
+      "sha256": "88fca60a2ea0fedfe143a892bf9087b139aef0e471047e7889f6b2e0a5725b41"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T145716Z/runtime-config.csv",
+      "sha256": "fd4c899d24bc0998261f5b133b01b5b9239ea2b4b183bf158d5790fb97f78e53"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T145716Z/semantic-comparison.json",
+      "sha256": "1756336a82305b17aeba40faac23d4941ab210dd0b56d54591b1766cbe0eddc0"
+    },
+    {
+      "path": "packages/profile-aggregation/benchmarks/windows-v2/run-20261109T145716Z/summary.json",
+      "sha256": "b6cefe0f8c8a42a1696af1951a5d620b007ad2b28df4af825743c8bc9c39165e"
+    },
+    {
+      "path": "packages/profile-aggregation/docs/semantic-comparison.json",
+      "sha256": "0f342cdab3638e90e1fe0790d6ba9b795c7352875ce538b8d98a922e69c4c1ae"
+    },
+    {
+      "path": "packages/profile-aggregation/docs/windows-capture-decoding.json",
+      "sha256": "ac7523c6a5b568f6b3b2579e85aa7759b4c68c5bd802af6e922974f0421682e9"
+    },
+    {
+      "path": "packages/profile-aggregation/docs/windows-final-capture-decoding.json",
+      "sha256": "624be2622fde5c0ff64e9c738a0a78c57822d589caf5104898ce57edc610ecc4"
+    },
+    {
+      "path": "packages/profile-aggregation/docs/windows-memory-reuse-validation.json",
+      "sha256": "4643ba20aed3c2d98ab2a022aaa1bd41013a5067dbb65edaada213daa3e3eb8d"
+    },
+    {
+      "path": "packages/profile-aggregation/include/profile_aggregation.h",
+      "sha256": "41d196652802b36c290015eaee4d7115daa2545ed7a3ea4a51bfc4a8a460d2d0"
+    },
+    {
+      "path": "packages/profile-aggregation/licenses/dd-trace-rb-NOTICE.txt",
+      "sha256": "29ef8d396ec51be2088ade33419a9a807dc8f31358f359019524ef6625d83249"
+    },
+    {
+      "path": "packages/profile-aggregation/licenses/dd-trace-rb.txt",
+      "sha256": "399be7f8843492393a1e648ff188b6590a990731912509af04ee70f4a05d0f7a"
+    },
+    {
+      "path": "packages/profile-aggregation/licenses/nanopb.txt",
+      "sha256": "e2f2fc8fe3faa7dcb09dbe995db48c6ec5c1f72705db915101e4a83fed44f66d"
+    },
+    {
+      "path": "packages/profile-aggregation/licenses/pprof.txt",
+      "sha256": "6908cbdf8ab74365530fd9c27ce1b7c84f893ff530c1141230d145ab40f8ab42"
+    },
+    {
+      "path": "packages/profile-aggregation/licenses/rapidhash.txt",
+      "sha256": "93a478eae07be316af2a932d12697447a46bcf5a3423a5982ffff9d2e795ff56"
+    },
+    {
+      "path": "packages/profile-aggregation/licenses/verstable.txt",
+      "sha256": "ea596eef3d06a3537b1ed2b723fd43e0c795f7053f6192ec1a63471b239a2454"
+    },
+    {
+      "path": "packages/profile-aggregation/licenses/zstd.txt",
+      "sha256": "7055266497633c9025b777c78eb7235af13922117480ed5c674677adc381c9d8"
+    },
+    {
+      "path": "packages/profile-aggregation/schema/profile.proto",
+      "sha256": "b0dd0813fc73ca0e503804f8a09ce445463cf676eefee9e27311e37405afb056"
+    },
+    {
+      "path": "packages/profile-aggregation/src/profile_aggregation.c",
+      "sha256": "b24b695ca5eb1b6dff5998293d75d00a0a2c40cb2dcb5e17d7c2a70a5f544d97"
+    },
+    {
+      "path": "packages/profile-aggregation/tests/baseline/Cargo.lock",
+      "sha256": "9d35dd32436deb36dc2a5a11c7224a910facee5166f347280c98bfed759737b0"
+    },
+    {
+      "path": "packages/profile-aggregation/tests/baseline/Cargo.toml",
+      "sha256": "da3b9b0c7d5f4ccaae2b1186727900906a6f39e43b6aff8ac2197123a7504d08"
+    },
+    {
+      "path": "packages/profile-aggregation/tests/baseline/src/bin/fixture.rs",
+      "sha256": "f60bc4fa3b679fd3b07ede37d8308b7f48244cc666593f459aa77d3cb0f49638"
+    },
+    {
+      "path": "packages/profile-aggregation/tests/baseline/src/main.rs",
+      "sha256": "c9e5eece4415525d3754fb81bebe36b5a37dc659f0b5b7c49b9674961891aa40"
+    },
+    {
+      "path": "packages/profile-aggregation/tests/bench.c",
+      "sha256": "2e93ee30c3114468775be0d46a596a2337b1204789fecfec5290926100d9620c"
+    },
+    {
+      "path": "packages/profile-aggregation/tests/compare_baseline.py",
+      "sha256": "9534762bf907750487574506bc005e199136574c3483c3e99851feda65d45080"
+    },
+    {
+      "path": "packages/profile-aggregation/tests/prepare_baseline.py",
+      "sha256": "effacf9e92962155a4bcb1a363cb582fd1c227445cc9cf5a20b7864e009225dc"
+    },
+    {
+      "path": "packages/profile-aggregation/tests/test.c",
+      "sha256": "48ee303ccfafeda7b71b3a6e5dd968935932b044405e22d73c439b2301758dd8"
+    },
+    {
+      "path": "packages/profile-aggregation/vendor/pb.h",
+      "sha256": "762e728eba10152895fface9c6f589fd6f115066ebb30c194e112358a7fea8b8"
+    },
+    {
+      "path": "packages/profile-aggregation/vendor/pb_common.c",
+      "sha256": "08f7e2fcb09521719ed7b46cdf70d41c495a5d1ec91e8d1f4671e05189778b81"
+    },
+    {
+      "path": "packages/profile-aggregation/vendor/pb_common.h",
+      "sha256": "8d1683dea3592025d0e211d9a5a2f63723abe069cce594cb5becf2288d2ca94e"
+    },
+    {
+      "path": "packages/profile-aggregation/vendor/pb_encode.c",
+      "sha256": "80f98ec189cb449fec8670930f26d98794c21ad6b2a47a233602037679c3ecc3"
+    },
+    {
+      "path": "packages/profile-aggregation/vendor/pb_encode.h",
+      "sha256": "94ff256e1e76a989de9d683da1f9c4668bd9e4bedfccf78b9b971727ac389222"
+    },
+    {
+      "path": "packages/profile-aggregation/vendor/rapidhash.h",
+      "sha256": "807874eeb23339eaa4b435fbadd33d46718c88e32f3eb67bab3eb965eecc626e"
+    },
+    {
+      "path": "packages/profile-aggregation/vendor/symbols.cmake",
+      "sha256": "2e882cd5b0203dd87f68cd603c5b1c7668d18b0a5fae42a929c1aaca5bdf012c"
+    },
+    {
+      "path": "packages/profile-aggregation/vendor/verstable.h",
+      "sha256": "f1db172f4755365af79b1f7ad261669846a8331d273619e39ae4eff50e53d762"
+    },
+    {
+      "path": "packages/profile-aggregation/vendor/zstd.c",
+      "sha256": "565342017a86e53cfe6ca3812fbdcdf40d88432950274864ee7f003b3bb7f325"
+    },
+    {
+      "path": "packages/profile-aggregation/vendor/zstd.h",
+      "sha256": "6e547c3422ee73f2799cb5fe2f6d3a67453a6e841adf71086567a1944b2fd627"
+    },
+    {
+      "path": "packages/profile-exporter/CMakeLists.txt",
+      "sha256": "b20892e7b9e7882a6e4c354d3e092c9c5a27ad50f6e7d0be15327d8ef0e72d98"
+    },
+    {
+      "path": "packages/profile-exporter/include/profile_exporter.h",
+      "sha256": "abe2b0f40a45f6e458586a2b431a5085754ce81d7c9d272c6e94be2c968bac26"
+    },
+    {
+      "path": "packages/profile-exporter/src/protocol.c",
+      "sha256": "28eac4320b9ce227d6a8a37faf4263441e4a0a9c4cb39988458c53daf66e16cd"
+    },
+    {
+      "path": "packages/profile-exporter/src/winhttp.c",
+      "sha256": "fa8368ca8f8beb11435d232cd459f063a51fc93bf559a9600b7d9015b36a24e3"
+    },
+    {
+      "path": "packages/profile-exporter/tests/fixture.h",
+      "sha256": "52f003b7802e6bb3caf93a562b15eb0cea3ce40db6ab22920c5a6310214517ce"
+    },
+    {
+      "path": "packages/profile-exporter/tests/mock_intake.py",
+      "sha256": "b66728107204463d3b503612fa4f2a0dfacc7326f18ceb94b900f1e82e0d501d"
+    },
+    {
+      "path": "packages/profile-exporter/tests/probe.c",
+      "sha256": "28ea761428ce00dad740c72e9dc919e6ee3dc82c963fb93aa474eed363571aba"
+    },
+    {
+      "path": "packages/profile-exporter/tests/protocol_test.c",
+      "sha256": "6c708759042f51f4afff83a4d4ff5163a96a69c83fdecf0324a6a2ceaf2be127"
+    },
+    {
+      "path": "repository.datadog.yml",
+      "sha256": "e13d229af2f391a608e79c030403e2e83907205d5716ecaa4816a5ba0ce0b354"
+    },
+    {
+      "path": "scripts/check-version.ps1",
+      "sha256": "c84099a13d130ec110661876f91fe20d32f40769dd6b4b5b3de6d5779726ec59"
+    },
+    {
+      "path": "scripts/generate-vs.ps1",
+      "sha256": "53a33aaa7e6055e59b4fbd434737cc66be2f7258670595281b124057ab5e525a"
+    },
+    {
+      "path": "scripts/test-consumer.ps1",
+      "sha256": "a35a38f4e7b01f15c5f64524aba5ef99ae7359111f6cb65d047ae4e0c6bbeaa9"
+    },
+    {
+      "path": "src/CMakeLists.txt",
+      "sha256": "eae3234b4fe38704648eec9481d88a33bf26f45c6356114fae8b9657ca3ef7a6"
+    },
+    {
+      "path": "src/ProfilerInjector/CMakeLists.txt",
+      "sha256": "8fa9c50e7dfe6a2014af1266007bbf571eae93440468a890c6303d1d1318b65d"
+    },
+    {
+      "path": "src/ProfilerInjector/ProfilerInjector.cpp",
+      "sha256": "d652d22e5544b54acb5dc823a4beeb128968370820654469d1989fb6c5eb87b1"
+    },
+    {
+      "path": "src/Runner/CMakeLists.txt",
+      "sha256": "6fe335b5a01baec165d5e29904fa2a3497bf488d116bc6275c7ba153e4fd21d0"
+    },
+    {
+      "path": "src/Runner/Helpers.cpp",
+      "sha256": "c4ff7ce326c2a6b504cb4785197032932032364bbd55663bccf26255ca69c60f"
+    },
+    {
+      "path": "src/Runner/Helpers.h",
+      "sha256": "54671dc2de8b4cc8a3ba025ce4b9eba1ff6f25990899450daa06f0a2e8234d25"
+    },
+    {
+      "path": "src/Runner/Runner.cpp",
+      "sha256": "746929c8f3bf0f8e08bf49a36d2d5b576349baa55ad7b15f72e2e2e725d0adbe"
+    },
+    {
+      "path": "src/Runner/Spinner.cpp",
+      "sha256": "658deb571e3762f7ccda1764098500c58c9885b585fcea02836dd747b5c0db25"
+    },
+    {
+      "path": "src/Runner/Spinner.h",
+      "sha256": "819e0ca5738976f97f1be46d596173770ce5517f284071dcfac19673860755cc"
+    },
+    {
+      "path": "src/Runner/find-runner.ps1",
+      "sha256": "910093d71810255c6dc58c2e19a8f50998b8eff0d76f715b21f8a70ca2d9927b"
+    },
+    {
+      "path": "src/Runner/run-local-debug.ps1",
+      "sha256": "9f899e437bc065a0283c4e767e38e015b486213aa275c077815ecfce0192d7a5"
+    },
+    {
+      "path": "src/Runner/run-noenvvars.ps1",
+      "sha256": "fbee5cafdf7067b2b7574e6b03efe05e8a327e15b12bbbbfd21ac0285c078823"
+    },
+    {
+      "path": "src/Runner/run-with-envvars.ps1",
+      "sha256": "668332f9785566c3ea34c900ce3eead0e673afa7db5d4b42241476451185250c"
+    },
+    {
+      "path": "src/Tests/CMakeLists.txt",
+      "sha256": "0c533f649b3958aef4681ccdc473a5c33736403bfb59616ff0b5323ab5b70584"
+    },
+    {
+      "path": "src/Tests/ConfigurationTests.cpp",
+      "sha256": "6c38bf9f15d879d8852480848fb72993fded24473c03484dd5759f5202bd1ba9"
+    },
+    {
+      "path": "src/Tests/CpuOverlapTests.cpp",
+      "sha256": "905860f33649ad65d37e416732310b32873f47190bdc64063c1575245d81b05a"
+    },
+    {
+      "path": "src/Tests/DynamicModuleTests.cpp",
+      "sha256": "ee4f8d6fea4d7cc11f22528b68f75b4411a683396613322c88bb1e6433356730"
+    },
+    {
+      "path": "src/Tests/LocalHttpServer.h",
+      "sha256": "2aa003e7bfa33d01f931ac5fcde7b2b34c89e817ae716cdcc1d36a264972489b"
+    },
+    {
+      "path": "src/Tests/PprofAggregatorTests.cpp",
+      "sha256": "9e830f95419e1027ffcaee64e331fe2861116c215165da785fcc07f6313b817c"
+    },
+    {
+      "path": "src/Tests/ProfileExporterTests.cpp",
+      "sha256": "161eac861c6a3ac30ef077568f317fc63c36ba31490d3def87a29569f7899328"
+    },
+    {
+      "path": "src/Tests/ProfileTestOutput.h",
+      "sha256": "4996d6f66ac8f40b8ea3f1c88898b5f0e6c2fba272af9c52c2fdc3af70b3fe55"
+    },
+    {
+      "path": "src/Tests/ProfilerShutdownTests.cpp",
+      "sha256": "283634c5b100364bd3e7d80b773f29b5927d59a726ad73ca5565ed544654bb5d"
+    },
+    {
+      "path": "src/Tests/ProfilingDataCallbackTests.cpp",
+      "sha256": "77876f91543eabe7d6465e082653c7ab2919e0f3afb979a8f174fd7289f5092d"
+    },
+    {
+      "path": "src/Tests/ProfilingErrorMessageTests.cpp",
+      "sha256": "df07ef69591bf62574d32cc6d6d697a2af770125d702854b351fcde289fa8f2e"
+    },
+    {
+      "path": "src/Tests/RumContextTests.cpp",
+      "sha256": "e3c18b9b239511aa185b8e78dbee9c9af59927ba28ecb5449136e4a73ad5a296"
+    },
+    {
+      "path": "src/Tests/SymbolicationTests.cpp",
+      "sha256": "2c9ca75b01cc7d8803fe1e5f7711a0068f23a1d9349e7c65f48083cf53dd0db2"
+    },
+    {
+      "path": "src/Tests/ThreadListTests.cpp",
+      "sha256": "832d3c524a05d178d5265dd1a764d567b1e190f8c01d12c0d218d850a6778fc4"
+    },
+    {
+      "path": "src/Tests/UuidTests.cpp",
+      "sha256": "cc305de914fe271857446ffc046cfc83e4ad384afaa9b978aee4b905d0f6e155"
+    },
+    {
+      "path": "src/Tests/main.cpp",
+      "sha256": "de02370af8d73d451477094b7183c0fbea951f64f086676dec8329db628de969"
+    },
+    {
+      "path": "src/Tests/pch.cpp",
+      "sha256": "242b0d2b227f0db531c1f201d46b54f2ddf25dd7e0a1efafe0bd161d31edc7f5"
+    },
+    {
+      "path": "src/Tests/pch.h",
+      "sha256": "b641094ed3e6cae721de43038823facda6d68aa345b32b58b4a42bb75d09256d"
+    },
+    {
+      "path": "src/Tests/targetver.h",
+      "sha256": "2ae87706c4f08d8226cc2b9fe6178a66f912edd277b299bc1579d197ca3330e8"
+    },
+    {
+      "path": "src/UIApp/CMakeLists.txt",
+      "sha256": "b3c5a57656e9d1566f25eef2d6a6d412e47994906a952d0a1dbb071b952e6a25"
+    },
+    {
+      "path": "src/UIApp/UIApp.cpp",
+      "sha256": "36dc178ecf7d2e1132a4d43b76721f29c596ff220ac0f12fff4eb0eb1c33d44e"
+    },
+    {
+      "path": "src/UIApp/find-uiapp.ps1",
+      "sha256": "b3c35d8f07ba84f8f61e15e20bc362c11889f9571d3c188e81f7f9081de44876"
+    },
+    {
+      "path": "src/dd-win-prof/CMakeLists.txt",
+      "sha256": "fd2b6996f772caddb99c5bc1e15583fc1a366fe8722e2c18219edc250d9c0dab"
+    },
+    {
+      "path": "src/dd-win-prof/CollectorBase.h",
+      "sha256": "addfbde55d57796595c09483578f230b365724f2dfa3f7c848f06682f8be9de8"
+    },
+    {
+      "path": "src/dd-win-prof/Configuration.cpp",
+      "sha256": "3082ca18574aeadeac890b3442bc7ddbde127bb872a798bb3277f01e21c869c4"
+    },
+    {
+      "path": "src/dd-win-prof/Configuration.h",
+      "sha256": "c5c0dddea708c67696ab6d759f32a7a6499ba52c30e72b1c9cea04a0d9e0840b"
+    },
+    {
+      "path": "src/dd-win-prof/CpuTimeProvider.cpp",
+      "sha256": "5de3760a7bde5cc0cba2cdd5c8d0e74d16ef9ac95f79666be75ca22a7d67c850"
+    },
+    {
+      "path": "src/dd-win-prof/CpuTimeProvider.h",
+      "sha256": "e750c73b5da722484035ffdc48430b896306fdf16f68bb7c3a23aeeb06c8f284"
+    },
+    {
+      "path": "src/dd-win-prof/EnvironmentVariables.h",
+      "sha256": "3b25a55e737029dc3d96c05c6a637c2e05cfe0385532c02351097db5720bd9a9"
+    },
+    {
+      "path": "src/dd-win-prof/ISamplesProvider.h",
+      "sha256": "9cb5ac6f16f3f60948e193454789ff8ac37def40c8a163c43a124f2ece22ccc3"
+    },
+    {
+      "path": "src/dd-win-prof/Log.h",
+      "sha256": "34f0cf4bdc9f590989d43557b3ce84ccd206746270e2530cd80d3bce6eacae2a"
+    },
+    {
+      "path": "src/dd-win-prof/OpSysTools.h",
+      "sha256": "9862590b546bec555b6deaef94148406fab23c32241983fc9f71bd70bcbd6bdb"
+    },
+    {
+      "path": "src/dd-win-prof/OsSpecificApi.cpp",
+      "sha256": "e421a93cbff67cc046e446876a0ec9cf227a2ab8dfa2c4deefb3f9edb343baca"
+    },
+    {
+      "path": "src/dd-win-prof/OsSpecificApi.h",
+      "sha256": "a708f3f6e6bc9a3ddbe119d2ccc136de5cf4ba8d1c7565cfb08ee2f5deeeeeb2"
+    },
+    {
+      "path": "src/dd-win-prof/OsSysTools.cpp",
+      "sha256": "507b0e1ca094853d325001287890405a3925e5615d137f8bdb6cf18a5106c0fe"
+    },
+    {
+      "path": "src/dd-win-prof/PprofAggregator.cpp",
+      "sha256": "b1eb67080907809b5c119f47094a2f48d24477cd0e90bfc63ca6963eb5285d78"
+    },
+    {
+      "path": "src/dd-win-prof/PprofAggregator.h",
+      "sha256": "b1f325ebe7430a2eb095725a57f0eed0b82c10b37db65b17639f1664263e1fe6"
+    },
+    {
+      "path": "src/dd-win-prof/ProfileExporter.cpp",
+      "sha256": "a06329725002579d77da5570141ec20fd40ba304a0a5ef1767c92d217661ba57"
+    },
+    {
+      "path": "src/dd-win-prof/ProfileExporter.h",
+      "sha256": "444ecd08db649aba98e9dab67b89af1de7173333b0400a478aca460e2c2bd2ce"
+    },
+    {
+      "path": "src/dd-win-prof/Profiler.cpp",
+      "sha256": "ac11f05ac627dea9764c13c2c078434c3488a76851d7e10052348c23cc1270d0"
+    },
+    {
+      "path": "src/dd-win-prof/Profiler.h",
+      "sha256": "3bfcf75e0893d3c3a4879847b4e9557d45cd2e0fa946c3bc673e7dab7684261d"
+    },
+    {
+      "path": "src/dd-win-prof/ProfilingConstants.h",
+      "sha256": "5426f7ec433dd77041ed4c73ae5a80724f45623e177d802ffef2f065fb964925"
+    },
+    {
+      "path": "src/dd-win-prof/Resource.rc",
+      "sha256": "5803b044b2da4d0675139858bcaea04c23540779305e4554eed97e74793763e4"
+    },
+    {
+      "path": "src/dd-win-prof/RumContext.h",
+      "sha256": "859eb98a8ecc687ad6a44933be0fc4a9c37311a3c4bafe0610e51fa97096341a"
+    },
+    {
+      "path": "src/dd-win-prof/Sample.cpp",
+      "sha256": "a3f8309bc1470152610f5687be977b7eb2f3937f23d594aa4b5461a28e4fb811"
+    },
+    {
+      "path": "src/dd-win-prof/Sample.h",
+      "sha256": "fbf0b8bfaa77593aabd8f56692b331e39701d20ca47058cb4af3ac48007f3637"
+    },
+    {
+      "path": "src/dd-win-prof/SampleValueType.h",
+      "sha256": "aa642bd2ae5cf8011791fbfd06969ba4114a7a660415a7a8e94e114816efd7f1"
+    },
+    {
+      "path": "src/dd-win-prof/SampleValueTypeProvider.cpp",
+      "sha256": "4ed29371a82b8d7296f53bd6061c58138d279ba0b1202997ee510382d42fc6c6"
+    },
+    {
+      "path": "src/dd-win-prof/SampleValueTypeProvider.h",
+      "sha256": "e2e2ec0c969a32d99ec67f91759b547413016255fb86dae15a5bbf9045f72cfc"
+    },
+    {
+      "path": "src/dd-win-prof/SamplesCollector.cpp",
+      "sha256": "4064653221b62857089dcd9a26558192c11477e4af8a94ffcf67a1716857c3b8"
+    },
+    {
+      "path": "src/dd-win-prof/SamplesCollector.h",
+      "sha256": "53bd1881d3da38d04068ae799b82d05f1d8e1caaec4aede9a4557b715c6639d6"
+    },
+    {
+      "path": "src/dd-win-prof/ScopedHandle.h",
+      "sha256": "c5bbdcebb12de7ab76e5658d735f8745f2c36f81e6239a84f2ded428d6ee8b53"
+    },
+    {
+      "path": "src/dd-win-prof/StackFrameCollector.cpp",
+      "sha256": "1a39b64130d17436a011a469c12d9fcff142159b554ac2245ea6c754ed9ba575"
+    },
+    {
+      "path": "src/dd-win-prof/StackFrameCollector.h",
+      "sha256": "eb4ccd53deeafa3ae9333b3c39183d426bc6e42c6366099c577d07e935e0bdec"
+    },
+    {
+      "path": "src/dd-win-prof/StackSamplerLoop.cpp",
+      "sha256": "7ca639a4d152ecf19fb5691c6c2cf96ec7aa353952b03e23bbe2514d0b57a637"
+    },
+    {
+      "path": "src/dd-win-prof/StackSamplerLoop.h",
+      "sha256": "cb2992c0044b68d6322356542e494ba3b70ac677524cf7c1d704783529dfa781"
+    },
+    {
+      "path": "src/dd-win-prof/Symbolication.cpp",
+      "sha256": "d422c30f39cff7cd3c6daf4037995b3871bdddb751a410d7d8df0183ac870945"
+    },
+    {
+      "path": "src/dd-win-prof/Symbolication.h",
+      "sha256": "5a29676e740f08c6f878cf46c2dda2efe05c9f0fa41ad16f638cca59e3deabd0"
+    },
+    {
+      "path": "src/dd-win-prof/TagsHelper.cpp",
+      "sha256": "7c0ce58d6bf40628506b2688cf0b93b894771b88088e96d085bc76e21bb9aceb"
+    },
+    {
+      "path": "src/dd-win-prof/TagsHelper.h",
+      "sha256": "c1363013ccb28a9ca46fc35f4bfe65deaa8f1488e7e2946c295162004c8af84b"
+    },
+    {
+      "path": "src/dd-win-prof/ThreadInfo.cpp",
+      "sha256": "179c26f73574332e1620b20a230714732f3599292952ccff98f6e62e5d8caab4"
+    },
+    {
+      "path": "src/dd-win-prof/ThreadInfo.h",
+      "sha256": "4f09ea4c71632eadb50a9e7dba5902b664bec0939726baa8be0af6853ba14326"
+    },
+    {
+      "path": "src/dd-win-prof/ThreadList.cpp",
+      "sha256": "14f479b570375d5c251378a27b320c19bfec60be7c744814fbb7b0bc6f4d1a60"
+    },
+    {
+      "path": "src/dd-win-prof/ThreadList.h",
+      "sha256": "be97dbeec70e65b62ebea364bc1725e302e95f613d5dee4306f3252705fa1534"
+    },
+    {
+      "path": "src/dd-win-prof/UiHangDetector.cpp",
+      "sha256": "cb5de9c62d4887157db5f99bbd2b992c664644f07b8096b9b0836298a3fa9edc"
+    },
+    {
+      "path": "src/dd-win-prof/UiHangDetector.h",
+      "sha256": "ffb5e299542661770415941ddd5c9f237c146e15d70221d220ef53fcc3428786"
+    },
+    {
+      "path": "src/dd-win-prof/UiHangProvider.cpp",
+      "sha256": "52ba7fd90da4c434c951350b4894b15d71ce86bbc188bae4dce28c97ad6318d4"
+    },
+    {
+      "path": "src/dd-win-prof/UiHangProvider.h",
+      "sha256": "f3f72eea28512acd76b8431bc2bba734e429ecdcd110d216ddba1ba484bc1492"
+    },
+    {
+      "path": "src/dd-win-prof/Uuid.cpp",
+      "sha256": "f42aa52e83ccc82a2f872fcb6bf47aa8eb20b66b69bafd3423cd3e8d317ff27c"
+    },
+    {
+      "path": "src/dd-win-prof/Uuid.h",
+      "sha256": "b8dbeea43c12c0bd903dd8deeae874cd1db8483e5be7b4e2f77435af57517eef"
+    },
+    {
+      "path": "src/dd-win-prof/WalltimeProvider.cpp",
+      "sha256": "7d4bdfef4643b4d219c0c747aa5e13b2dd7b4c1f9da43799a2883afc49c80d90"
+    },
+    {
+      "path": "src/dd-win-prof/WalltimeProvider.h",
+      "sha256": "8a0e913fd9b4da4034a8c1f1be86da948ca62842edfcbd23568c0ac3f4a29b46"
+    },
+    {
+      "path": "src/dd-win-prof/dd-win-prof-internal.h",
+      "sha256": "e303e0a78999d5dc514d52fcec86de24a5c491b1f7e26cbec61ce4b18c4982fc"
+    },
+    {
+      "path": "src/dd-win-prof/dd-win-prof.cpp",
+      "sha256": "4006827410995b4849e874be345a3c760c0914805e231bcfaf8ce8341532b7f6"
+    },
+    {
+      "path": "src/dd-win-prof/dllmain.cpp",
+      "sha256": "b5bda234e8787a0649d86f269802320f38f12347cda82d9763bfcf8fcc04549d"
+    },
+    {
+      "path": "src/dd-win-prof/framework.h",
+      "sha256": "8083000850e45fea6625b2f370574a421034ff11808ccf211ff65bb659c45e27"
+    },
+    {
+      "path": "src/dd-win-prof/include/dd-win-prof.h",
+      "sha256": "cfc6343486ceaf0e975709e76c84f8336055bf011fb2f80c9cf976891d5abfad"
+    },
+    {
+      "path": "src/dd-win-prof/include/internal/dd-win-rum-private.h",
+      "sha256": "6513cd20242b653107e7ed00c02505d0926dc75a80ebcee0b27cf3371da65b78"
+    },
+    {
+      "path": "src/dd-win-prof/include/internal/error.h",
+      "sha256": "f2eee9cd530fb1fcaba503b68754aee6984f538d13401d3d3438b867941a8309"
+    },
+    {
+      "path": "src/dd-win-prof/pch.cpp",
+      "sha256": "aa05728c40f95b65a9f2ae5a320968e408d9fb8beae9c562e67aca717fd87ffe"
+    },
+    {
+      "path": "src/dd-win-prof/pch.h",
+      "sha256": "17594f9d2aadf64150abe7a1b83865d1a935e456dbf4ba3581ab6951ebae99d1"
+    },
+    {
+      "path": "src/dd-win-prof/resource.h",
+      "sha256": "d8f52d4a365650576830ef171bae39cfdc6119d7897828ab372d04da2c75caa5"
+    },
+    {
+      "path": "src/dd-win-prof/version.h",
+      "sha256": "0eca8ad7f959af58acd48130953b40be40daa4a9a109764015f102cc04af3558"
+    },
+    {
+      "path": "src/integration-tests/install-dependencies.ps1",
+      "sha256": "98d24cfe8e1c914bbd95a99416d845b4b96b4de7aab33f05c706010dae979318"
+    },
+    {
+      "path": "src/integration-tests/pprof_utils.py",
+      "sha256": "92fba5b5095b26b36ba283731e3f87a9ccf749f7cf37ba33ce3ee2e5fbd3c740"
+    },
+    {
+      "path": "src/integration-tests/profile.proto",
+      "sha256": "b0dd0813fc73ca0e503804f8a09ce445463cf676eefee9e27311e37405afb056"
+    },
+    {
+      "path": "src/integration-tests/requirements.txt",
+      "sha256": "82327ff9bf3a8725dbed5454e6a995f007ac3535c56258aefb638c790f36f5c4"
+    },
+    {
+      "path": "src/integration-tests/rum_test_helpers.ps1",
+      "sha256": "d7ce6ae57f7f841decedbbc625aff25afd96ba4811c6f3f795a19d81ab369f5c"
+    },
+    {
+      "path": "src/integration-tests/test_pprof_utils.py",
+      "sha256": "e68ad7e94218a8cb987eb9c1b5a0592abeef819d19b453d5d4f815b9b1c7985b"
+    },
+    {
+      "path": "src/integration-tests/test_profile_serialization.py",
+      "sha256": "df6af7b8afc3bde4acdd535bae925979ec93b18dd4330047f18a424f957618b9"
+    },
+    {
+      "path": "src/integration-tests/test_rum_scenario.ps1",
+      "sha256": "6cebca4cd5092b61af4416035f4a6cdb43838629944aa5aef65b29613bc10917"
+    },
+    {
+      "path": "src/integration-tests/test_rum_scenario_send.ps1",
+      "sha256": "d49ae29ca2682c10b23b451f1523802526d48433304535b68a6e93478f11da8c"
+    },
+    {
+      "path": "src/integration-tests/test_ui_hangs.ps1",
+      "sha256": "505a2948214de98886823a76b3bfa47a2a0f175546d275e11bf2d4e0498a37e1"
+    },
+    {
+      "path": "src/integration-tests/validate_ui_hangs.py",
+      "sha256": "3d5fcd20108654baf62fbf1780cbc3b21c2f96bd1e2325ec0a4d3a35bf631f5a"
+    },
+    {
+      "path": "src/reference/readme.txt",
+      "sha256": "39a293f5defc6a662dd23505239613a46b0d8da25d2a2ee179296442220b2282"
+    }
+  ]
+}

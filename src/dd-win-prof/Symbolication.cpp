@@ -13,26 +13,14 @@
 
 // Symbolication implementation
 Symbolication::Symbolication() : _isInitialized(false), _symbolizeFrames(false) {
-  _emptyStringId = ddog_prof_ManagedStringId{0};
+  _emptyStringId = {};
 }
 
 Symbolication::~Symbolication() { Cleanup(); }
 
-bool Symbolication::Initialize(
-    ddog_prof_ManagedStringStorage& stringStorage, bool symbolizeFrames
-) {
+bool Symbolication::Initialize(bool symbolizeFrames) {
   if (_isInitialized) return true;
 
-  // Intern empty string used when symbols are missing or disabled
-  const char* emptyString = "";
-  ddog_CharSlice emptyStringSlice = {emptyString, strlen(emptyString)};
-  auto fileNameResult =
-      ddog_prof_ManagedStringStorage_intern(stringStorage, emptyStringSlice);
-  if (fileNameResult.tag != DDOG_PROF_MANAGED_STRING_STORAGE_INTERN_RESULT_OK) {
-    // String interning failed - major failure
-    return false;
-  }
-  _emptyStringId = fileNameResult.ok;
   _symbolizeFrames = symbolizeFrames;
 
   if (!InitializeSymbolHandler()) return false;
@@ -45,12 +33,11 @@ void Symbolication::Cleanup() {
   if (_isInitialized) {
     CleanupSymbolHandler();
     _isInitialized = false;
+    ClearCaches();
   }
 }
 
-std::optional<CachedSymbolInfo> Symbolication::SymbolicateAndIntern(
-    uint64_t address, ddog_prof_ManagedStringStorage& stringStorage
-) {
+std::optional<CachedSymbolInfo> Symbolication::SymbolicateAndIntern(uint64_t address) {
   // Handle uninitialized state - return nullopt (major failure)
   if (!_isInitialized) {
     return std::nullopt;
@@ -66,10 +53,10 @@ std::optional<CachedSymbolInfo> Symbolication::SymbolicateAndIntern(
   CachedSymbolInfo result;
 
   // Initialize string IDs to zero (invalid)
-  result.FunctionNameId = ddog_prof_ManagedStringId{0};
-  result.FileNameId = ddog_prof_ManagedStringId{0};
-  result.ModuleNameId = ddog_prof_ManagedStringId{0};
-  result.BuildIdId = ddog_prof_ManagedStringId{0};
+  result.FunctionName = std::string_view{};
+  result.FileName = std::string_view{};
+  result.ModuleName = std::string_view{};
+  result.BuildId = std::string_view{};
   result.ModuleBaseAddress = 0;
   result.ModuleSize = 0;
 
@@ -80,16 +67,13 @@ std::optional<CachedSymbolInfo> Symbolication::SymbolicateAndIntern(
   if (SymGetModuleInfo64(GetCurrentProcess(), address, &moduleInfo)) {
     // Get or create cached module information
     auto moduleInfoOpt = GetOrCreateModuleInfo(
-        moduleInfo.BaseOfImage,
-        moduleInfo.ImageSize,
-        moduleInfo.ImageName,
-        stringStorage
+        moduleInfo.BaseOfImage, moduleInfo.ImageSize, moduleInfo.ImageName
     );
 
     if (moduleInfoOpt.has_value()) {
       const CachedModuleInfo& cachedModule = moduleInfoOpt.value();
-      result.ModuleNameId = cachedModule.ModuleNameId;
-      result.BuildIdId = cachedModule.BuildIdId;
+      result.ModuleName = cachedModule.ModuleName;
+      result.BuildId = cachedModule.BuildId;
       result.ModuleBaseAddress = cachedModule.ModuleBaseAddress;
       result.ModuleSize = cachedModule.ModuleSize;
 
@@ -116,7 +100,7 @@ std::optional<CachedSymbolInfo> Symbolication::SymbolicateAndIntern(
   // get the symbol corresponding to the address if needed
   if (!_symbolizeFrames) {
     // Symbolization disabled - return module info only
-    result.FunctionNameId = _emptyStringId;
+    result.FunctionName = _emptyStringId;
 
     result.isValid = true;
     return result;
@@ -124,16 +108,7 @@ std::optional<CachedSymbolInfo> Symbolication::SymbolicateAndIntern(
 
   DWORD64 displacement64 = 0;
   if (SymFromAddr(GetCurrentProcess(), address, &displacement64, pSymbol)) {
-    // Intern function name
-    ddog_CharSlice functionNameSlice = {pSymbol->Name, strlen(pSymbol->Name)};
-    auto functionNameResult =
-        ddog_prof_ManagedStringStorage_intern(stringStorage, functionNameSlice);
-    if (functionNameResult.tag != DDOG_PROF_MANAGED_STRING_STORAGE_INTERN_RESULT_OK) {
-      // String interning failed - major failure, return nullopt
-      return std::nullopt;
-    }
-
-    result.FunctionNameId = functionNameResult.ok;
+    result.FunctionName = Store(pSymbol->Name);
     result.displacement = static_cast<uint64_t>(displacement64);
 
     // Try to get line information
@@ -142,20 +117,14 @@ std::optional<CachedSymbolInfo> Symbolication::SymbolicateAndIntern(
     DWORD displacement32 = 0;
 
     if (SymGetLineFromAddr64(GetCurrentProcess(), address, &displacement32, &line)) {
-      // Intern file name
-      ddog_CharSlice fileNameSlice = {line.FileName, strlen(line.FileName)};
-      auto fileNameResult =
-          ddog_prof_ManagedStringStorage_intern(stringStorage, fileNameSlice);
-      if (fileNameResult.tag == DDOG_PROF_MANAGED_STRING_STORAGE_INTERN_RESULT_OK) {
-        result.FileNameId = fileNameResult.ok;
-        result.lineNumber = line.LineNumber;
-      }
+      result.FileName = Store(line.FileName);
+      result.lineNumber = line.LineNumber;
       // Note: If file name interning fails, we still return the function symbol
     }
   } else {
     // SymFromAddr failed - address not found, return unknown symbol
     // Note: module info was already populated above if available
-    result.FunctionNameId = _emptyStringId;
+    result.FunctionName = _emptyStringId;
   }
 
   result.isValid = true;
@@ -189,13 +158,17 @@ bool Symbolication::InitializeSymbolHandler() {
 
 void Symbolication::CleanupSymbolHandler() { SymCleanup(GetCurrentProcess()); }
 
-uint64_t Symbolication::ComputeModuleCacheKey(
-    uint64_t baseAddress, uint32_t moduleSize
-) const {
-  // Combine base address and size using hash_combine
-  uint64_t hash = baseAddress;
-  hash_combine(hash, static_cast<uint64_t>(moduleSize));
-  return hash;
+void Symbolication::ClearCaches() {
+  _moduleCache.clear();
+  // Release bucket and node high-water capacity after exceptional symbol churn.
+  decltype(_strings)().swap(_strings);
+}
+
+std::string_view Symbolication::Store(std::string_view value) {
+  if (value.empty()) return {};
+  auto found = _strings.find(value);
+  if (found == _strings.end()) found = _strings.emplace(value).first;
+  return *found;
 }
 
 bool Symbolication::ExtractBuildIdFromPEHeaderRaw(
@@ -299,13 +272,10 @@ std::optional<std::string> Symbolication::ExtractBuildIdFromPEHeader(
 }
 
 std::optional<CachedModuleInfo> Symbolication::GetOrCreateModuleInfo(
-    uint64_t baseAddress,
-    uint32_t moduleSize,
-    const char* imageName,
-    ddog_prof_ManagedStringStorage& stringStorage
+    uint64_t baseAddress, uint32_t moduleSize, const char* imageName
 ) {
   // Compute cache key
-  uint64_t cacheKey = ComputeModuleCacheKey(baseAddress, moduleSize);
+  auto cacheKey = std::make_pair(baseAddress, moduleSize);
 
   // Check if already cached
   auto it = _moduleCache.find(cacheKey);
@@ -337,25 +307,14 @@ std::optional<CachedModuleInfo> Symbolication::GetOrCreateModuleInfo(
 
     // Only intern if we have a non-empty filename
     if (fileName[0] != '\0') {
-      ddog_CharSlice moduleNameSlice = {fileName, strlen(fileName)};
-      auto moduleNameResult =
-          ddog_prof_ManagedStringStorage_intern(stringStorage, moduleNameSlice);
-      if (moduleNameResult.tag == DDOG_PROF_MANAGED_STRING_STORAGE_INTERN_RESULT_OK) {
-        moduleInfo.ModuleNameId = moduleNameResult.ok;
-      }
+      moduleInfo.ModuleName = Store(fileName);
     }
   }
 
   // Extract build ID from PE header
   auto buildIdOpt = ExtractBuildIdFromPEHeader(baseAddress);
   if (buildIdOpt.has_value()) {
-    const std::string& buildId = buildIdOpt.value();
-    ddog_CharSlice buildIdSlice = {buildId.c_str(), buildId.length()};
-    auto buildIdResult =
-        ddog_prof_ManagedStringStorage_intern(stringStorage, buildIdSlice);
-    if (buildIdResult.tag == DDOG_PROF_MANAGED_STRING_STORAGE_INTERN_RESULT_OK) {
-      moduleInfo.BuildIdId = buildIdResult.ok;
-    }
+    moduleInfo.BuildId = Store(buildIdOpt.value());
   }
 
   // Cache the result

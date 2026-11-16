@@ -10,9 +10,6 @@
 #include <iomanip>
 #include <sstream>
 
-#include "datadog/common.h"
-#include "datadog/profiling.h"
-
 // Test functions defined outside of any class to avoid confusion
 void GlobalTestFunction() {
   // Simple global test function - should be easy to symbolicate
@@ -38,152 +35,23 @@ static void StaticGlobalFunction() {
 // Test fixture class for Symbolication tests
 class SymbolicationTest : public ::testing::Test {
  protected:
-  void SetUp() override {
-    // Setup code that runs before each test
-    // Initialize managed string storage for tests
-    auto storageResult = ddog_prof_ManagedStringStorage_new();
-    if (storageResult.tag == DDOG_PROF_MANAGED_STRING_STORAGE_NEW_RESULT_OK) {
-      _stringStorage = storageResult.ok;
-      _hasStringStorage = true;
-    } else {
-      _hasStringStorage = false;
-    }
-  }
-
-  void TearDown() override {
-    // Cleanup code that runs after each test
-    if (_hasStringStorage) {
-      ddog_prof_ManagedStringStorage_drop(_stringStorage);
-      _hasStringStorage = false;
-    }
-  }
-
   void LogSymbolInfo(
       const std::string& description, uint64_t address, const CachedSymbolInfo& info
   ) {
-    std::cout << "\n=== " << description << " ===" << std::endl;
-    std::cout << "Address: 0x" << std::hex << std::uppercase << address << std::endl;
-    std::cout << (info.isValid ? "Valid: YES" : "Valid: NO") << std::endl;
-
-    if (info.isValid && _hasStringStorage) {
-      // Get the actual string values from the managed storage
-      auto functionNameResult = ddog_prof_ManagedStringStorage_get_string(
-          _stringStorage, info.FunctionNameId
-      );
-      auto fileNameResult =
-          ddog_prof_ManagedStringStorage_get_string(_stringStorage, info.FileNameId);
-
-      if (functionNameResult.tag == DDOG_STRING_WRAPPER_RESULT_OK) {
-        // Access the string data from the Vec_U8
-        const char* str_data =
-            reinterpret_cast<const char*>(functionNameResult.ok.message.ptr);
-        size_t str_len = functionNameResult.ok.message.len;
-        std::string functionName(str_data, str_len);
-        std::cout << "Function Name: '" << functionName
-                  << "' (length: " << functionName.length() << ")" << std::endl;
-
-        // Check for common name mangling patterns
-        if (functionName.find("?") != std::string::npos) {
-          std::cout << "Note: Function name appears to be C++ mangled" << std::endl;
-        }
-        if (functionName.find("@") != std::string::npos) {
-          std::cout << "Note: Function name contains @ symbol" << std::endl;
-        }
-
-        // Clean up the string wrapper
-        ddog_StringWrapper_drop(&functionNameResult.ok);
-      } else {
-        std::cout << "Function Name: <failed to retrieve>" << std::endl;
-      }
-
-      if (fileNameResult.tag == DDOG_STRING_WRAPPER_RESULT_OK &&
-          fileNameResult.ok.message.len > 0) {
-        // Access the string data from the Vec_U8
-        const char* str_data =
-            reinterpret_cast<const char*>(fileNameResult.ok.message.ptr);
-        size_t str_len = fileNameResult.ok.message.len;
-        std::string fileName(str_data, str_len);
-        std::cout << "File Name: '" << fileName << "'" << std::endl;
-        std::cout << "Line Number: " << std::dec << info.lineNumber << std::endl;
-
-        // Clean up the string wrapper
-        ddog_StringWrapper_drop(&fileNameResult.ok);
-      } else {
-        std::cout << "File Name: <not available>" << std::endl;
-      }
-
-      std::cout << "Displacement: " << std::dec << info.displacement << " bytes"
-                << std::endl;
-    }
-
-    std::cout << "=========================" << std::endl;
+    std::cout << description << " @ " << address << ": " << info.FunctionName << " "
+              << info.FileName << std::endl;
   }
-
-  // Helper function to check if function name contains expected substring
   bool ContainsExpectedFunctionName(
-      const CachedSymbolInfo& symbolInfo, const std::string& expectedSubstring
+      const CachedSymbolInfo& info, const std::string& expected
   ) {
-    if (!symbolInfo.isValid || !_hasStringStorage) {
-      return false;
-    }
-
-    auto functionNameResult = ddog_prof_ManagedStringStorage_get_string(
-        _stringStorage, symbolInfo.FunctionNameId
-    );
-    if (functionNameResult.tag != DDOG_STRING_WRAPPER_RESULT_OK) {
-      return false;
-    }
-
-    // Access the string data from the Vec_U8
-    const char* str_data =
-        reinterpret_cast<const char*>(functionNameResult.ok.message.ptr);
-    size_t str_len = functionNameResult.ok.message.len;
-    std::string actualName(str_data, str_len);
-
-    // Clean up the string wrapper
-    ddog_StringWrapper_drop(&functionNameResult.ok);
-
-    std::string lowerActual = actualName;
-    std::string lowerExpected = expectedSubstring;
-
-    std::transform(
-        lowerActual.begin(), lowerActual.end(), lowerActual.begin(), ::tolower
-    );
-    std::transform(
-        lowerExpected.begin(), lowerExpected.end(), lowerExpected.begin(), ::tolower
-    );
-
-    return lowerActual.find(lowerExpected) != std::string::npos;
+    std::string actual(info.FunctionName), lower = expected;
+    std::transform(actual.begin(), actual.end(), actual.begin(), ::tolower);
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+    return info.isValid && actual.find(lower) != std::string::npos;
   }
-
-  // Helper to get function name as string for debugging
-  std::string GetFunctionName(const CachedSymbolInfo& symbolInfo) {
-    if (!_hasStringStorage || symbolInfo.FunctionNameId.value == 0) {
-      return "";
-    }
-
-    ddog_StringWrapperResult result = ddog_prof_ManagedStringStorage_get_string(
-        _stringStorage, symbolInfo.FunctionNameId
-    );
-    if (result.tag != DDOG_STRING_WRAPPER_RESULT_OK) {
-      return "<error>";
-    }
-
-    // Access the string data from the Vec_U8
-    const char* str_data = reinterpret_cast<const char*>(result.ok.message.ptr);
-    size_t str_len = result.ok.message.len;
-
-    std::string functionName(str_data, str_len);
-
-    // Clean up the string wrapper
-    ddog_StringWrapper_drop(&result.ok);
-
-    return functionName;
+  std::string GetFunctionName(const CachedSymbolInfo& info) {
+    return std::string(info.FunctionName);
   }
-
- protected:
-  ddog_prof_ManagedStringStorage _stringStorage;
-  bool _hasStringStorage;
 };
 
 TEST_F(SymbolicationTest, TestInitialization) {
@@ -197,7 +65,7 @@ TEST_F(SymbolicationTest, TestInitialization) {
 
   // Test initialization
   std::cout << "Attempting to initialize symbolication..." << std::endl;
-  bool initResult = symbolication.Initialize(_stringStorage, true);
+  bool initResult = symbolication.Initialize(true);
   EXPECT_TRUE(initResult) << "Initialization should succeed";
   EXPECT_TRUE(symbolication.IsInitialized())
       << "Should be initialized after Initialize()";
@@ -214,11 +82,8 @@ TEST_F(SymbolicationTest, TestInitialization) {
 TEST_F(SymbolicationTest, TestBasicSymbolication) {
   std::cout << "=== Testing Basic Address Symbolication ===" << std::endl;
 
-  ASSERT_TRUE(_hasStringStorage) << "String storage should be initialized";
-
   Symbolication symbolication;
-  ASSERT_TRUE(symbolication.Initialize(_stringStorage, true))
-      << "Initialization should succeed";
+  ASSERT_TRUE(symbolication.Initialize(true)) << "Initialization should succeed";
 
   // Get address of the global test function
   uint64_t testAddress = reinterpret_cast<uint64_t>(&GlobalTestFunction);
@@ -227,26 +92,15 @@ TEST_F(SymbolicationTest, TestBasicSymbolication) {
             << std::uppercase << testAddress << std::endl;
 
   // Symbolicate the address using the new API
-  auto symbolInfoOpt = symbolication.SymbolicateAndIntern(testAddress, _stringStorage);
+  auto symbolInfoOpt = symbolication.SymbolicateAndIntern(testAddress);
   ASSERT_TRUE(symbolInfoOpt.has_value()) << "Symbolication should return a value";
   CachedSymbolInfo symbolInfo = symbolInfoOpt.value();
 
   LogSymbolInfo("GlobalTestFunction Symbolication", testAddress, symbolInfo);
 
   EXPECT_TRUE(symbolInfo.isValid) << "Symbolication should succeed for valid address";
-  if (symbolInfo.BuildIdId.value != 0) {
-    auto buildIdResult =
-        ddog_prof_ManagedStringStorage_get_string(_stringStorage, symbolInfo.BuildIdId);
-    if (buildIdResult.tag == DDOG_STRING_WRAPPER_RESULT_OK) {
-      const char* str_data =
-          reinterpret_cast<const char*>(buildIdResult.ok.message.ptr);
-      size_t str_len = buildIdResult.ok.message.len;
-      std::string buildId(str_data, str_len);
-      ddog_StringWrapper_drop(&buildIdResult.ok);
-      EXPECT_EQ(buildId.find('-'), std::string::npos)
-          << "Build ID must be contiguous (no dashes)";
-    }
-  }
+  if (!symbolInfo.BuildId.empty())
+    EXPECT_EQ(symbolInfo.BuildId.find('-'), std::string::npos);
 
   // Verify we got the correct function name (allowing for name mangling)
   if (symbolInfo.isValid) {
@@ -268,11 +122,8 @@ TEST_F(SymbolicationTest, TestBasicSymbolication) {
 TEST_F(SymbolicationTest, TestMultipleAddressTypes) {
   std::cout << "=== Testing Multiple Address Types ===" << std::endl;
 
-  ASSERT_TRUE(_hasStringStorage) << "String storage should be initialized";
-
   Symbolication symbolication;
-  ASSERT_TRUE(symbolication.Initialize(_stringStorage, true))
-      << "Initialization should succeed";
+  ASSERT_TRUE(symbolication.Initialize(true)) << "Initialization should succeed";
 
   // Test different types of functions - all global functions to avoid class method
   // confusion
@@ -300,8 +151,7 @@ TEST_F(SymbolicationTest, TestMultipleAddressTypes) {
 
   for (int i = 0; i < totalCases; i++) {
     const TestCase& testCase = testCases[i];
-    auto symbolInfoOpt =
-        symbolication.SymbolicateAndIntern(testCase.address, _stringStorage);
+    auto symbolInfoOpt = symbolication.SymbolicateAndIntern(testCase.address);
     if (!symbolInfoOpt.has_value()) {
       std::cout << "[ERROR] Symbolication returned no value for: " << testCase.name
                 << std::endl;
@@ -346,11 +196,8 @@ TEST_F(SymbolicationTest, TestMultipleAddressTypes) {
 TEST_F(SymbolicationTest, TestInvalidAddress) {
   std::cout << "=== Testing Invalid Address Symbolication ===" << std::endl;
 
-  ASSERT_TRUE(_hasStringStorage) << "String storage should be initialized";
-
   Symbolication symbolication;
-  ASSERT_TRUE(symbolication.Initialize(_stringStorage, true))
-      << "Initialization should succeed";
+  ASSERT_TRUE(symbolication.Initialize(true)) << "Initialization should succeed";
 
   // Try invalid addresses
   uint64_t invalidAddresses[] = {
@@ -362,8 +209,7 @@ TEST_F(SymbolicationTest, TestInvalidAddress) {
 
   for (int i = 0; i < totalAddresses; i++) {
     uint64_t invalidAddress = invalidAddresses[i];
-    auto symbolInfoOpt =
-        symbolication.SymbolicateAndIntern(invalidAddress, _stringStorage);
+    auto symbolInfoOpt = symbolication.SymbolicateAndIntern(invalidAddress);
     if (!symbolInfoOpt.has_value()) {
       std::cout << "[OK] Invalid address correctly returned no value" << std::endl;
       continue;
@@ -392,11 +238,8 @@ TEST_F(SymbolicationTest, TestUnknownAddressSymbolication) {
   std::cout << "=== Testing Unknown Address Symbolication (Fake Address) ==="
             << std::endl;
 
-  ASSERT_TRUE(_hasStringStorage) << "String storage should be initialized";
-
   Symbolication symbolication;
-  ASSERT_TRUE(symbolication.Initialize(_stringStorage, true))
-      << "Initialization should succeed";
+  ASSERT_TRUE(symbolication.Initialize(true)) << "Initialization should succeed";
 
   // Use the same fake address that's failing in the ProfileExporter test
   uint64_t fakeAddress = 0x1234567890ABCDEF;
@@ -404,7 +247,7 @@ TEST_F(SymbolicationTest, TestUnknownAddressSymbolication) {
   std::cout << "Testing symbolication of fake address: 0x" << std::hex << std::uppercase
             << fakeAddress << std::endl;
 
-  auto symbolInfoOpt = symbolication.SymbolicateAndIntern(fakeAddress, _stringStorage);
+  auto symbolInfoOpt = symbolication.SymbolicateAndIntern(fakeAddress);
 
   ASSERT_TRUE(symbolInfoOpt.has_value())
       << "Should return a symbol (even if unknown) for fake address";
@@ -426,12 +269,10 @@ TEST_F(SymbolicationTest, TestUnknownAddressSymbolication) {
 TEST_F(SymbolicationTest, TestUninitializedSymbolication) {
   std::cout << "=== Testing Symbolication Without Initialization ===" << std::endl;
 
-  ASSERT_TRUE(_hasStringStorage) << "String storage should be initialized";
-
   Symbolication symbolication;
 
   uint64_t testAddress = reinterpret_cast<uint64_t>(&GlobalTestFunction);
-  auto symbolInfoOpt = symbolication.SymbolicateAndIntern(testAddress, _stringStorage);
+  auto symbolInfoOpt = symbolication.SymbolicateAndIntern(testAddress);
   EXPECT_FALSE(symbolInfoOpt.has_value())
       << "Should return no value when not initialized";
   if (!symbolInfoOpt.has_value()) {
@@ -443,14 +284,12 @@ TEST_F(SymbolicationTest, TestUninitializedSymbolication) {
 TEST_F(SymbolicationTest, TestObfuscation) {
   std::cout << "=== Testing Obfuscation ===" << std::endl;
 
-  ASSERT_TRUE(_hasStringStorage) << "String storage should be initialized";
-
   Symbolication symbolication;
-  ASSERT_TRUE(symbolication.Initialize(_stringStorage, false))
+  ASSERT_TRUE(symbolication.Initialize(false))
       << "Obfuscated initialization should succeed";
 
   uint64_t testAddress = reinterpret_cast<uint64_t>(&GlobalTestFunction);
-  auto symbolInfoOpt = symbolication.SymbolicateAndIntern(testAddress, _stringStorage);
+  auto symbolInfoOpt = symbolication.SymbolicateAndIntern(testAddress);
   EXPECT_TRUE(symbolInfoOpt.has_value())
       << "Should return a value for an existing function";
   if (symbolInfoOpt.has_value()) {
@@ -481,17 +320,14 @@ TEST_F(SymbolicationTest, TestObfuscation) {
 TEST_F(SymbolicationTest, TestStringStorageCaching) {
   std::cout << "=== Testing String Storage Caching ===" << std::endl;
 
-  ASSERT_TRUE(_hasStringStorage) << "String storage should be initialized";
-
   Symbolication symbolication;
-  ASSERT_TRUE(symbolication.Initialize(_stringStorage, true))
-      << "Initialization should succeed";
+  ASSERT_TRUE(symbolication.Initialize(true)) << "Initialization should succeed";
 
   uint64_t testAddress = reinterpret_cast<uint64_t>(&GlobalTestFunction);
 
   // Symbolicate the same address twice
-  auto symbolInfoOpt1 = symbolication.SymbolicateAndIntern(testAddress, _stringStorage);
-  auto symbolInfoOpt2 = symbolication.SymbolicateAndIntern(testAddress, _stringStorage);
+  auto symbolInfoOpt1 = symbolication.SymbolicateAndIntern(testAddress);
+  auto symbolInfoOpt2 = symbolication.SymbolicateAndIntern(testAddress);
 
   ASSERT_TRUE(symbolInfoOpt1.has_value())
       << "First symbolication should return a value";
@@ -506,9 +342,9 @@ TEST_F(SymbolicationTest, TestStringStorageCaching) {
 
   if (symbolInfo1.isValid && symbolInfo2.isValid) {
     // Both should have the same string IDs if caching is working
-    EXPECT_EQ(symbolInfo1.FunctionNameId.value, symbolInfo2.FunctionNameId.value)
+    EXPECT_EQ(symbolInfo1.FunctionName, symbolInfo2.FunctionName)
         << "Function name IDs should be the same for repeated symbolication";
-    EXPECT_EQ(symbolInfo1.FileNameId.value, symbolInfo2.FileNameId.value)
+    EXPECT_EQ(symbolInfo1.FileName, symbolInfo2.FileName)
         << "File name IDs should be the same for repeated symbolication";
 
     std::cout << "[OK] String IDs are consistent across multiple symbolications"

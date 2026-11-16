@@ -4,9 +4,11 @@
 
 #pragma once
 
+#include <ddc/profiling.h>
+
 namespace dd_win_prof {
-// Maximum depth for a single stack
-inline constexpr size_t kMaxStackDepth{512};
+// Capture and serialization share libdd-c's optimized stack-depth limit.
+inline constexpr size_t kMaxStackDepth{DDC_PROFILE_MAX_STACK_DEPTH};
 
 // name of the registered Windows message used to detect a UI hang
 inline constexpr const wchar_t* kHangProbeMessageName = L"DD_HANG_PROBE_MSG";

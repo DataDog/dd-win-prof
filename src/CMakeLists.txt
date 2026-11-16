@@ -3,62 +3,6 @@ include(FetchContent)
 # Use NEW behavior for DOWNLOAD_EXTRACT_TIMESTAMP to avoid warnings
 cmake_policy(SET CMP0135 NEW)
 
-# libdatadog v47.0.0 pre-built binaries for Windows x64. These binaries are
-# downloaded automatically at configure time and extracted to the build directory.
-FetchContent_Declare(
-    libdatadog
-    URL https://github.com/DataDog/libdatadog/releases/download/v47.0.0/libdatadog-x64-windows.zip
-    URL_HASH SHA512=168d2733c616b5b6422963194c66333cd5b3745a83ed9b8104e69f1fe271728cb8c9f4ee3c456f30d26923e7972c876439c7c18e26117e9435c74bcd908cda25
-    TIMEOUT 120
-    INACTIVITY_TIMEOUT 30
-)
-FetchContent_MakeAvailable(libdatadog)
-
-# Expose libdatadog source directory so other targets can access DLL paths etc.
-set(DD_WIN_PROF_LIBDATADOG_DIR "${libdatadog_SOURCE_DIR}" CACHE INTERNAL "")
-
-# The libdatadog package only has debug/ and release/ directories. Debug maps to
-# debug; every other configuration (Release, RelWithDebInfo, MinSizeRel, or none with a
-# single-config generator) maps to release, matching the imported targets below.
-set(DD_WIN_PROF_LIBDATADOG_CONFIG_DIR "$<IF:$<CONFIG:Debug>,debug,release>" CACHE INTERNAL "")
-
-set(_LD_ROOT "${libdatadog_SOURCE_DIR}")
-
-# libdatadog static import library — used by dd-win-prof.dll at link time. Paths
-# use lowercase debug/release to match the directory layout produced by the
-# download script. MinSizeRel and RelWithDebInfo map to release.
-add_library(dd_win_prof_libdatadog_static STATIC IMPORTED GLOBAL)
-set_target_properties(dd_win_prof_libdatadog_static PROPERTIES
-    IMPORTED_LOCATION_DEBUG          "${_LD_ROOT}/debug/static/datadog_profiling_ffi.lib"
-    IMPORTED_LOCATION_RELEASE        "${_LD_ROOT}/release/static/datadog_profiling_ffi.lib"
-    IMPORTED_LOCATION_MINSIZEREL     "${_LD_ROOT}/release/static/datadog_profiling_ffi.lib"
-    IMPORTED_LOCATION_RELWITHDEBINFO "${_LD_ROOT}/release/static/datadog_profiling_ffi.lib"
-    INTERFACE_INCLUDE_DIRECTORIES "${_LD_ROOT}/include"
-    INTERFACE_LINK_LIBRARIES "wsock32;shlwapi;Version;iphlpapi"
-)
-
-# Preserve the dependency's published attribution alongside our license bundle.
-if(DD_WIN_PROF_BUILD_INSTALL)
-    install(FILES "${_LD_ROOT}/LICENSE" "${_LD_ROOT}/NOTICE" "${_LD_ROOT}/LICENSE-3rdparty.csv"
-        DESTINATION licenses/libdatadog)
-endif()
-
-# libdatadog dynamic import library — used by Tests.exe, which loads the DLL at
-# runtime so it can export the profiler DLL's symbols without statically linking
-# the whole FFI. MinSizeRel and RelWithDebInfo map to release.
-add_library(dd_win_prof_libdatadog_dynamic SHARED IMPORTED GLOBAL)
-set_target_properties(dd_win_prof_libdatadog_dynamic PROPERTIES
-    IMPORTED_LOCATION_DEBUG          "${_LD_ROOT}/debug/dynamic/datadog_profiling_ffi.dll"
-    IMPORTED_IMPLIB_DEBUG            "${_LD_ROOT}/debug/dynamic/datadog_profiling_ffi.lib"
-    IMPORTED_LOCATION_RELEASE        "${_LD_ROOT}/release/dynamic/datadog_profiling_ffi.dll"
-    IMPORTED_IMPLIB_RELEASE          "${_LD_ROOT}/release/dynamic/datadog_profiling_ffi.lib"
-    IMPORTED_LOCATION_MINSIZEREL     "${_LD_ROOT}/release/dynamic/datadog_profiling_ffi.dll"
-    IMPORTED_IMPLIB_MINSIZEREL       "${_LD_ROOT}/release/dynamic/datadog_profiling_ffi.lib"
-    IMPORTED_LOCATION_RELWITHDEBINFO "${_LD_ROOT}/release/dynamic/datadog_profiling_ffi.dll"
-    IMPORTED_IMPLIB_RELWITHDEBINFO   "${_LD_ROOT}/release/dynamic/datadog_profiling_ffi.lib"
-    INTERFACE_INCLUDE_DIRECTORIES "${_LD_ROOT}/include"
-)
-
 # spdlog v1.14.1 downloaded and built from source at configure time. We use it as
 # header-only to match the previous configuration.
 FetchContent_Declare(

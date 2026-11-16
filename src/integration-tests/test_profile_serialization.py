@@ -81,3 +81,56 @@ class ProfileSerializationTests(unittest.TestCase):
                 list(profile.sample[0].value),
                 [3000 * cycle, 1000 * cycle, cycle, cycle, 42],
             )
+
+
+@unittest.skipUnless(os.name == "nt", "Native serialization runs on Windows")
+class WideDefinitionSerializationTests(unittest.TestCase):
+    def test_seven_columns_and_nondefault_period_survive_reset(self):
+        profiles = exported_profiles(
+            "PprofAggregatorTest.CustomSampleTypesPreserveRepeatedAndDistinctDefinitions"
+        )
+        self.assertEqual(set(profiles), {"wide-1", "wide-2"})
+        expected = [(f"custom-{index}", "nanoseconds") for index in range(6)]
+        expected.append(expected[0])
+        for cycle in (1, 2):
+            profile = profiles[f"wide-{cycle}"]
+            self.assertEqual(type_pairs(profile), expected)
+            strings = profile.string_table
+            self.assertEqual(
+                (strings[profile.period_type.type], strings[profile.period_type.unit]),
+                expected[0],
+            )
+            self.assertEqual(profile.period, 7_000_000)
+            self.assertEqual(
+                [list(sample.value) for sample in profile.sample],
+                [[11 * column * cycle for column in range(1, 8)]],
+            )
+
+
+@unittest.skipUnless(os.name == "nt", "Native serialization runs on Windows")
+class EmbeddedNulSerializationTests(unittest.TestCase):
+    def test_exact_pairs_and_period_survive_reset(self):
+        profiles = exported_profiles("PprofAggregatorTest.EmbeddedNulDefinitionsSurviveReset")
+        self.assertEqual(set(profiles), {"nul-1", "nul-2"})
+        for profile in profiles.values():
+            self.assertEqual(type_pairs(profile), [("wait\0time", "nano\0seconds"), ("cpu-time", "nanoseconds")])
+            strings = profile.string_table
+            self.assertEqual((strings[profile.period_type.type], strings[profile.period_type.unit]), ("wait\0time", "nano\0seconds"))
+            self.assertEqual(profile.period, 10_000_000)
+            self.assertEqual([list(sample.value) for sample in profile.sample], [[7, 11]])
+
+
+@unittest.skipUnless(os.name == "nt", "Native serialization runs on Windows")
+class ExporterCustomSerializationTests(unittest.TestCase):
+    def test_http_and_owned_callback_keep_exact_definitions(self):
+        profiles = exported_profiles(
+            "ProfileExporterExportTests.HttpCustomDefinitionsSurviveReset:"
+            "ProfilingDataExportTests.CallbackCustomDefinitionsSurviveResetAndCleanup"
+        )
+        self.assertEqual(set(profiles), {f"{mode}-custom-{cycle}" for mode in ("http", "callback") for cycle in (1, 2)})
+        for name, profile in profiles.items():
+            self.assertEqual(type_pairs(profile), [("wait\0time", "nano\0seconds"), ("cpu-time", "count")])
+            strings = profile.string_table
+            self.assertEqual((strings[profile.period_type.type], strings[profile.period_type.unit]), ("wait\0time", "nano\0seconds"))
+            self.assertEqual(profile.period, 10_000_000)
+            self.assertEqual([list(sample.value) for sample in profile.sample], [[1_000_000, 1]] if name.startswith("http") else [])

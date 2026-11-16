@@ -1,0 +1,267 @@
+{
+  "unloaded-0": {
+    "small": {
+      "working_set_bytes": {
+        "median": 13504512,
+        "peak": 13504512,
+        "min": 13488128
+      },
+      "private_committed_bytes": {
+        "median": 5595136,
+        "peak": 5595136,
+        "min": 5595136
+      },
+      "queued_bytes": {
+        "median": 0,
+        "peak": 0,
+        "min": 0
+      }
+    },
+    "churn": {
+      "working_set_bytes": {
+        "median": 13656064,
+        "peak": 13656064,
+        "min": 13615104
+      },
+      "private_committed_bytes": {
+        "median": 5681152,
+        "peak": 5681152,
+        "min": 5627904
+      },
+      "queued_bytes": {
+        "median": 0,
+        "peak": 0,
+        "min": 0
+      }
+    },
+    "recovery": {
+      "working_set_bytes": {
+        "median": 13602816.0,
+        "peak": 13602816,
+        "min": 13602816
+      },
+      "private_committed_bytes": {
+        "median": 5582848.0,
+        "peak": 5582848,
+        "min": 5582848
+      },
+      "queued_bytes": {
+        "median": 0.0,
+        "peak": 0,
+        "min": 0
+      }
+    }
+  },
+  "baseline-0": {
+    "small": {
+      "working_set_bytes": {
+        "median": 17813504,
+        "peak": 17813504,
+        "min": 17813504
+      },
+      "private_committed_bytes": {
+        "median": 6250496,
+        "peak": 6250496,
+        "min": 6250496
+      },
+      "queued_bytes": {
+        "median": 0,
+        "peak": 0,
+        "min": 0
+      }
+    },
+    "churn": {
+      "working_set_bytes": {
+        "median": 17969152,
+        "peak": 17969152,
+        "min": 17842176
+      },
+      "private_committed_bytes": {
+        "median": 6397952,
+        "peak": 6397952,
+        "min": 6250496
+      },
+      "queued_bytes": {
+        "median": 0,
+        "peak": 0,
+        "min": 0
+      }
+    },
+    "recovery": {
+      "working_set_bytes": {
+        "median": 17969152.0,
+        "peak": 17969152,
+        "min": 17969152
+      },
+      "private_committed_bytes": {
+        "median": 6397952.0,
+        "peak": 6397952,
+        "min": 6397952
+      },
+      "queued_bytes": {
+        "median": 0.0,
+        "peak": 0,
+        "min": 0
+      }
+    }
+  },
+  "baseline-1": {
+    "small": {
+      "working_set_bytes": {
+        "median": 18776064,
+        "peak": 18808832,
+        "min": 18497536
+      },
+      "private_committed_bytes": {
+        "median": 12808192,
+        "peak": 13135872,
+        "min": 12591104
+      },
+      "queued_bytes": {
+        "median": 16152,
+        "peak": 16767,
+        "min": 0
+      }
+    },
+    "churn": {
+      "working_set_bytes": {
+        "median": 19136512,
+        "peak": 19226624,
+        "min": 18812928
+      },
+      "private_committed_bytes": {
+        "median": 13000704,
+        "peak": 13307904,
+        "min": 12812288
+      },
+      "queued_bytes": {
+        "median": 17373,
+        "peak": 18410,
+        "min": 16155
+      }
+    },
+    "recovery": {
+      "working_set_bytes": {
+        "median": 19128320.0,
+        "peak": 19161088,
+        "min": 19103744
+      },
+      "private_committed_bytes": {
+        "median": 12902400.0,
+        "peak": 13004800,
+        "min": 12894208
+      },
+      "queued_bytes": {
+        "median": 16507.0,
+        "peak": 17373,
+        "min": 16302
+      }
+    }
+  },
+  "c-core-0": {
+    "small": {
+      "working_set_bytes": {
+        "median": 16384000,
+        "peak": 16384000,
+        "min": 16384000
+      },
+      "private_committed_bytes": {
+        "median": 6144000,
+        "peak": 6144000,
+        "min": 6144000
+      },
+      "queued_bytes": {
+        "median": 0,
+        "peak": 0,
+        "min": 0
+      }
+    },
+    "churn": {
+      "working_set_bytes": {
+        "median": 16523264,
+        "peak": 16523264,
+        "min": 16408576
+      },
+      "private_committed_bytes": {
+        "median": 6225920,
+        "peak": 6225920,
+        "min": 6144000
+      },
+      "queued_bytes": {
+        "median": 0,
+        "peak": 0,
+        "min": 0
+      }
+    },
+    "recovery": {
+      "working_set_bytes": {
+        "median": 16523264.0,
+        "peak": 16523264,
+        "min": 16523264
+      },
+      "private_committed_bytes": {
+        "median": 6225920.0,
+        "peak": 6225920,
+        "min": 6225920
+      },
+      "queued_bytes": {
+        "median": 0.0,
+        "peak": 0,
+        "min": 0
+      }
+    }
+  },
+  "c-core-1": {
+    "small": {
+      "working_set_bytes": {
+        "median": 17096704,
+        "peak": 17186816,
+        "min": 16867328
+      },
+      "private_committed_bytes": {
+        "median": 7122944,
+        "peak": 8097792,
+        "min": 6938624
+      },
+      "queued_bytes": {
+        "median": 11367,
+        "peak": 11421,
+        "min": 0
+      }
+    },
+    "churn": {
+      "working_set_bytes": {
+        "median": 17436672,
+        "peak": 17567744,
+        "min": 17182720
+      },
+      "private_committed_bytes": {
+        "median": 7299072,
+        "peak": 8331264,
+        "min": 7110656
+      },
+      "queued_bytes": {
+        "median": 12265,
+        "peak": 13396,
+        "min": 11421
+      }
+    },
+    "recovery": {
+      "working_set_bytes": {
+        "median": 17481728.0,
+        "peak": 17506304,
+        "min": 17412096
+      },
+      "private_committed_bytes": {
+        "median": 7315456.0,
+        "peak": 7319552,
+        "min": 7233536
+      },
+      "queued_bytes": {
+        "median": 11798.0,
+        "peak": 13396,
+        "min": 11517
+      }
+    }
+  }
+}

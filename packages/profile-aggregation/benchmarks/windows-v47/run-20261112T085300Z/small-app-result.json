@@ -1,0 +1,11 @@
+﻿{
+    "id":  "20261112T085856Z-run-script-dd-win-prof-b6edd4c2",
+    "status":  "succeeded",
+    "exitCode":  0,
+    "startedAt":  "2026-11-12T08:59:00.3960692Z",
+    "completedAt":  "2026-11-12T09:03:20.1192432Z",
+    "durationSeconds":  255.045,
+    "action":  "run-script",
+    "project":  "dd-win-prof",
+    "log":  "logs/20261112T085856Z-run-script-dd-win-prof-b6edd4c2.log"
+}

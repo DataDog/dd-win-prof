@@ -32,6 +32,7 @@
 param(
     [ValidateSet("Debug", "Release", "Auto")]
     [string]$Config = "Auto",
+    [string]$UIAppPath = "",
     [int]$HangDurationMs = 1500,
     [int]$Cycles = 2,
     [string]$OutputRoot = "",
@@ -54,7 +55,16 @@ Write-Host "`n=== UIApp UI-Hang Integration Test (local) ===" -ForegroundColor C
 Write-Host ""
 
 $pythonCmd = Find-Python
-$uiApp = Find-UIApp -ScriptDir $scriptDir -Config $Config
+if ($UIAppPath) {
+    if (-not (Test-Path -LiteralPath $UIAppPath -PathType Leaf) -or
+        [System.IO.Path]::GetExtension($UIAppPath) -ine '.exe') {
+        throw "UIAppPath must name an existing executable file: $UIAppPath"
+    }
+    $uiApp = (Resolve-Path -LiteralPath $UIAppPath).Path
+    Write-Host "Using explicit UIApp.exe: $uiApp" -ForegroundColor Green
+} else {
+    $uiApp = Find-UIApp -ScriptDir $scriptDir -Config $Config
+}
 
 # OutputRoot is the parent folder; each run gets its own date_time subfolder so
 # repeated runs never clobber one another.
@@ -183,7 +193,7 @@ foreach ($case in $cases) {
     Assert ($logFiles.Count -gt 0) "[$caseName] Profiler log file exists ($($logFiles.Count) found)"
     if ($logFiles.Count -gt 0) {
         $logContent = Get-Content $logFiles[0].FullName -Raw
-        $lastExportCount = [regex]::Matches($logContent, "Export last profile #").Count
+        $lastExportCount = [regex]::Matches($logContent, "C profile #[0-9]+ final, compressed bytes:").Count
         Assert ($lastExportCount -ge $sessions) "[$caseName] Final export ran for all $sessions session(s)"
 
         if ($case.Lifecycle) {

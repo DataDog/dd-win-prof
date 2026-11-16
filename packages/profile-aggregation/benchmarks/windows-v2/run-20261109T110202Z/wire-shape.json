@@ -1,0 +1,22 @@
+[
+  {
+    "backend": "core",
+    "samples": 6000,
+    "protobuf_bytes": 3993823,
+    "compressed_bytes": 22966,
+    "location_id_wire_types": {
+      "0": 1536000
+    },
+    "hypothetical_location_packing_raw_bytes_removed": 1518000,
+    "hypothetical_packed_protobuf_bytes": 2475823
+  },
+  {
+    "backend": "v19",
+    "samples": 6000,
+    "protobuf_bytes": 2450821,
+    "compressed_bytes": 53750,
+    "location_id_wire_types": {
+      "2": 6000
+    }
+  }
+]

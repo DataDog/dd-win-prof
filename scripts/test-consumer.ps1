@@ -35,6 +35,9 @@
 .PARAMETER FetchContentBaseDir
     Optional FETCHCONTENT_BASE_DIR, to reuse a dependency cache (used by CI).
 
+.PARAMETER LibddCSourceDir
+    Optional local libdd-c source root for offline/Windows mirror validation.
+
 .EXAMPLE
     .\scripts\test-consumer.ps1
 #>
@@ -42,7 +45,8 @@
 param(
     [string]$Config = 'Release',
     [string]$WorkDir = (Join-Path ([IO.Path]::GetTempPath()) 'dd-win-prof-consumer'),
-    [string]$FetchContentBaseDir = ''
+    [string]$FetchContentBaseDir = '',
+    [string]$LibddCSourceDir = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -96,6 +100,10 @@ if ($FetchContentBaseDir) {
     $configureArgs += ('-DFETCHCONTENT_BASE_DIR=' + ($FetchContentBaseDir -replace '\\', '/'))
 }
 
+if ($LibddCSourceDir) {
+    $configureArgs += ('-DDD_WIN_PROF_LIBDD_C_SOURCE_DIR=' + ($LibddCSourceDir -replace '\\', '/'))
+}
+
 Invoke-Checked cmake @configureArgs
 Invoke-Checked cmake --build $buildDir --config $Config
 Invoke-Checked cmake --install $buildDir --config $Config --prefix $installDir
@@ -128,7 +136,7 @@ if ($gtest.Count -gt 0) {
 }
 
 # No test or tool projects may have been generated.
-$unwanted = '^(Tests|Runner|Runner_runtime_deps|ProfilerInjector|ObfSymbols|TestSymbols.*|gtest.*|gmock.*|Continuous|Experimental|Nightly.*)$'
+$unwanted = '^(exporter_protocol_tests|exporter_probe|ddc_profiling_(test_.*|stack_encoding|collisions)|ddc_profile_example_.*|libzstd.*|Tests|Runner|Runner_runtime_deps|ProfilerInjector|ObfSymbols|TestSymbols.*|gtest.*|gmock.*|Continuous|Experimental|Nightly.*)$'
 $projects = @(
     Get-ChildItem $buildDir -Recurse -Filter '*.vcxproj' |
         Where-Object { $_.FullName -notmatch '-subbuild|CMakeFiles' } |

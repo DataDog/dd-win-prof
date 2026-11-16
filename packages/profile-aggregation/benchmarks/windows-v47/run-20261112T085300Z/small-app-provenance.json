@@ -1,0 +1,80 @@
+﻿{
+    "baseline_commit":  "96d14f8a83f1267830bdb8877f50222aec0b1b84",
+    "files":  [
+                  {
+                      "path":  "C:\\Repos\\prof-16455-v47-small-app\\build-baseline-v47\\Release\\profiling_small_app.exe",
+                      "sha256":  "2df435ed5a8d0e600802b972947e1084dfe7cc3dbcb3512d890afa34693885e4",
+                      "mode":  "baseline-v47"
+                  },
+                  {
+                      "path":  "C:\\Repos\\prof-16455-v47-small-app\\build-baseline-v47\\Release\\dd-win-prof.dll",
+                      "sha256":  "2d96080a2180680f0cb1598752b2f78a7ec0d65898aad8205ac46abf0ecfe2fa",
+                      "mode":  "baseline-v47"
+                  },
+                  {
+                      "path":  "C:\\Repos\\prof-16455-v47-small-app\\build-c-core\\Release\\profiling_small_app.exe",
+                      "sha256":  "3a603c6535a02407e0840b8eaa979ae5fee95af389d12fa43e6aafd11589ecc0",
+                      "mode":  "c-core"
+                  },
+                  {
+                      "path":  "C:\\Repos\\prof-16455-v47-small-app\\build-c-core\\Release\\dd-win-prof.dll",
+                      "sha256":  "f6515066cff1d67f40e1d1da13d3fe72d03ee66b802205c65136d07438e41c71",
+                      "mode":  "c-core"
+                  },
+                  {
+                      "path":  "C:\\Repos\\prof-16455-v47-small-app\\build-unloaded\\Release\\profiling_small_app.exe",
+                      "sha256":  "c208a84fb28fa4dcd56e56d79705a94d7c14d2c8e38db5db47241df1c3a0d2e1",
+                      "mode":  "unloaded"
+                  }
+              ],
+    "fixture_files":  [
+                          {
+                              "sha256":  "d9a99c97aeebc8a7af7c3ef0300a2fee96e337320b7b336de190ba491b3116bc",
+                              "path":  "CMakeLists.txt"
+                          },
+                          {
+                              "sha256":  "a39c66ab77c6effb4cc3becb70a28215b84aa20425e0f5bed39152d53f72a3f9",
+                              "path":  "main.cpp"
+                          },
+                          {
+                              "sha256":  "909fda25bd78f2696bb56d79cbc81f8c216c03f7bbf82236e8355a7044d64d5a",
+                              "path":  "README.md"
+                          }
+                      ],
+    "states":  [
+                   {
+                       "enabled":  0,
+                       "mode":  "unloaded"
+                   },
+                   {
+                       "enabled":  0,
+                       "mode":  "baseline-v47"
+                   },
+                   {
+                       "enabled":  0,
+                       "mode":  "c-core"
+                   },
+                   {
+                       "enabled":  1,
+                       "mode":  "baseline-v47"
+                   },
+                   {
+                       "enabled":  1,
+                       "mode":  "c-core"
+                   }
+               ],
+    "completed_utc":  "2026-11-12T09:03:19.9958147Z",
+    "baseline_version":  "libdatadog-v47.0.0",
+    "limitations":  [
+                        "synthetic application, not full SDK",
+                        "single process per state, fixed order",
+                        "snapshots are not phase-local peak measurements"
+                    ],
+    "replicates_per_state":  1,
+    "sampling_period_ns":  20000000,
+    "phase_seconds":  15,
+    "duration_seconds_per_state":  45,
+    "symbolication":  false,
+    "compression":  "zstd for both profilers",
+    "upload_interval_seconds":  5
+}
