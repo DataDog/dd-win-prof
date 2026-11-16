@@ -1,4 +1,4 @@
-#Requires -Version 7.0
+#Requires -Version 5.1
 
 # Integration test for UIApp UI-hang detection (Sleep / Wait / CPU).
 # Does NOT require an API key or network access -- validates local pprof output only.
@@ -10,7 +10,8 @@
 #   2. Profiler log contains the final export message
 #   3. At least one .pprof file was written
 #   4. UIHang=true/false pairs exist with the expected reason stack and
-#      durations, and no ordinary wait sample overlaps a detected hang
+#      ui-hang-time durations, zero CPU/wall/wait values on hang records,
+#      and no ordinary wait sample overlaps a detected hang
 #   5. Invalid start/monitor/stop combinations are rejected with warnings
 #   6. Each lifecycle session's pair carries its own RUM view
 #
@@ -78,6 +79,7 @@ function Invoke-Validator(
     $validatorArgs = @(
         $scriptPath,
         "--pprof-dir", $pprofDir,
+        "--report-json", (Join-Path (Split-Path -Parent $pprofDir) "validation.json"),
         "--kind", $kind,
         "--cycles", "$expectedCycles",
         "--duration-ms", "$HangDurationMs",
@@ -141,26 +143,27 @@ foreach ($case in $cases) {
     if ($case.Lifecycle) {
         $appArgs += "--test-profiler-lifecycle"
     }
-    foreach ($arg in $appArgs) { $psi.ArgumentList.Add($arg) }
+    # Arguments are fixed switches, integers, or paths with no trailing backslash.
+    $psi.Arguments = ($appArgs | ForEach-Object { '"' + $_ + '"' }) -join " "
 
     # No backend upload; local debug pprof only. Small sampling period so short
     # hangs still yield samples. CPU profiling only for the CPU kind, so that
     # CPU sampling does not independently reset wait state for Sleep/Wait and
     # make the no-overlap check flaky.
-    $psi.Environment["DD_INTERNAL_PROFILING_EXPORT_ENABLED"] = "0"
-    $psi.Environment["DD_PROFILING_WALLTIME_ENABLED"] = "1"
-    $psi.Environment["DD_INTERNAL_PROFILING_SAMPLING_RATE"] = "$SamplingMs"
-    $psi.Environment["DD_INTERNAL_PROFILING_WALLTIME_THREADS_THRESHOLD"] = "$WalltimeThreadsThreshold"
-    $psi.Environment["DD_TRACE_LOG_DIRECTORY"] = $logDir
-    $psi.Environment["DD_PROFILING_CPU_ENABLED"] = if ($kind -eq "cpu") { "1" } else { "0" }
-    $psi.Environment["DD_PROFILING_AUTO_START"] = "0"
+    $psi.EnvironmentVariables["DD_INTERNAL_PROFILING_EXPORT_ENABLED"] = "0"
+    $psi.EnvironmentVariables["DD_PROFILING_WALLTIME_ENABLED"] = "1"
+    $psi.EnvironmentVariables["DD_INTERNAL_PROFILING_SAMPLING_RATE"] = "$SamplingMs"
+    $psi.EnvironmentVariables["DD_INTERNAL_PROFILING_WALLTIME_THREADS_THRESHOLD"] = "$WalltimeThreadsThreshold"
+    $psi.EnvironmentVariables["DD_TRACE_LOG_DIRECTORY"] = $logDir
+    $psi.EnvironmentVariables["DD_PROFILING_CPU_ENABLED"] = if ($kind -eq "cpu") { "1" } else { "0" }
+    $psi.EnvironmentVariables["DD_PROFILING_AUTO_START"] = "0"
     foreach ($name in @(
         "DD_API_KEY",
         "DD_TRACE_AGENT_URL",
         "DD_AGENT_HOST",
         "DD_TRACE_AGENT_PORT"
     )) {
-        $null = $psi.Environment.Remove($name)
+        $null = $psi.EnvironmentVariables.Remove($name)
     }
 
     # Generous per-process budget: each session runs its requested hangs plus
@@ -170,7 +173,7 @@ foreach ($case in $cases) {
     $proc = [System.Diagnostics.Process]::Start($psi)
     $exited = $proc.WaitForExit($processTimeoutMs)
     if (-not $exited) {
-        try { $proc.Kill($true) } catch {}
+        try { $proc.Kill() } catch {}
         Assert $false "[$caseName] UIApp exited within ${processTimeoutMs}ms (timed out)"
         continue
     }

@@ -7,7 +7,7 @@
 #include "pch.h"
 
 std::vector<SampleValueType> UiHangProvider::SampleTypeDefinitions(
-    {{"wall-time", "nanoseconds"}, {"wait-time", "nanoseconds"}}
+    {{"ui-hang-time", "nanoseconds"}}
 );
 
 UiHangProvider::UiHangProvider(SampleValueTypeProvider& valueTypeProvider)
