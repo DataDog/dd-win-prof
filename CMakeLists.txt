@@ -68,7 +68,7 @@ endif()
 include(cmake/asan.cmake)
 dd_win_prof_setup_asan()
 
-add_subdirectory(packages/profile-aggregation)
+include(cmake/libdd-c.cmake)
 add_subdirectory(packages/profile-exporter)
 add_subdirectory(src)
 
@@ -90,7 +90,6 @@ include(cmake/clang-format.cmake)
 if(DD_WIN_PROF_BUILD_INSTALL)
     install(FILES LICENSE NOTICE LICENSE-3rdparty.csv DESTINATION .)
     install(DIRECTORY licenses/ DESTINATION licenses)
-    install(DIRECTORY packages/profile-aggregation/licenses/ DESTINATION licenses/profile-aggregation)
 endif()
 
 # Helper function for consuming projects to copy dd-win-prof runtime

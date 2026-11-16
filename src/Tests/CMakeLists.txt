@@ -58,7 +58,7 @@ target_include_directories(Tests PRIVATE
 
 # Tests use the same C core as production, with no Rust test runtime.
 target_link_libraries(Tests PRIVATE
-    profile_aggregation
+    ddc::profiling
     profile_exporter
     dd_win_prof_spdlog
     GTest::gtest

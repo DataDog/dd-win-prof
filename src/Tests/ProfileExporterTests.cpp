@@ -560,9 +560,9 @@ TEST_F(ProfileExporterExportTests, HttpFailureStillResetsAndAllowsNextExport) {
   static thread_local int* resets;
   resets = &resetCalls;
   dd_win_prof::ProfileEncodingApi api;
-  api.reset = [](pa_profile* p) {
+  api.reset = [](ddc_profile* p) {
     ++*resets;
-    return pa_reset(p);
+    return ddc_profile_reset(p);
   };
   ProfileExporter http(&httpConfig, sampleTypes, nullptr, {}, api);
   ASSERT_TRUE(http.Initialize());

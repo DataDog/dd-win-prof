@@ -1,0 +1,36 @@
+{
+  "test_name": "libdd_c_native_callback",
+  "note": "The named consumer thread runs a CPU-bound workload for two seconds. Expect approximately two seconds of both CPU and wall time in that frame; a one-second margin accommodates Windows scheduling and sampling jitter. Expectations are derived from the workload duration, not a captured profile.",
+  "pprof-regex": "^callback\\.zst\\.pprof$",
+  "scale_by_duration": false,
+  "stacks": [
+    {
+      "profile-type": "cpu-time",
+      "stack-content": [{
+        "regular_expression": "LibddCIntegrationWorkload",
+        "value": 2000000000,
+        "error_margin": 50,
+        "labels": [
+          {"key": "thread_name", "values": ["libdd-c-integration"]},
+          {"key": "thread id", "values_regex": "^[1-9][0-9]*$"},
+          {"key": "process_id", "values_regex": "^[1-9][0-9]*$"},
+          {"key": "end_timestamp_ns", "values_regex": "^[1-9][0-9]*$"}
+        ]
+      }]
+    },
+    {
+      "profile-type": "wall-time",
+      "stack-content": [{
+        "regular_expression": "LibddCIntegrationWorkload",
+        "value": 2000000000,
+        "error_margin": 50,
+        "labels": [
+          {"key": "thread_name", "values": ["libdd-c-integration"]},
+          {"key": "thread id", "values_regex": "^[1-9][0-9]*$"},
+          {"key": "process_id", "values_regex": "^[1-9][0-9]*$"},
+          {"key": "end_timestamp_ns", "values_regex": "^[1-9][0-9]*$"}
+        ]
+      }]
+    }
+  ]
+}

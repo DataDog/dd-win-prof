@@ -25,7 +25,7 @@
 #if defined(PA_BENCH_V19) || defined(PA_BENCH_V47)
 #include <datadog/profiling.h>
 #else
-#include "profile_aggregation.h"
+#include <ddc/profiling.h>
 #endif
 
 #ifdef _WIN32
@@ -47,11 +47,7 @@ static uint64_t tick() {
 #endif
 }
 #ifdef PA_BENCH_COMPRESSION_HOOKS
-#include "compression_hooks.h"
-static uint64_t compression_ns = 0, compression_calls = 0, protobuf_bytes = 0;
-extern "C" uint64_t pa_bench_compression_begin() { return tick(); }
-extern "C" void pa_bench_compression_end(uint64_t start) { compression_ns += tick() - start; ++compression_calls; }
-extern "C" void pa_bench_serialized_bytes(uint64_t bytes) { protobuf_bytes = bytes; }
+#error "Private compression-hook mode is retired; use the public libdd-c API without hooks"
 #endif
 static void require(bool b, const char* message) { if (!b) throw std::runtime_error(message); }
 struct Memory { std::string current_ws = "NA", peak_ws = "NA", private_commit = "NA", peak_process_commit = "NA"; };
@@ -138,33 +134,29 @@ static const char* backend_name = "v47_cffi";
 static const char* backend_name = "v19_cffi";
 #endif
 #else
-static void check(pa_status s) { require(s == PA_OK, "C API status failure"); }
-using String = pa_id; using Function = pa_id; using Location = pa_id; using Stack = pa_id; using Labels = pa_id;
+static void check(ddc_profile_status s) { require(s == DDC_PROFILE_OK, "C API status failure"); }
+using String = ddc_profile_id; using Function = ddc_profile_id; using Location = ddc_profile_id; using Stack = ddc_profile_id; using Labels = ddc_profile_id;
 struct Backend {
-  pa_profile* p = nullptr; std::vector<uint8_t> output;
-  explicit Backend(Allocator& a) { pa_value_type types[] = {{"cpu-time","nanoseconds"},{"wall-time","nanoseconds"}};
-    pa_allocator allocator{&a,Allocator::alloc,Allocator::release}; check(pa_create(types,2,10000000,a.enabled ? &allocator : nullptr,&p)); }
-  String string(const char* s) { pa_id id; check(pa_intern_string(p,s,std::strlen(s),&id)); return id; }
-  Function function() { pa_function f{}; pa_id id; check(pa_intern_function(p,&f,&id)); return id; }
-  Location location(Function f, uint64_t address) { pa_location l{}; l.function=f; l.address=address; pa_id id; check(pa_intern_location(p,&l,&id)); return id; }
-  Stack stack(const Location* ids, size_t n) { pa_id id; check(pa_intern_stack(p,ids,n,&id)); return id; }
-  Labels labels() { pa_id id; check(pa_intern_labels(p,nullptr,0,&id)); return id; }
-  Labels labels(String key, String value) { pa_label l{}; l.key=key; l.str=value; pa_id id; check(pa_intern_labels(p,&l,1,&id)); return id; }
-  void record(Stack s, Labels l, bool timestamped, size_t i) { int64_t values[] = {10000000,20000000}; check(pa_record(p,s,l,values,2,timestamped,int64_t(i+1))); }
-  static pa_status sink(void* context, const uint8_t* bytes, size_t n) { auto& out = static_cast<Backend*>(context)->output;
-    try { out.insert(out.end(),bytes,bytes+n); return PA_OK; } catch (...) { return PA_OUTPUT; } }
-  void encode(size_t end) { check(pa_serialize(p,0,int64_t(end),sink,this)); }
+  ddc_profile* p = nullptr; std::vector<uint8_t> output;
+  explicit Backend(Allocator& a) { ddc_profile_value_type types[] = {{{"cpu-time",8},{"nanoseconds",11}},{{"wall-time",9},{"nanoseconds",11}}};
+    ddc_profile_allocator allocator{&a,Allocator::alloc,Allocator::release}; check(ddc_profile_create(types,2,10000000,a.enabled ? &allocator : nullptr,&p)); }
+  String string(const char* s) { ddc_profile_id id; check(ddc_profile_intern_string(p,s,std::strlen(s),&id)); return id; }
+  Function function() { ddc_profile_function f{}; ddc_profile_id id; check(ddc_profile_intern_function(p,&f,&id)); return id; }
+  Location location(Function f, uint64_t address) { ddc_profile_location l{}; l.function=f; l.address=address; ddc_profile_id id; check(ddc_profile_intern_location(p,&l,&id)); return id; }
+  Stack stack(const Location* ids, size_t n) { ddc_profile_id id; check(ddc_profile_intern_stack(p,ids,n,&id)); return id; }
+  Labels labels() { ddc_profile_id id; check(ddc_profile_intern_labels(p,nullptr,0,&id)); return id; }
+  Labels labels(String key, String value) { ddc_profile_label l{}; l.key=key; l.str=value; ddc_profile_id id; check(ddc_profile_intern_labels(p,&l,1,&id)); return id; }
+  void record(Stack s, Labels l, bool timestamped, size_t i) { int64_t values[] = {10000000,20000000}; check(ddc_profile_record(p,s,l,values,2,timestamped,int64_t(i+1))); }
+  static ddc_profile_status sink(void* context, const uint8_t* bytes, size_t n) { auto& out = static_cast<Backend*>(context)->output;
+    try { out.insert(out.end(),bytes,bytes+n); return DDC_PROFILE_OK; } catch (...) { return DDC_PROFILE_OUTPUT; } }
+  void encode(size_t end) { check(ddc_profile_serialize(p,0,int64_t(end),sink,this)); }
   struct Bytes { const uint8_t* ptr; size_t len; };
   Bytes bytes() { return {output.data(),output.size()}; }
-  void reset() { check(pa_reset(p)); }
+  void reset() { check(ddc_profile_reset(p)); }
   void free_output() { std::vector<uint8_t>().swap(output); }
-  ~Backend() { pa_destroy(p); }
+  ~Backend() { ddc_profile_destroy(p); }
 };
-#ifdef PA_BENCH_COMPRESSION_HOOKS
-static const char* backend_name = "c_timed";
-#else
 static const char* backend_name = "c";
-#endif
 #endif
 struct State { std::array<Location,256> locations{}; size_t depth; };
 static State seed(Backend& b, bool deep) {
@@ -247,9 +239,6 @@ int main(int argc,char** argv) try {
   if(o.alloc_stats) alloc.events.reserve(o.allocation_event_limit); // diagnostic only, never primary runs.
   auto snapshot=[&](size_t cycle,const char* stage,size_t n) { auto m=memory(); mem << cycle<<','<<stage<<','<<n<<','<<m.current_ws<<','<<m.peak_ws<<','<<m.private_commit<<','<<m.peak_process_commit<<'\n'; };
   uint64_t setup_ns=0,ingest_ns=0,encode_ns=0,reset_ns=0,free_ns=0,destroy_ns=0;
-#ifdef PA_BENCH_COMPRESSION_HOOKS
-  uint64_t compress_total=0,protobuf_total=0;
-#endif
   size_t total=0,flushes=0,compressed=0;
   Backend* b=nullptr;
   auto phase=[&](size_t cycle,const char* name,size_t n,auto&& fn) {
@@ -257,12 +246,7 @@ int main(int argc,char** argv) try {
     auto a=alloc.allocations,bytes=alloc.bytes,frees=alloc.frees;
     auto t=tick(); fn(); auto ns=tick()-t;
     stages<<cycle<<','<<name<<','<<n<<','<<ns<<',';
-#ifdef PA_BENCH_COMPRESSION_HOOKS
-    if(std::strcmp(name,"serialize")==0) { require(ns>=compression_ns,"compression exceeds serialize interval"); stages<<compression_ns<<','<<ns-compression_ns<<','<<compression_calls<<','<<protobuf_bytes; compress_total+=compression_ns; protobuf_total+=protobuf_bytes; }
-    else stages<<"NA,NA,NA,NA";
-#else
     stages<<"NA,NA,NA,NA";
-#endif
     if(std::strcmp(name,"serialize")==0) stages<<','<<b->bytes().len; else stages<<",NA";
     if(o.alloc_stats) stages<<','<<alloc.allocations-a<<','<<alloc.bytes-bytes<<','<<alloc.frees-frees<<','<<alloc.live<<','<<alloc.peak;
     else stages<<",NA,NA,NA,NA,NA";
@@ -297,9 +281,6 @@ int main(int argc,char** argv) try {
     stages<<'\n'; total+=n;
     snapshot(cycle,"beforeflush",n);
     if(o.mode!="discard") {
-#ifdef PA_BENCH_COMPRESSION_HOOKS
-      compression_ns=0; compression_calls=0; protobuf_bytes=0;
-#endif
       encode_ns+=phase(cycle,"serialize",n,[&]{b->encode(total);});
       auto bytes=b->bytes(); compressed+=bytes.len; // Both backends retain full output.
       snapshot(cycle,"afterencode",n);
@@ -320,11 +301,7 @@ int main(int argc,char** argv) try {
   totals<<percentile(empty,50).ns<<','<<percentile(empty,95).ns<<','<<percentile(empty,99).ns<<','<<empty.back().ns<<',';
   if(latency.empty()) totals<<"NA,NA,NA,NA,NA";
   else totals<<percentile(latency,50).ns<<','<<percentile(latency,95).ns<<','<<percentile(latency,99).ns<<','<<latency.back().ns<<','<<latency.back().index;
-#ifdef PA_BENCH_COMPRESSION_HOOKS
-  totals<<','<<compress_total<<','<<encode_ns-compress_total<<','<<protobuf_total;
-#else
   totals<<",NA,NA,NA";
-#endif
   totals<<'\n';
   if(o.alloc_stats) { auto events=csv(o.output+"-allocations.csv","cycle,sample_index,phase,operation,requested_bytes,live_bytes,peak_bytes,highwater_growth_bytes");
     for(auto& e:alloc.events) events<<e.cycle<<','<<e.sample<<','<<e.phase<<','<<(e.allocation ? "alloc" : "free")<<','<<e.bytes<<','<<e.live<<','<<e.peak<<','<<e.highwater_growth<<'\n'; }

@@ -58,6 +58,7 @@
 *.userprefs
 
 # Build results
+/build-libdd-c*/
 [Dd]ebug/
 [Dd]ebugPublic/
 [Rr]elease/

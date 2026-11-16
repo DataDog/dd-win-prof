@@ -1,4 +1,10 @@
-# Experimental native profile aggregation (PROF-16455)
+# Historical native profile aggregation experiment (PROF-16455)
+
+This implementation was removed in favor of source-built libdd-c. The text below
+records the old API and recipe at `86dd462ebad979855ac7119017a813fe9748f9ad`;
+its build commands no longer apply at this head. Measurement files and checksum
+inventories remain unchanged. Use the [current integration guide](../../docs/libdd-c-integration.md)
+and the public-API [smoke harness](benchmarks/harness/README.md) instead.
 
 Portable C11 aggregation and progressive pprof encoding. Windows capture and symbolication stay in the existing C++ platform layer. No Ruby, Rust, Windows headers or libdatadog in the production core.
 

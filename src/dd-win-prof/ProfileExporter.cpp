@@ -15,8 +15,8 @@ int64_t ToUnixTimeMs(std::chrono::system_clock::time_point t) {
   return std::chrono::duration_cast<std::chrono::milliseconds>(t.time_since_epoch())
       .count();
 }
-pa_status String(pa_profile* p, std::string_view s, pa_id& id) {
-  return pa_intern_string(p, s.data(), s.size(), &id);
+ddc_profile_status String(ddc_profile* p, std::string_view s, ddc_profile_id& id) {
+  return ddc_profile_intern_string(p, s.data(), s.size(), &id);
 }
 }  // namespace
 ProfileExporter::ProfileExporter(
@@ -138,8 +138,7 @@ bool ProfileExporter::InitializeHttpExporter() {
   std::string description, driverVersion, date, name, chip;
   uint64_t ram = 0;
   int device = 0;
-  while (
-      GetGpuFromRegistry(device, description, driverVersion, date, name, chip, ram)
+  while (GetGpuFromRegistry(device, description, driverVersion, date, name, chip, ram)
   ) {
     const auto index = std::to_string(device++);
     if (description.empty() && name.empty()) continue;
@@ -207,26 +206,26 @@ bool ProfileExporter::SendHttp(
 }
 bool ProfileExporter::InternSampleLabels() {
   auto* p = _aggregator->GetProfile();
-  pa_id key = 0, value = 0;
-  if (String(p, "process_id", key) != PA_OK ||
-      String(p, std::to_string(::GetCurrentProcessId()), value) != PA_OK)
+  ddc_profile_id key = 0, value = 0;
+  if (String(p, "process_id", key) != DDC_PROFILE_OK ||
+      String(p, std::to_string(::GetCurrentProcessId()), value) != DDC_PROFILE_OK)
     return false;
   _processLabel = {};
   _processLabel.key = key;
   _processLabel.str = value;
   _uiHangTrueLabel = {};
   _uiHangFalseLabel = {};
-  if (String(p, "UIHang", key) != PA_OK ||
-      String(p, "true", _uiHangTrueLabel.str) != PA_OK ||
-      String(p, "false", _uiHangFalseLabel.str) != PA_OK)
+  if (String(p, "UIHang", key) != DDC_PROFILE_OK ||
+      String(p, "true", _uiHangTrueLabel.str) != DDC_PROFILE_OK ||
+      String(p, "false", _uiHangFalseLabel.str) != DDC_PROFILE_OK)
     return false;
   _uiHangTrueLabel.key = _uiHangFalseLabel.key = key;
-  return String(p, "thread id", _threadKey) == PA_OK &&
-         String(p, "thread_name", _nameKey) == PA_OK &&
-         String(p, "rum.view_id", _viewKey) == PA_OK &&
-         String(p, "trace endpoint", _endpointKey) == PA_OK;
+  return String(p, "thread id", _threadKey) == DDC_PROFILE_OK &&
+         String(p, "thread_name", _nameKey) == DDC_PROFILE_OK &&
+         String(p, "rum.view_id", _viewKey) == DDC_PROFILE_OK &&
+         String(p, "trace endpoint", _endpointKey) == DDC_PROFILE_OK;
 }
-std::optional<pa_id> ProfileExporter::InternLocation(uint64_t address) {
+std::optional<ddc_profile_id> ProfileExporter::InternLocation(uint64_t address) {
   auto found = _currentExportLocationCache.find(address);
   if (found != _currentExportLocationCache.end()) return found->second;
   auto symbol = _persistentSymbolCache.find(address);
@@ -237,40 +236,42 @@ std::optional<pa_id> ProfileExporter::InternLocation(uint64_t address) {
   }
   const auto& info = symbol->second;
   auto* p = _aggregator->GetProfile();
-  pa_mapping m{};
-  pa_function f{};
-  pa_location l{};
-  if (String(p, info.ModuleName, m.filename) != PA_OK ||
-      String(p, info.BuildId, m.build_id) != PA_OK ||
-      String(p, info.FunctionName, f.name) != PA_OK ||
-      String(p, info.FileName, f.filename) != PA_OK)
+  ddc_profile_mapping m{};
+  ddc_profile_function f{};
+  ddc_profile_location l{};
+  if (String(p, info.ModuleName, m.filename) != DDC_PROFILE_OK ||
+      String(p, info.BuildId, m.build_id) != DDC_PROFILE_OK ||
+      String(p, info.FunctionName, f.name) != DDC_PROFILE_OK ||
+      String(p, info.FileName, f.filename) != DDC_PROFILE_OK)
     return std::nullopt;
   m.memory_start = info.ModuleBaseAddress;
   m.memory_limit = info.ModuleBaseAddress + info.ModuleSize;
-  if ((m.filename || m.build_id) && pa_intern_mapping(p, &m, &l.mapping) != PA_OK)
+  if ((m.filename || m.build_id) &&
+      ddc_profile_intern_mapping(p, &m, &l.mapping) != DDC_PROFILE_OK)
     return std::nullopt;
   f.system_name = f.name;
-  if (pa_intern_function(p, &f, &l.function) != PA_OK) return std::nullopt;
+  if (ddc_profile_intern_function(p, &f, &l.function) != DDC_PROFILE_OK)
+    return std::nullopt;
   // Preserve the existing Windows module-relative location-address convention.
   l.address = info.ModuleBaseAddress ? address - info.ModuleBaseAddress : address;
   l.line = info.lineNumber;
-  pa_id id = 0;
-  if (pa_intern_location(p, &l, &id) != PA_OK) return std::nullopt;
+  ddc_profile_id id = 0;
+  if (ddc_profile_intern_location(p, &l, &id) != DDC_PROFILE_OK) return std::nullopt;
   _currentExportLocationCache.emplace(address, id);
   return id;
 }
-std::optional<pa_id> ProfileExporter::CreateLabelSet(
+std::optional<ddc_profile_id> ProfileExporter::CreateLabelSet(
     const std::shared_ptr<ThreadInfo>& thread,
     const RumViewContext& view,
     UiHangSampleKind uiHangKind
 ) {
   auto* p = _aggregator->GetProfile();
-  std::array<pa_label, 6> labels{};
+  std::array<ddc_profile_label, 6> labels{};
   size_t count = 0;
   // Process label is recreated from stable interned strings, not concatenated blobs.
-  auto str = [&](pa_id key, const std::string& value) {
-    pa_id id = 0;
-    if (String(p, value, id) != PA_OK) return false;
+  auto str = [&](ddc_profile_id key, const std::string& value) {
+    ddc_profile_id id = 0;
+    if (String(p, value, id) != DDC_PROFILE_OK) return false;
     labels[count].key = key;
     labels[count++].str = id;
     return true;
@@ -292,8 +293,9 @@ std::optional<pa_id> ProfileExporter::CreateLabelSet(
     if (!view.view_name.empty() && !str(_endpointKey, view.view_name))
       return std::nullopt;
   }
-  pa_id id = 0;
-  if (pa_intern_labels(p, labels.data(), count, &id) != PA_OK) return std::nullopt;
+  ddc_profile_id id = 0;
+  if (ddc_profile_intern_labels(p, labels.data(), count, &id) != DDC_PROFILE_OK)
+    return std::nullopt;
   return id;
 }
 bool ProfileExporter::Add(std::shared_ptr<Sample> const& sample) {
@@ -385,7 +387,8 @@ bool ProfileExporter::Export(bool last) {
     decltype(_persistentSymbolCache)().swap(_persistentSymbolCache);
     _symbolication->ClearCaches();
   }
-  if (_locationScratch.capacity() > 4096) std::vector<pa_id>().swap(_locationScratch);
+  if (_locationScratch.capacity() > 4096)
+    std::vector<ddc_profile_id>().swap(_locationScratch);
   return success;
 }
 std::string ProfileExporter::CollectRumRecordsJson(bool discard) {

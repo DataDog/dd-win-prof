@@ -84,7 +84,7 @@ target_compile_definitions(dd-win-prof PRIVATE
 
 # C core and logging include directories are private target dependencies.
 target_link_libraries(dd-win-prof PRIVATE
-    profile_aggregation
+    ddc::profiling
     profile_exporter
     dd_win_prof_spdlog
     dbghelp.lib

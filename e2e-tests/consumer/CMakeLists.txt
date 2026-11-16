@@ -22,6 +22,10 @@ FetchContent_MakeAvailable(dd-win-prof)
 
 add_executable(consumer main.cpp sdk-internal.cpp)
 target_link_libraries(consumer PRIVATE dd-win-prof)
+if(MSVC)
+    target_compile_options(consumer PRIVATE /Zi)
+    target_link_options(consumer PRIVATE /DEBUG:FULL)
+endif()
 dd_win_prof_copy_runtime_deps(consumer)
 install(TARGETS consumer RUNTIME DESTINATION bin)
 

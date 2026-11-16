@@ -2,6 +2,7 @@
 #include "PprofAggregator.h"
 #include "ProfileExporter.h"
 #include "ProfileTestOutput.h"
+#include "ProfilingConstants.h"
 #include "pch.h"
 using namespace dd_win_prof;
 class PprofAggregatorTest : public ::testing::Test {
@@ -9,18 +10,26 @@ class PprofAggregatorTest : public ::testing::Test {
   std::vector<SampleValueType> types{
       {"cpu-time", "nanoseconds"}, {"wall-time", "nanoseconds"}
   };
-  pa_id Labels(PprofAggregator& a) {
-    pa_id id = 0;
-    EXPECT_EQ(pa_intern_labels(a.GetProfile(), nullptr, 0, &id), PA_OK);
+  ddc_profile_id Labels(PprofAggregator& a) {
+    ddc_profile_id id = 0;
+    EXPECT_EQ(
+        ddc_profile_intern_labels(a.GetProfile(), nullptr, 0, &id), DDC_PROFILE_OK
+    );
     return id;
   }
-  std::vector<pa_id> Locations(PprofAggregator& a) {
-    pa_id name = 0, function = 0, location = 0;
-    EXPECT_EQ(pa_intern_string(a.GetProfile(), "Worker", 6, &name), PA_OK);
-    pa_function f{name, name, 0, 42};
-    EXPECT_EQ(pa_intern_function(a.GetProfile(), &f, &function), PA_OK);
-    pa_location l{0, function, 0x123456789ULL, 43};
-    EXPECT_EQ(pa_intern_location(a.GetProfile(), &l, &location), PA_OK);
+  std::vector<ddc_profile_id> Locations(PprofAggregator& a) {
+    ddc_profile_id name = 0, function = 0, location = 0;
+    EXPECT_EQ(
+        ddc_profile_intern_string(a.GetProfile(), "Worker", 6, &name), DDC_PROFILE_OK
+    );
+    ddc_profile_function f{name, name, 0, 42};
+    EXPECT_EQ(
+        ddc_profile_intern_function(a.GetProfile(), &f, &function), DDC_PROFILE_OK
+    );
+    ddc_profile_location l{0, function, 0x123456789ULL, 43};
+    EXPECT_EQ(
+        ddc_profile_intern_location(a.GetProfile(), &l, &location), DDC_PROFILE_OK
+    );
     return {location};
   }
   bool Record(PprofAggregator& a) {
@@ -56,6 +65,17 @@ TEST_F(PprofAggregatorTest, InitializationWithPeriod) {
 TEST_F(PprofAggregatorTest, AddSampleWithRealLocationIds) {
   PprofAggregator a(types);
   EXPECT_TRUE(Record(a));
+}
+TEST_F(PprofAggregatorTest, CaptureDepthMatchesDependencyLimit) {
+  static_assert(kMaxStackDepth == DDC_PROFILE_MAX_STACK_DEPTH);
+  static_assert(kMaxStackDepth == 256);
+  PprofAggregator a(types);
+  auto location = Locations(a).front();
+  std::vector<ddc_profile_id> stack(kMaxStackDepth, location);
+  const int64_t values[] = {7, 11};
+  EXPECT_TRUE(a.AddSample(stack, values, 1, Labels(a)));
+  stack.push_back(location);
+  EXPECT_FALSE(a.AddSample(stack, values, 1, Labels(a)));
 }
 TEST_F(PprofAggregatorTest, AddSampleWithMismatchedValueCount) {
   PprofAggregator a(types);

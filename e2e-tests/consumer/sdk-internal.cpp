@@ -6,8 +6,10 @@
 #include "internal/dd-win-rum-private.h"
 // clang-format on
 
-#include <cstdint>
+#include <windows.h>
+
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -16,6 +18,11 @@
 #include <vector>
 
 namespace {
+__declspec(noinline) void LibddCIntegrationWorkload() {
+  const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  volatile uint64_t work = 0;
+  while (std::chrono::steady_clock::now() < until) work = work * 1664525 + 1013904223;
+}
 bool HasZstdMagic(const std::vector<std::uint8_t>& bytes) {
   return bytes.size() >= 4 && bytes[0] == 0x28 && bytes[1] == 0xb5 &&
          bytes[2] == 0x2f && bytes[3] == 0xfd;
@@ -40,6 +47,7 @@ int TestSdkCallback() {
   config.size = sizeof(config);
   config.noEnvVars = true;
   config.uploadIntervalSeconds = 3600;
+  config.symbolizeCallstacks = true;
   const bool configured = SetupProfiler(&config);
   if (!configured || !StartProfiler()) {
     std::cerr << "Failed to " << (configured ? "start" : "configure")
@@ -50,10 +58,8 @@ int TestSdkCallback() {
     return 1;
   }
 
-  // Capture actual CPU/wall observations, not just an empty final profile.
-  const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-  volatile uint64_t work = 0;
-  while (std::chrono::steady_clock::now() < until) work = work * 1664525 + 1013904223;
+  SetThreadDescription(GetCurrentThread(), L"libdd-c-integration");
+  LibddCIntegrationWorkload();
   StopProfiler();
   const bool unregistered = SetupProfilingDataCallback({});
   if (!unregistered) {
@@ -103,6 +109,13 @@ int TestSdkCallback() {
         reinterpret_cast<const char*>(profile.pprof.data()), profile.pprof.size()
     );
     if (!output) return 1;
+    std::ofstream metadata(std::filesystem::path(directory) / "callback.json");
+    metadata << "{\"callbacks\":" << results.size()
+             << ",\"final\":" << (profile.isLast ? "true" : "false")
+             << ",\"start_ms\":" << profile.startUnixTimeMs
+             << ",\"end_ms\":" << profile.endUnixTimeMs
+             << ",\"thread_id\":" << GetCurrentThreadId() << "}";
+    if (!metadata) return 1;
   }
   return 0;
 }

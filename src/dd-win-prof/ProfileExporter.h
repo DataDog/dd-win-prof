@@ -29,9 +29,8 @@ class ProfileExporter {
   void Cleanup(bool skipExporterCleanup = false);
   bool IsInitialized() const { return _initialized; }
   void SetRumApplicationId(const std::string& id) { _rumApplicationId = id; }
-  static std::string SerializeRumRecordsToJson(
-      const std::vector<RumViewRecord>&, const std::vector<RumSessionRecord>&
-  );
+  static std::string
+  SerializeRumRecordsToJson(const std::vector<RumViewRecord>&, const std::vector<RumSessionRecord>&);
   static void EscapeJsonString(std::ostream&, const std::string&);
   void SetDebugPprofFileWritingEnabled(bool v) { _debugPprofFileWritingEnabled = v; }
   bool IsDebugPprofFileWritingEnabled() const { return _debugPprofFileWritingEnabled; }
@@ -42,8 +41,8 @@ class ProfileExporter {
   bool InitializeHttpExporter();
   bool SendHttp(const std::vector<uint8_t>&, const std::string&, int64_t, int64_t);
   bool InternSampleLabels();
-  std::optional<pa_id> InternLocation(uint64_t);
-  std::optional<pa_id> CreateLabelSet(
+  std::optional<ddc_profile_id> InternLocation(uint64_t);
+  std::optional<ddc_profile_id> CreateLabelSet(
       const std::shared_ptr<ThreadInfo>&, const RumViewContext&, UiHangSampleKind
   );
   bool ReportError(ProfilingErrorCode, bool);
@@ -65,13 +64,13 @@ class ProfileExporter {
   std::string _debugPprofPrefix, _rumApplicationId;
   std::unique_ptr<Symbolication> _symbolication;
   std::unique_ptr<dd_win_prof::PprofAggregator> _aggregator;
-  // Owned symbol metadata survives profile resets, not Rust-managed strings/IDs.
+  // Owned symbol metadata survives resets; profile IDs are generation-local.
   std::unordered_map<uint64_t, CachedSymbolInfo> _persistentSymbolCache;
-  std::unordered_map<uint64_t, pa_id> _currentExportLocationCache;
-  std::vector<pa_id> _locationScratch;
+  std::unordered_map<uint64_t, ddc_profile_id> _currentExportLocationCache;
+  std::vector<ddc_profile_id> _locationScratch;
   std::string _threadNameScratch;
-  pa_label _processLabel{}, _uiHangTrueLabel{}, _uiHangFalseLabel{};
-  pa_id _threadKey = 0, _nameKey = 0, _viewKey = 0, _endpointKey = 0;
+  ddc_profile_label _processLabel{}, _uiHangTrueLabel{}, _uiHangFalseLabel{};
+  ddc_profile_id _threadKey = 0, _nameKey = 0, _viewKey = 0, _endpointKey = 0;
   uint32_t _currentExportId = 0;
   unsigned _consecutiveErrors = 0;
   std::chrono::system_clock::time_point _profileStartTime;

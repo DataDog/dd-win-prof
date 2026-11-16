@@ -12,8 +12,13 @@ Implementation of a Windows CPU profiler
 
 ## PROF-16455 experimental branch
 
-Aggregation, interning and streaming Zstd pprof encoding now use the separate
-[pure C package](packages/profile-aggregation/README.md) in both delivery modes.
+Aggregation, interning and streaming Zstd pprof encoding use the source-built
+[libdd-c profiling core](https://github.com/DataDog/libdd-c/tree/r1viollet/prof-16455-extract-profile-core/profiling)
+through its public `ddc::profiling` target in both delivery modes. Native capture
+is capped at 256 frames to match the optimized core (previously 512).
+See [integration/build/validation instructions](docs/libdd-c-integration.md).
+`packages/profile-aggregation` now contains historical evidence and a public-API
+benchmark harness, not a second aggregation implementation.
 SDK callback bytes are **Zstd, not LZ4**. No libdatadog runtime is required.
 Standalone HTTP now uses an [experimental pure-C WinHTTP exporter](packages/profile-exporter/README.md).
 It sends the existing Zstd bytes synchronously, without Rust or a second compression pass.

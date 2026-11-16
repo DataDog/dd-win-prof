@@ -53,7 +53,7 @@ def reject_missing_function_metadata(raw):
         raise AssertionError('decoder accepted missing function records and location lines')
 
 
-def check(prefix, mode, timed, allocated, samples, flushes):
+def check(prefix, mode, allocated, samples, flushes):
     summary, = rows(Path(str(prefix) + "-summary.csv"))
     stages = rows(Path(str(prefix) + "-stages.csv"))
     memory = rows(Path(str(prefix) + "-memory.csv"))
@@ -68,15 +68,7 @@ def check(prefix, mode, timed, allocated, samples, flushes):
     for cycle in range(flushes):
         assert [s["stage"] for s in memory[1:-1] if int(s["cycle"]) == cycle] == expected_stages
     assert int(summary["compressed_bytes"]) == sum(int(s["compressed_bytes"]) for s in stages if s["phase"] == "serialize")
-    if timed:
-        encodes = [s for s in stages if s["phase"] == "serialize"]
-        assert sum(int(s["compression_ns"]) for s in encodes) == int(summary["compression_ns"])
-        for s in encodes:
-            assert int(s["ns"]) == int(s["compression_ns"]) + int(s["noncompression_serialization_ns"])
-            assert int(s["compression_calls"]) > 0 and int(s["protobuf_bytes"]) > 0
-        assert sum(int(s["protobuf_bytes"]) for s in encodes) == int(summary["protobuf_bytes"])
-    else:
-        assert summary["compression_ns"] == summary["protobuf_bytes"] == "NA"
+    assert summary["compression_ns"] == summary["protobuf_bytes"] == "NA"
     if allocated:
         events = rows(Path(str(prefix) + "-allocations.csv"))
         assert summary["allocation_events_dropped"] == "0"
@@ -105,7 +97,6 @@ def check(prefix, mode, timed, allocated, samples, flushes):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("core", type=Path)
-    parser.add_argument("timed", type=Path)
     parser.add_argument("--decode", action="store_true")
     args = parser.parse_args()
     runs = 0
@@ -124,8 +115,7 @@ def main():
             if recovery:
                 command += ["--cycles", "9"]
             elif mode != "discard" and not allocated:
-                backend = "core_timed" if exe == args.timed else "core"
-                command += ["--fixture", str(fixtures / ("%s-%s-t%d" % (backend, workload, timestamped)))]
+                command += ["--fixture", str(fixtures / ("core-%s-t%d" % (workload, timestamped)))]
             if allocated:
                 command += ["--fixture", str(root / ("alloc-%d" % runs))]
             subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -136,11 +126,10 @@ def main():
                     assert p.read_bytes() == reference.read_bytes()
             expected_samples = count * 24 if recovery else count
             expected_flushes = 9 if recovery else (4 if workload == "churn" else 1)
-            return prefix, check(prefix, mode, exe == args.timed, allocated, expected_samples, expected_flushes)
+            return prefix, check(prefix, mode, allocated, expected_samples, expected_flushes)
         for workload in ("repeated", "unique", "deep256", "labels", "churn"):
             for timestamped in (False, True):
                 run(args.core, workload, "throughput", timestamped)
-                run(args.timed, workload, "throughput", timestamped)
                 # Same recipe, same bytes, despite per-record clocks and allocation counters.
                 run(args.core, workload, "latency", timestamped)
                 run(args.core, workload, "discard", timestamped)
@@ -169,24 +158,14 @@ def main():
         assert int(capped_summary["allocation_events_dropped"]) > 0
         assert len(rows(root / "capped-allocations.csv")) == 4
         assert rows(root / "capped-stages.csv")[-1]["core_live_bytes"] == "0"
-        for p in fixtures.glob("core-*.pprof"):
-            assert p.read_bytes() == p.with_name(p.name.replace("core-", "core_timed-", 1)).read_bytes()
         if args.decode:
             from compare_fixtures import validate_directory, decompress
-            report = validate_directory(fixtures, fixture_samples=37, flush_every=10)
+            report = validate_directory(fixtures, fixture_samples=37, flush_every=10, require_timed=False)
             assert report["groups"] == 16
             reject_missing_function_metadata(decompress(next(fixtures.glob('core-*.pprof'))))
-            # Timed byte count matches independent decompressor's actual raw size.
-            for summary_path in root.glob("*-summary.csv"):
-                summary, = rows(summary_path)
-                if summary["backend"] != "c_timed":
-                    continue
-                workload, ts = summary["workload"], summary["timestamped"]
-                raw_size = sum(len(decompress(p)) for p in fixtures.glob("core_timed-%s-t%s-*.pprof" % (workload, ts)))
-                assert raw_size == int(summary["protobuf_bytes"])
-            print("PASS: independent wire decode, expected observations/aggregation, stacks, labels, times, and raw sizes")
+            print("PASS: independent wire decode, expected observations/aggregation, stacks, labels and times")
         print("PASS: warmed cycles allocate/free nothing, allocation-free reset, three-cycle spike recovery")
-        print("PASS: %d runs; stage/memory lifecycle, allocator accounting, exact percentiles/max index, timed/normal bytes" % runs)
+        print("PASS: %d runs; stage/memory lifecycle, allocator accounting, exact percentiles/max index" % runs)
 
 
 if __name__ == "__main__":

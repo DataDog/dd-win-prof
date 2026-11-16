@@ -29,23 +29,27 @@ struct EncodingFailureState {
 };
 thread_local EncodingFailureState encodingFailure;
 
-pa_status SerializeWithFailure(
-    pa_profile* profile, int64_t start, int64_t end, pa_sink sink, void* context
+ddc_profile_status SerializeWithFailure(
+    ddc_profile* profile,
+    int64_t start,
+    int64_t end,
+    ddc_profile_sink sink,
+    void* context
 ) {
   ++encodingFailure.serializeCalls;
-  if (std::exchange(encodingFailure.serialize, false)) return PA_COMPRESSION;
+  if (std::exchange(encodingFailure.serialize, false)) return DDC_PROFILE_COMPRESSION;
   if (std::exchange(encodingFailure.output, false)) {
-    auto failingSink = [](void*, const uint8_t*, size_t) -> pa_status {
-      return PA_OUTPUT;
+    auto failingSink = [](void*, const uint8_t*, size_t) -> ddc_profile_status {
+      return DDC_PROFILE_OUTPUT;
     };
-    return pa_serialize(profile, start, end, failingSink, nullptr);
+    return ddc_profile_serialize(profile, start, end, failingSink, nullptr);
   }
-  return pa_serialize(profile, start, end, sink, context);
+  return ddc_profile_serialize(profile, start, end, sink, context);
 }
-pa_status ResetWithFailure(pa_profile* profile) {
+ddc_profile_status ResetWithFailure(ddc_profile* profile) {
   ++encodingFailure.resetCalls;
-  if (std::exchange(encodingFailure.reset, false)) return PA_NOMEM;
-  return pa_reset(profile);
+  if (std::exchange(encodingFailure.reset, false)) return DDC_PROFILE_NOMEM;
+  return ddc_profile_reset(profile);
 }
 
 }  // namespace
@@ -153,9 +157,8 @@ TEST_F(ProfilingDataCallbackTests, NoHttpSettingsNeededWithNoEnvVars) {
       Profiler::GetConfiguration()->GetUploadInterval(), std::chrono::seconds(17)
   );
   EXPECT_EQ(profiler->GetDeliveryMode(), ProfileDeliveryMode::Callback);
-  EXPECT_FALSE(
-      Profiler::GetConfiguration()->IsExportEnabled(profiler->GetDeliveryMode())
-  );
+  EXPECT_FALSE(Profiler::GetConfiguration()->IsExportEnabled(profiler->GetDeliveryMode()
+  ));
   EXPECT_TRUE(Profiler::GetConfiguration()->GetApiKey().empty());
 }
 
@@ -589,17 +592,15 @@ TEST(ProfilingDataExportTests, ResetErrorIsDeliveredAndNextExportRecovers) {
 
     Sample::SetValuesCount(types.size());
     HANDLE thread = nullptr;
-    ASSERT_TRUE(
-        ::DuplicateHandle(
-            ::GetCurrentProcess(),
-            ::GetCurrentThread(),
-            ::GetCurrentProcess(),
-            &thread,
-            0,
-            FALSE,
-            DUPLICATE_SAME_ACCESS
-        )
-    );
+    ASSERT_TRUE(::DuplicateHandle(
+        ::GetCurrentProcess(),
+        ::GetCurrentThread(),
+        ::GetCurrentProcess(),
+        &thread,
+        0,
+        FALSE,
+        DUPLICATE_SAME_ACCESS
+    ));
     auto threadInfo = std::make_shared<ThreadInfo>(::GetCurrentThreadId(), thread);
     uint64_t frames[] = {reinterpret_cast<uint64_t>(&ResetWithFailure)};
     auto sample = std::make_shared<Sample>(

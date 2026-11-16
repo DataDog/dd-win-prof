@@ -150,7 +150,7 @@ def expected(workload, timestamped, count, begin):
     return samples
 
 
-def validate_directory(directory, require_v19=False, fixture_samples=6000, flush_every=1000, require_v47=False):
+def validate_directory(directory, require_v19=False, fixture_samples=6000, flush_every=1000, require_v47=False, require_timed=True):
     assert not (require_v19 and require_v47), "select one baseline version"
     pattern = re.compile(r"(core|core_timed|v19|v47)-(repeated|unique|deep256|labels|churn)-t([01])-(\d+)\.pprof$")
     grouped, report = {}, []
@@ -172,12 +172,14 @@ def validate_directory(directory, require_v19=False, fixture_samples=6000, flush
                        "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
     assert grouped, "no fixtures"
     for key, backends in grouped.items():
-        assert {"core", "core_timed"} <= set(backends), "missing normal/timed fixture: %s" % (key,)
+        required = {"core", "core_timed"} if require_timed else {"core"}
+        assert required <= set(backends), "missing fixture: %s" % (key,)
         if require_v19 or require_v47:
             baseline = "v47" if require_v47 else "v19"
-            assert set(backends) == {"core", "core_timed", baseline}, "missing/wrong baseline fixture: %s" % (key,)
+            assert set(backends) == required | {baseline}, "missing/wrong baseline fixture: %s" % (key,)
         assert not {"v19", "v47"} <= set(backends), "mixed baseline versions"
-        assert backends["core"][1].read_bytes() == backends["core_timed"][1].read_bytes(), "instrumentation changed bytes"
+        if "core_timed" in backends:
+            assert backends["core"][1].read_bytes() == backends["core_timed"][1].read_bytes(), "instrumentation changed bytes"
         for samples, _ in backends.values():
             assert samples == backends["core"][0]
     # Require every workload and timestamp setting, not merely one matching pair.

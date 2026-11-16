@@ -1,5 +1,13 @@
 # Aggregation performance harness v2 (PROF-16455)
 
+Current `bench_core` links the source-built public `ddc::profiling` target. Use
+`DD_WIN_PROF_LIBDD_C_SOURCE_DIR` for a local source override. The private
+`bench_core_timed` compression-hook mode and the old full-matrix `run-windows.ps1`
+launcher are retired. Compression-only fields are unavailable (`NA`), not zero.
+The remaining v19/v47 recipes below describe historical revisions and results,
+not measurements of the libdd-c integration. Reproduce those at consumer commit
+`86dd462ebad979855ac7119017a813fe9748f9ad`.
+
 Benchmark-only standalone C11/C++20 project. No production SDK dependency, Rust build, download, layout manipulation, or API additions. Existing v1 evidence is preserved. **Do not use v1 relative times/allocation counts as a fair comparison:** its Rust global atomic allocator, per-record clocks, different setup calls, and differently classified churn reset/reconstruction costs bias those comparisons. V2 does not retroactively correct those CSVs. See the [historical v19 Windows results and evidence](../windows-v2/README.md).
 
 ## Build and sanity on the host
@@ -11,7 +19,7 @@ cmake --build /tmp/prof-16455-perf-v2 --parallel 4
 ctest --test-dir /tmp/prof-16455-perf-v2 --output-on-failure
 # With test-only zstandard==0.25.0 and lz4 installed in an isolated Python:
 python packages/profile-aggregation/benchmarks/harness/test_harness.py \
-  /tmp/prof-16455-perf-v2/bench_core /tmp/prof-16455-perf-v2/bench_core_timed --decode
+  /tmp/prof-16455-perf-v2/bench_core --decode
 ```
 
 `test_harness.py` checks phase totals, memory-stage ordering, exact nearest-rank percentiles, max latency/index against raw records, allocation balance and capped-event overflow, and normal/timed/allocator-instrumented C fixture identity. `--decode` independently decompresses and parses pprof wire fields, checks the recipe including untimed aggregation, and checks the timed protobuf byte counter against actual decompressed size. It does not reuse the encoder, generated encoder structs, or production Zstd decoder. A negative mutation removing function records and location lines must be rejected.

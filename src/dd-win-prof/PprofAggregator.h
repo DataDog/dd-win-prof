@@ -1,16 +1,17 @@
 // Copyright 2026 Datadog, Inc. SPDX-License-Identifier: Apache-2.0
 #pragma once
+#include <ddc/profiling.h>
+
 #include <cstdint>
 #include <span>
 #include <vector>
 
 #include "SampleValueType.h"
-#include "profile_aggregation.h"
 namespace dd_win_prof {
-// Native failure seam used by lifecycle tests. No FFI types enter the adapter.
+// Native failure seam used by lifecycle tests.
 struct ProfileEncodingApi {
-  decltype(&pa_serialize) serialize = pa_serialize;
-  decltype(&pa_reset) reset = pa_reset;
+  decltype(&ddc_profile_serialize) serialize = ddc_profile_serialize;
+  decltype(&ddc_profile_reset) reset = ddc_profile_reset;
 };
 class PprofAggregator {
  public:
@@ -26,15 +27,15 @@ class PprofAggregator {
   bool Serialize(int64_t startMs, int64_t endMs, std::vector<uint8_t>& bytes);
   bool Reset();
   bool AddSample(
-      std::span<const pa_id> locations,
+      std::span<const ddc_profile_id> locations,
       std::span<const int64_t> values,
       int64_t timestamp,
-      pa_id labels
+      ddc_profile_id labels
   );
-  pa_profile* GetProfile() { return m_profile; }
+  ddc_profile* GetProfile() { return m_profile; }
 
  private:
-  pa_profile* m_profile = nullptr;
+  ddc_profile* m_profile = nullptr;
   ProfileEncodingApi m_api;
 };
 }  // namespace dd_win_prof

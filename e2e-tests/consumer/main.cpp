@@ -5,7 +5,8 @@
 // Implementation headers must not shadow a consuming project's own headers.
 #if __has_include("Log.h") || __has_include("Uuid.h") || __has_include("version.h") || \
     __has_include("pch.h") || __has_include("framework.h") || \
-    __has_include("dd-win-rum-private.h")
+    __has_include("dd-win-rum-private.h") || __has_include(<ddc/profiling.h>) || \
+    __has_include("profile_aggregation.h")
 #error "dd-win-prof exposes unintended headers to consumers"
 #endif
 

@@ -1,4 +1,5 @@
 Component,Origin,License,Copyright
+libdd-c profiling core,https://github.com/DataDog/libdd-c,Apache-2.0,"Copyright 2026 Datadog, Inc."
 spdlog,https://github.com/gabime/spdlog,MIT,Copyright (c) 2016 Gabi Melman
 fmt (via spdlog),https://github.com/fmtlib/fmt,MIT,Copyright (c) 2012 - present Victor Zverovich
 Google Test,https://github.com/google/googletest,BSD-3-Clause,Copyright 2008 Google Inc.
