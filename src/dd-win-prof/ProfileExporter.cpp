@@ -138,7 +138,8 @@ bool ProfileExporter::InitializeHttpExporter() {
   std::string description, driverVersion, date, name, chip;
   uint64_t ram = 0;
   int device = 0;
-  while (GetGpuFromRegistry(device, description, driverVersion, date, name, chip, ram)
+  while (
+      GetGpuFromRegistry(device, description, driverVersion, date, name, chip, ram)
   ) {
     const auto index = std::to_string(device++);
     if (description.empty() && name.empty()) continue;
@@ -156,18 +157,35 @@ bool ProfileExporter::InitializeHttpExporter() {
   _httpTags.insert(_httpTags.end(), c.GetUserTags().begin(), c.GetUserTags().end());
   return true;
 }
+tags ProfileExporter::BuildRumTags(
+    const std::string& applicationId,
+    const std::vector<std::string>& sessionIds,
+    const std::vector<std::string>& viewIds
+) {
+  tags result;
+  if (!applicationId.empty()) result.emplace_back("rum.application_id", applicationId);
+  for (const auto& id : sessionIds) {
+    if (!id.empty()) result.emplace_back("rum.session_id", id);
+  }
+  for (const auto& id : viewIds) {
+    if (!id.empty()) result.emplace_back("rum.view_id", id);
+  }
+  return result;
+}
 bool ProfileExporter::SendHttp(
     const std::vector<uint8_t>& bytes,
     const std::string& rum,
     int64_t start,
-    int64_t end
+    int64_t end,
+    const std::vector<std::string>& rumSessionIds,
+    const std::vector<std::string>& rumViewIds
 ) {
   try {
     auto tags = _httpTags;
     tags.emplace_back("profile_seq", std::to_string(_currentExportId));
     tags.emplace_back("pid", std::to_string(::GetCurrentProcessId()));
-    if (!_rumApplicationId.empty())
-      tags.emplace_back("rum.application_id", _rumApplicationId);
+    for (auto& tag : BuildRumTags(_rumApplicationId, rumSessionIds, rumViewIds))
+      tags.push_back(std::move(tag));
     std::vector<pe_tag> borrowed;
     borrowed.reserve(tags.size());
     for (const auto& [key, value] : tags)
@@ -343,7 +361,10 @@ bool ProfileExporter::Export(bool last) {
   auto end = std::chrono::system_clock::now();
   int64_t startMs = ToUnixTimeMs(_profileStartTime), endMs = ToUnixTimeMs(end);
   std::vector<uint8_t> bytes;
-  auto rum = CollectRumRecordsJson(static_cast<bool>(_profilingDataCallback));
+  std::vector<std::string> rumSessionIds, rumViewIds;
+  auto rum = CollectRumRecordsJson(
+      static_cast<bool>(_profilingDataCallback), rumSessionIds, rumViewIds
+  );
   bool success = _aggregator->Serialize(startMs, endMs, bytes);
   if (!success)
     ReportError(ProfilingErrorCode::SerializationFailed, last);
@@ -365,7 +386,7 @@ bool ProfileExporter::Export(bool last) {
       data.isLast = last;
       success = DeliverProfilingData(std::move(data));
     } else if (_httpExporter) {
-      success = SendHttp(bytes, rum, startMs, endMs);
+      success = SendHttp(bytes, rum, startMs, endMs, rumSessionIds, rumViewIds);
     }
   }
   // Recovery remains explicit even after encoding, sink or callback failures.
@@ -391,13 +412,24 @@ bool ProfileExporter::Export(bool last) {
     std::vector<ddc_profile_id>().swap(_locationScratch);
   return success;
 }
-std::string ProfileExporter::CollectRumRecordsJson(bool discard) {
+std::string ProfileExporter::CollectRumRecordsJson(
+    bool discard,
+    std::vector<std::string>& sessionIds,
+    std::vector<std::string>& viewIds
+) {
   if (!_pRumRecordProvider) return {};
   _pRumRecordProvider->ConsumeViewRecords(_viewRecordsBuffer);
   _pRumRecordProvider->ConsumeSessionRecords(_sessionRecordsBuffer);
   auto result =
       discard ? std::string{}
               : SerializeRumRecordsToJson(_viewRecordsBuffer, _sessionRecordsBuffer);
+  if (!discard) {
+    sessionIds.reserve(_sessionRecordsBuffer.size());
+    for (const auto& record : _sessionRecordsBuffer)
+      sessionIds.push_back(record.session_id);
+    viewIds.reserve(_viewRecordsBuffer.size());
+    for (const auto& record : _viewRecordsBuffer) viewIds.push_back(record.view_id);
+  }
   _viewRecordsBuffer.clear();
   _sessionRecordsBuffer.clear();
   return result;

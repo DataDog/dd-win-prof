@@ -11,6 +11,7 @@
 #include "RumContext.h"
 #include "Sample.h"
 #include "Symbolication.h"
+#include "TagsHelper.h"
 #include "internal/dd-win-rum-private.h"
 #include "profile_exporter.h"
 class ProfileExporter {
@@ -29,9 +30,15 @@ class ProfileExporter {
   void Cleanup(bool skipExporterCleanup = false);
   bool IsInitialized() const { return _initialized; }
   void SetRumApplicationId(const std::string& id) { _rumApplicationId = id; }
-  static std::string
-  SerializeRumRecordsToJson(const std::vector<RumViewRecord>&, const std::vector<RumSessionRecord>&);
+  static std::string SerializeRumRecordsToJson(
+      const std::vector<RumViewRecord>&, const std::vector<RumSessionRecord>&
+  );
   static void EscapeJsonString(std::ostream&, const std::string&);
+  static tags BuildRumTags(
+      const std::string& applicationId,
+      const std::vector<std::string>& sessionIds,
+      const std::vector<std::string>& viewIds = {}
+  );
   void SetDebugPprofFileWritingEnabled(bool v) { _debugPprofFileWritingEnabled = v; }
   bool IsDebugPprofFileWritingEnabled() const { return _debugPprofFileWritingEnabled; }
   void SetDebugPprofPrefix(const std::string& p) { _debugPprofPrefix = p; }
@@ -39,7 +46,14 @@ class ProfileExporter {
 
  private:
   bool InitializeHttpExporter();
-  bool SendHttp(const std::vector<uint8_t>&, const std::string&, int64_t, int64_t);
+  bool SendHttp(
+      const std::vector<uint8_t>&,
+      const std::string&,
+      int64_t,
+      int64_t,
+      const std::vector<std::string>&,
+      const std::vector<std::string>&
+  );
   bool InternSampleLabels();
   std::optional<ddc_profile_id> InternLocation(uint64_t);
   std::optional<ddc_profile_id> CreateLabelSet(
@@ -47,7 +61,11 @@ class ProfileExporter {
   );
   bool ReportError(ProfilingErrorCode, bool);
   bool DeliverProfilingData(ProfilingData);
-  std::string CollectRumRecordsJson(bool discard);
+  std::string CollectRumRecordsJson(
+      bool discard,
+      std::vector<std::string>& sessionIds,
+      std::vector<std::string>& viewIds
+  );
   void WriteDebugFiles(const std::vector<uint8_t>&, const std::string&, int64_t);
   std::unique_ptr<pe_exporter, decltype(&pe_exporter_destroy)> _httpExporter{
       nullptr, pe_exporter_destroy

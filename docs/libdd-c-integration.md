@@ -34,7 +34,8 @@ that serialization would reject. Direct adapter input above the limit fails.
 This reduction was explicitly approved for the stack optimization. It is not a
 claim of semantic equivalence for profiles with more than 256 frames.
 
-Other behavior is unchanged: ordered/custom sample definitions, periods, labels,
+Apart from the upstream RUM HTTP tag change described below, behavior is unchanged:
+ordered/custom sample definitions, periods, labels,
 module-relative location addresses, generation-local IDs and cache invalidation,
 owned callback bytes after `StopProfiler`, stop/final delivery, and RUM/UI hangs.
 There is still exactly one reset on the native export path, including failed
@@ -48,7 +49,25 @@ Existing conventions intentionally retained, not fixed here:
 - The adapter uses `timestamp != 0` as presence. The core supports explicit epoch
   zero, but the adapter does not express it.
 
+## Main synchronization
+
+The validated pre-sync integration is commit
+`ea20ab1e92ce0c2fa1f6815c2848b0661d5046c7`. Main commit
+`cf7aa2beaaa61956a83b0fda3d830ee699cd2a20` adds repeated `rum.session_id` and
+`rum.view_id` HTTP tags. Its exporter changes are adapted to the C/WinHTTP path,
+retaining all nine upstream tests, including empty-ID handling, uncapped tag
+lists and no stale IDs on the next export. Callback delivery still discards
+these HTTP-only records.
+
+Windows validation of this main synchronization is pending. The 234-test results
+below describe the pre-sync implementation, not the current merged code; the
+native suite now contains 243 tests.
+
 ## Build
+
+libdd-c is currently internal. Normal fetching requires authorized GitHub
+credentials, including cross-repository access in CI. The installed consumer
+does not fetch it.
 
 Normal source fetch (Visual Studio 2022 x64):
 
