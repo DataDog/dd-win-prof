@@ -35,32 +35,31 @@ bool RunLifecycle(Action action) noexcept {
 }
 }  // namespace
 
-DD_WIN_PROF_API bool SetupProfilingDataCallback(
-    const ProfilingDataCallback& callback
-) noexcept {
+extern "C" {
+
+DD_WIN_PROF_API bool DD_WIN_PROF_CALL
+SetupProfilingDataCallback(ProfilingDataCallback callback, void* userData) {
   return RunLifecycle([&](Profiler& profiler) {
-    return profiler.SetProfilingDataCallback(callback);
+    return profiler.SetProfilingDataCallback(callback, userData);
   });
 }
 
 DD_WIN_PROF_API const char* GetProfilingErrorMessage(uint32_t result) noexcept {
-  switch (static_cast<ProfilingErrorCode>(result)) {
-    case ProfilingErrorCode::None:
+  switch (result) {
+    case PROFILING_ERROR_NONE:
       return "Success";
-    case ProfilingErrorCode::SerializationFailed:
+    case PROFILING_ERROR_SERIALIZATION_FAILED:
       return "Profile serialization failed";
-    case ProfilingErrorCode::ProfileBytesUnavailable:
+    case PROFILING_ERROR_PROFILE_BYTES_UNAVAILABLE:
       return "Encoded profile bytes are unavailable";
-    case ProfilingErrorCode::ProfileResetFailed:
+    case PROFILING_ERROR_PROFILE_RESET_FAILED:
       return "Profile reset failed";
-    case ProfilingErrorCode::SampleLabelsUnavailable:
+    case PROFILING_ERROR_SAMPLE_LABELS_UNAVAILABLE:
       return "Sample labels are unavailable";
     default:
       return "Unknown profiling error";
   }
 }
-
-extern "C" {
 
 DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig* pSettings) {
   if (pSettings == nullptr) {

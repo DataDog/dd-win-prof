@@ -4,8 +4,8 @@
     nothing meant only for dd-win-prof developers leaks into it.
 
 .DESCRIPTION
-    Configures, builds and installs e2e-tests/consumer (a C++17 executable that links
-    the dd-win-prof target) with the Visual Studio generator, then verifies that:
+    Configures, builds and installs e2e-tests/consumer (C11 and C++17 executables that
+    link the dd-win-prof target) with the Visual Studio generator, then verifies that:
       - GoogleTest was not downloaded
       - no test / tool projects (Tests, Runner, ProfilerInjector, ObfSymbols, gtest...)
         were generated
@@ -19,8 +19,9 @@
       - a separate project (consumer/downstream) can configure, compile and link
         against the installed, exported dd-win-prof target (include path, header
         install and import library)
-      - consumers can register the SDK callback and retain a profile after stop
-        through both FetchContent and installed headers
+      - C and C++ consumers can register the SDK callback, copy its borrowed bytes
+        during the callback, and retain a profile after stop through both FetchContent
+        and installed headers
     The compile steps additionally fail if dd-win-prof exposes implementation headers
     (see consumer/main.cpp) or either published header isn't self-contained.
 
@@ -102,10 +103,16 @@ Invoke-Checked cmake --install $buildDir --config $Config --prefix $installDir
 
 $failures = @()
 if (-not (Invoke-Consumer (Join-Path $buildDir "$Config/consumer.exe"))) {
-    $failures += 'FetchContent consumer failed SDK callback delivery'
+    $failures += 'FetchContent C++ consumer failed SDK callback delivery'
+}
+if (-not (Invoke-Consumer (Join-Path $buildDir "$Config/consumer-c.exe"))) {
+    $failures += 'FetchContent C consumer failed SDK callback delivery'
 }
 if (-not (Invoke-Consumer (Join-Path $installDir 'bin/consumer.exe'))) {
-    $failures += 'Installed consumer failed SDK callback delivery'
+    $failures += 'Installed C++ consumer failed SDK callback delivery'
+}
+if (-not (Invoke-Consumer (Join-Path $installDir 'bin/consumer-c.exe'))) {
+    $failures += 'Installed C consumer failed SDK callback delivery'
 }
 
 # A project that only has the installed prefix must be able to use the exported target:
@@ -117,6 +124,7 @@ $ok = Invoke-Soft cmake -G 'Visual Studio 17 2022' -A x64 `
     ('-DDD_WIN_PROF_CONSUMER_PREFIX=' + ($installDir -replace '\\', '/'))
 if ($ok) { $ok = Invoke-Soft cmake --build $downstreamDir --config $Config }
 if ($ok) { $ok = Invoke-Consumer (Join-Path $downstreamDir "$Config/downstream.exe") }
+if ($ok) { $ok = Invoke-Consumer (Join-Path $downstreamDir "$Config/downstream-c.exe") }
 if (-not $ok) {
     $failures += 'A project using the installed, exported dd-win-prof target failed to configure, build or run its SDK callback'
 }
@@ -150,6 +158,7 @@ if ($changed.Count -gt 0) {
 # (e.g. Profiler/, Obfuscation/, licenses) comes from dd-win-prof's own install rules.
 $expectedInstalled = @(
     'bin/consumer.exe',
+    'bin/consumer-c.exe',
     'bin/dd-win-prof.dll',
     'include/dd-win-prof.h',
     'include/internal/error.h',

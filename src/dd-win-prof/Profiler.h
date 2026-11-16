@@ -28,9 +28,14 @@ class Profiler : public IRumViewContextProvider,
   bool MonitorWindowHangs(HWND hWnd);
   void StopProfiling(bool shutdownOngoing = false);
 
-  [[nodiscard]] bool SetProfilingDataCallback(const ProfilingDataCallback& callback);
-  const ProfilingDataCallback& GetProfilingDataCallback() const {
+  [[nodiscard]] bool SetProfilingDataCallback(
+      ProfilingDataCallback callback, void* userData
+  );
+  ProfilingDataCallback GetProfilingDataCallback() const {
     return _profilingDataCallback;
+  }
+  void* GetProfilingDataCallbackUserData() const {
+    return _profilingDataCallbackUserData;
   }
   ProfileDeliveryMode GetDeliveryMode() const {
     return _profilingDataCallback ? ProfileDeliveryMode::Callback
@@ -101,7 +106,9 @@ class Profiler : public IRumViewContextProvider,
   std::unique_ptr<UiHangProvider> _pUiHangProvider = nullptr;
 
   // exporter
-  ProfilingDataCallback _profilingDataCallback;
+  ProfilingDataCallback _profilingDataCallback = nullptr;
+  void* _profilingDataCallbackUserData = nullptr;
+  std::atomic<bool> _callbackRegistrationFrozen{false};
   std::unique_ptr<ProfileExporter> _pProfileExporter = nullptr;
 
   // samples collector

@@ -27,21 +27,20 @@ Profiler::~Profiler() {
   _isStarted = false;
 }
 
-bool Profiler::SetProfilingDataCallback(const ProfilingDataCallback& callback) {
-  if (IsStarted()) {
+bool Profiler::SetProfilingDataCallback(
+    ProfilingDataCallback callback, void* userData
+) {
+  if (callback == nullptr && userData != nullptr) {
+    Log::Error("A profiling callback context requires a callback");
+    return false;
+  }
+  if (_callbackRegistrationFrozen.load(std::memory_order_acquire) || IsStarted()) {
     Log::Error("Cannot change the profiling callback while the profiler is running");
     return false;
   }
-  try {
-    _profilingDataCallback = callback;
-    return true;
-  } catch (const std::exception& error) {
-    Log::Error("Failed to copy profiling data callback: ", error.what());
-    return false;
-  } catch (...) {
-    Log::Error("Failed to copy profiling data callback: non-standard exception");
-    return false;
-  }
+  _profilingDataCallback = callback;
+  _profilingDataCallbackUserData = userData;
+  return true;
 }
 
 bool Profiler::StartProfiling() {
@@ -95,8 +94,13 @@ bool Profiler::StartProfiling() {
 
   //... and pass them to the exporter
   _pProfileExporter = std::make_unique<ProfileExporter>(
-      _pConfiguration.get(), sampleTypeDefinitions, this, _profilingDataCallback
+      _pConfiguration.get(),
+      sampleTypeDefinitions,
+      this,
+      _profilingDataCallback,
+      _profilingDataCallbackUserData
   );
+  _callbackRegistrationFrozen.store(true, std::memory_order_release);
 
   // Initialize the ProfileExporter
   if (!_pProfileExporter->Initialize()) {
@@ -105,6 +109,7 @@ bool Profiler::StartProfiling() {
     _pUiHangProvider.reset();
     _pCpuWallTimeProvider.reset();
     _pCpuTimeProvider.reset();
+    _callbackRegistrationFrozen.store(false, std::memory_order_release);
     return false;
   }
 
@@ -216,6 +221,7 @@ void Profiler::StopProfiling(bool shutdownOngoing) {
     _pProfileExporter->Cleanup(shutdownOngoing);
     _pProfileExporter.reset();
   }
+  _callbackRegistrationFrozen.store(false, std::memory_order_release);
 
   _pUiHangProvider.reset();
   _pCpuWallTimeProvider.reset();

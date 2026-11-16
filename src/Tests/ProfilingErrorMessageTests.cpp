@@ -11,13 +11,13 @@
 
 TEST(ProfilingErrorMessageTests, KnownCallbackCodesHaveStaticMessages) {
   for (const auto code :
-       {ProfilingErrorCode::None,
-        ProfilingErrorCode::SerializationFailed,
-        ProfilingErrorCode::ProfileBytesUnavailable,
-        ProfilingErrorCode::ProfileResetFailed,
-        ProfilingErrorCode::SampleLabelsUnavailable}) {
-    SCOPED_TRACE(static_cast<uint32_t>(code));
-    const auto result = static_cast<uint32_t>(code);
+       {PROFILING_ERROR_NONE,
+        PROFILING_ERROR_SERIALIZATION_FAILED,
+        PROFILING_ERROR_PROFILE_BYTES_UNAVAILABLE,
+        PROFILING_ERROR_PROFILE_RESET_FAILED,
+        PROFILING_ERROR_SAMPLE_LABELS_UNAVAILABLE}) {
+    SCOPED_TRACE(code);
+    const auto result = code;
     const char* message = GetProfilingErrorMessage(result);
     ASSERT_NE(message, nullptr);
     EXPECT_STRNE(message, "");

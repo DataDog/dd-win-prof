@@ -16,18 +16,41 @@ bool HasZstdMagic(const std::vector<std::uint8_t>& bytes) {
   return bytes.size() >= 4 && bytes[0] == 0x28 && bytes[1] == 0xb5 &&
          bytes[2] == 0x2f && bytes[3] == 0xfd;
 }
+
+struct ProfileSnapshot {
+  std::uint32_t result;
+  std::vector<std::uint8_t> bytes;
+  std::int64_t startUnixTimeMs;
+  std::int64_t endUnixTimeMs;
+  bool isLast;
+};
+
+struct CallbackContext {
+  std::vector<ProfileSnapshot> results;
+};
+
+void DD_WIN_PROF_CALL CaptureProfile(const ProfilingData* data, void* userData) {
+  auto& context = *static_cast<CallbackContext*>(userData);
+  ProfileSnapshot snapshot{
+      data->result,
+      {},
+      data->start_unix_time_ms,
+      data->end_unix_time_ms,
+      data->is_last != 0
+  };
+  if (data->result != 0) {
+    std::cerr << "Profile delivery failed: " << GetProfilingErrorMessage(data->result)
+              << '\n';
+  } else if (data->pprof_size != 0) {
+    snapshot.bytes.assign(data->pprof_bytes, data->pprof_bytes + data->pprof_size);
+  }
+  context.results.push_back(std::move(snapshot));
+}
 }  // namespace
 
 int TestSdkCallback() {
-  std::vector<ProfilingData> results;
-  const ProfilingDataCallback callback = [&](ProfilingData data) {
-    if (data.result != 0) {
-      std::cerr << "Profile delivery failed: " << GetProfilingErrorMessage(data.result)
-                << '\n';
-    }
-    results.push_back(std::move(data));
-  };
-  if (!SetupProfilingDataCallback(callback)) {
+  CallbackContext context;
+  if (!SetupProfilingDataCallback(CaptureProfile, &context)) {
     std::cerr << "Failed to register the profiling callback\n";
     return 1;
   }
@@ -40,25 +63,26 @@ int TestSdkCallback() {
   if (!configured || !StartProfiler()) {
     std::cerr << "Failed to " << (configured ? "start" : "configure")
               << " the profiler\n";
-    if (!SetupProfilingDataCallback({})) {
+    if (!SetupProfilingDataCallback(nullptr, nullptr)) {
       std::cerr << "Failed to unregister the profiling callback\n";
     }
     return 1;
   }
 
   StopProfiler();
-  const bool unregistered = SetupProfilingDataCallback({});
+  const bool unregistered = SetupProfilingDataCallback(nullptr, nullptr);
   if (!unregistered) {
     std::cerr << "Failed to unregister the profiling callback\n";
     return 1;
   }
 
-  if (results.size() != 1) {
-    std::cerr << "Expected one callback on stop, got " << results.size() << '\n';
+  if (context.results.size() != 1) {
+    std::cerr << "Expected one callback on stop, got " << context.results.size()
+              << '\n';
     return 1;
   }
 
-  const auto& profile = results.front();
+  const auto& profile = context.results.front();
   if (profile.result != 0) {
     std::cerr << "Expected a profile, got: " << GetProfilingErrorMessage(profile.result)
               << '\n';
@@ -68,7 +92,7 @@ int TestSdkCallback() {
     std::cerr << "Profile delivered on stop was not marked final\n";
     return 1;
   }
-  if (!HasZstdMagic(profile.pprof)) {
+  if (!HasZstdMagic(profile.bytes)) {
     std::cerr << "Final profile is not a Zstd frame\n";
     return 1;
   }
