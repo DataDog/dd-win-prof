@@ -185,7 +185,7 @@ Configuration is managed in `Configuration.cpp`. Values come from two sources, w
 
 2. **`SetupProfiler(const ProfilerConfig*)`** (`dd-win-prof.cpp`): Callers pass a `ProfilerConfig` struct; `InitializeConfiguration()` applies its fields to the shared `Configuration` instance.
 
-**Compatibility**: The lifecycle and SDK-private callback APIs use C linkage. `ProfilingData.struct_size` supports append-only extension, and `DD_WIN_PROF_CALL` makes the callback calling convention explicit.
+**Compatibility**: The lifecycle and SDK-private callback APIs use C linkage. `ProfilingData.struct_size` supports append-only extension, and `DD_WIN_PROF_CALL` makes the callback calling convention explicit. Seven zero-filled reserved bytes make the one-byte `is_last` tail occupy a full 64-bit unit; future fields are appended after that array so they increase `struct_size` instead of consuming implicit tail padding.
 
 **SDK callback registration**: `Profiler` stores the function pointer and caller-owned context registered through `SetupProfilingDataCallback()`. `(NULL, NULL)` unregisters; `(NULL, non-NULL)` is rejected without replacing the previous registration. Registration survives configuration resets and stop/start cycles. Each `ProfileExporter` snapshots both pointers for its run. Stop and unregister before destroying the context.
 

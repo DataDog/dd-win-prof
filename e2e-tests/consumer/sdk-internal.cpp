@@ -6,12 +6,22 @@
 #include "internal/dd-win-rum-private.h"
 // clang-format on
 
+#include <algorithm>
 #include <cstdint>
 #include <iostream>
 #include <utility>
 #include <vector>
 
 namespace {
+static_assert(
+    offsetof(ProfilingData, reserved) == offsetof(ProfilingData, is_last) + 1
+);
+static_assert(sizeof(ProfilingData{}.reserved) == 7);
+static_assert(
+    sizeof(ProfilingData) ==
+    offsetof(ProfilingData, reserved) + sizeof(ProfilingData{}.reserved)
+);
+
 bool HasZstdMagic(const std::vector<std::uint8_t>& bytes) {
   return bytes.size() >= 4 && bytes[0] == 0x28 && bytes[1] == 0xb5 &&
          bytes[2] == 0x2f && bytes[3] == 0xfd;
@@ -23,6 +33,7 @@ struct ProfileSnapshot {
   std::int64_t startUnixTimeMs;
   std::int64_t endUnixTimeMs;
   bool isLast;
+  bool reservedBytesAreZero;
 };
 
 struct CallbackContext {
@@ -36,7 +47,12 @@ void DD_WIN_PROF_CALL CaptureProfile(const ProfilingData* data, void* userData) 
       {},
       data->start_unix_time_ms,
       data->end_unix_time_ms,
-      data->is_last != 0
+      data->is_last != 0,
+      std::all_of(
+          std::begin(data->reserved), std::end(data->reserved), [](std::uint8_t byte) {
+            return byte == 0;
+          }
+      )
   };
   if (data->result != 0) {
     std::cerr << "Profile delivery failed: " << GetProfilingErrorMessage(data->result)
@@ -90,6 +106,10 @@ int TestSdkCallback() {
   }
   if (!profile.isLast) {
     std::cerr << "Profile delivered on stop was not marked final\n";
+    return 1;
+  }
+  if (!profile.reservedBytesAreZero) {
+    std::cerr << "Profile delivered nonzero reserved bytes\n";
     return 1;
   }
   if (!HasZstdMagic(profile.bytes)) {

@@ -2,6 +2,7 @@
 // the Apache 2 License. This product includes software developed at Datadog
 // (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <future>
@@ -20,6 +21,15 @@
 #include "pch.h"
 
 namespace {
+static_assert(
+    offsetof(ProfilingData, reserved) == offsetof(ProfilingData, is_last) + 1
+);
+static_assert(sizeof(ProfilingData{}.reserved) == 7);
+static_assert(
+    sizeof(ProfilingData) ==
+    offsetof(ProfilingData, reserved) + sizeof(ProfilingData{}.reserved)
+);
+
 constexpr uint32_t ToResult(ProfilingErrorCode code) {
   return static_cast<uint32_t>(code);
 }
@@ -91,6 +101,7 @@ struct CapturedData {
   int64_t startUnixTimeMs;
   int64_t endUnixTimeMs;
   bool isLast;
+  bool reservedBytesAreZero;
 };
 
 struct CallbackContext {
@@ -116,7 +127,12 @@ void DD_WIN_PROF_CALL CaptureCallback(const ProfilingData* data, void* userData)
       {},
       data->start_unix_time_ms,
       data->end_unix_time_ms,
-      data->is_last != 0
+      data->is_last != 0,
+      std::all_of(
+          std::begin(data->reserved), std::end(data->reserved), [](uint8_t byte) {
+            return byte == 0;
+          }
+      )
   };
   if (data->pprof_size != 0) {
     context.sawLiveZstd = data->pprof_size >= 4 && data->pprof_bytes[0] == 0x28 &&
@@ -305,6 +321,7 @@ TEST_F(
   EXPECT_EQ(data.structSize, sizeof(ProfilingData));
   EXPECT_EQ(data.result, 0u);
   EXPECT_TRUE(data.isLast);
+  EXPECT_TRUE(data.reservedBytesAreZero);
   EXPECT_FALSE(data.pprof.empty());
   EXPECT_GE(data.startUnixTimeMs, beforeStartMs);
   EXPECT_LE(data.startUnixTimeMs, data.endUnixTimeMs);
@@ -403,6 +420,7 @@ TEST_F(ProfilingDataCallbackTests, EncodingErrorsReturnCodesAndNextExportRecover
     EXPECT_EQ(context.results.front().pprofSize, 0u);
     EXPECT_TRUE(context.results.front().pprof.empty());
     EXPECT_FALSE(context.results.front().isLast);
+    EXPECT_TRUE(context.results.front().reservedBytesAreZero);
     const char* explanation = GetProfilingErrorMessage(context.results.front().result);
     EXPECT_STRNE(explanation, "Unknown profiling error");
     std::vector<RumViewRecord> remainingViews;
@@ -416,6 +434,7 @@ TEST_F(ProfilingDataCallbackTests, EncodingErrorsReturnCodesAndNextExportRecover
     EXPECT_EQ(context.results.back().result, 0u);
     EXPECT_FALSE(context.results.back().pprof.empty());
     EXPECT_TRUE(context.results.back().isLast);
+    EXPECT_TRUE(context.results.back().reservedBytesAreZero);
     encodingFailure.serialize = code == ProfilingErrorCode::SerializationFailed;
     encodingFailure.bytes = code == ProfilingErrorCode::ProfileBytesUnavailable;
     EXPECT_FALSE(exporter.Export(true));
@@ -423,6 +442,7 @@ TEST_F(ProfilingDataCallbackTests, EncodingErrorsReturnCodesAndNextExportRecover
     EXPECT_EQ(context.results.back().result, ToResult(code));
     EXPECT_TRUE(context.results.back().pprof.empty());
     EXPECT_TRUE(context.results.back().isLast);
+    EXPECT_TRUE(context.results.back().reservedBytesAreZero);
     exporter.Cleanup();
     EXPECT_STREQ(explanation, GetProfilingErrorMessage(context.results.front().result));
   }
@@ -603,11 +623,13 @@ TEST(ProfilingDataExportTests, ResetErrorIsDeliveredAndNextExportRecovers) {
     EXPECT_EQ(context.results.front().result, 0u);
     EXPECT_EQ(context.results.front().isLast, lastCall);
     EXPECT_FALSE(context.results.front().pprof.empty());
+    EXPECT_TRUE(context.results.front().reservedBytesAreZero);
     EXPECT_EQ(
         context.results.back().result, ToResult(ProfilingErrorCode::ProfileResetFailed)
     );
     EXPECT_EQ(context.results.back().isLast, lastCall);
     EXPECT_TRUE(context.results.back().pprof.empty());
+    EXPECT_TRUE(context.results.back().reservedBytesAreZero);
     EXPECT_STREQ(
         GetProfilingErrorMessage(context.results.back().result), "Profile reset failed"
     );

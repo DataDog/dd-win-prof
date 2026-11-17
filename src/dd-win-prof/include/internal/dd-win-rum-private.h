@@ -15,7 +15,7 @@ extern "C" {
 #endif
 
 typedef struct ProfilingData {
-  // Size of this append-only structure.
+  // Size of this append-only structure. Future fields must be appended after reserved.
   uint32_t struct_size;
   // Zero on success. Nonzero values are opaque errors with null pprof bytes;
   // pass them to GetProfilingErrorMessage for static descriptive text.
@@ -30,6 +30,8 @@ typedef struct ProfilingData {
   int64_t end_unix_time_ms;
   // True for the final export from an explicit StopProfiler(), including errors.
   uint8_t is_last;
+  // Zero-filled tail reserved for alignment. Do not repurpose these bytes.
+  uint8_t reserved[7];
 } ProfilingData;
 
 // Periodic calls run on the exporter thread; final export runs on the stopping thread.

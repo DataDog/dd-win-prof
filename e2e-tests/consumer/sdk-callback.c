@@ -8,6 +8,17 @@
 
 #include "internal/dd-win-rum-private.h"
 
+_Static_assert(
+    offsetof(ProfilingData, reserved) == offsetof(ProfilingData, is_last) + 1,
+    "reserved must immediately follow is_last"
+);
+_Static_assert(sizeof(((ProfilingData*)0)->reserved) == 7, "reserved must be 7 bytes");
+_Static_assert(
+    sizeof(ProfilingData) ==
+        offsetof(ProfilingData, reserved) + sizeof(((ProfilingData*)0)->reserved),
+    "ProfilingData must not have implicit tail padding"
+);
+
 typedef struct CallbackContext {
   uint8_t* bytes;
   size_t size;
@@ -16,6 +27,7 @@ typedef struct CallbackContext {
   uint32_t result;
   uint8_t is_last;
   int allocation_failed;
+  int reserved_zero;
   int calls;
 } CallbackContext;
 
@@ -28,6 +40,12 @@ CaptureProfile(const ProfilingData* data, void* user_data) {
   context->is_last = data->is_last;
   context->start_unix_time_ms = data->start_unix_time_ms;
   context->end_unix_time_ms = data->end_unix_time_ms;
+  context->reserved_zero = 1;
+  for (size_t i = 0; i < sizeof(data->reserved); i++) {
+    if (data->reserved[i] != 0) {
+      context->reserved_zero = 0;
+    }
+  }
   if (data->result != 0 || data->pprof_size == 0) {
     return;
   }
@@ -66,9 +84,10 @@ int main(void) {
   }
 
   success = context.calls == 1 && !context.allocation_failed && context.result == 0 &&
-            context.is_last && context.size >= 4 && context.bytes[0] == 0x28 &&
-            context.bytes[1] == 0xb5 && context.bytes[2] == 0x2f &&
-            context.bytes[3] == 0xfd && context.start_unix_time_ms > 0 &&
+            context.is_last && context.reserved_zero && context.size >= 4 &&
+            context.bytes[0] == 0x28 && context.bytes[1] == 0xb5 &&
+            context.bytes[2] == 0x2f && context.bytes[3] == 0xfd &&
+            context.start_unix_time_ms > 0 &&
             context.end_unix_time_ms >= context.start_unix_time_ms;
   free(context.bytes);
   if (!success) {
