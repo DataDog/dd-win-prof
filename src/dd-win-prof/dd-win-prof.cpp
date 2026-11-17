@@ -4,6 +4,7 @@
 
 #include "Log.h"
 #include "Profiler.h"
+#include "ProfilingErrorCode.h"
 #include "dd-win-prof-internal.h"
 #include "internal/dd-win-rum-private.h"
 #include "pch.h"
@@ -45,16 +46,16 @@ SetupProfilingDataCallback(ProfilingDataCallback callback, void* userData) {
 }
 
 DD_WIN_PROF_API const char* GetProfilingErrorMessage(uint32_t result) noexcept {
-  switch (result) {
-    case PROFILING_ERROR_NONE:
+  switch (static_cast<ProfilingErrorCode>(result)) {
+    case ProfilingErrorCode::None:
       return "Success";
-    case PROFILING_ERROR_SERIALIZATION_FAILED:
+    case ProfilingErrorCode::SerializationFailed:
       return "Profile serialization failed";
-    case PROFILING_ERROR_PROFILE_BYTES_UNAVAILABLE:
+    case ProfilingErrorCode::ProfileBytesUnavailable:
       return "Encoded profile bytes are unavailable";
-    case PROFILING_ERROR_PROFILE_RESET_FAILED:
+    case ProfilingErrorCode::ProfileResetFailed:
       return "Profile reset failed";
-    case PROFILING_ERROR_SAMPLE_LABELS_UNAVAILABLE:
+    case ProfilingErrorCode::SampleLabelsUnavailable:
       return "Sample labels are unavailable";
     default:
       return "Unknown profiling error";

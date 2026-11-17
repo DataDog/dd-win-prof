@@ -13,6 +13,7 @@
 
 #include "Configuration.h"
 #include "PprofAggregator.h"
+#include "ProfilingErrorCode.h"
 #include "RumContext.h"
 #include "Sample.h"
 #include "Symbolication.h"

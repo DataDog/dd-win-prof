@@ -28,7 +28,7 @@ CaptureProfile(const ProfilingData* data, void* user_data) {
   context->is_last = data->is_last;
   context->start_unix_time_ms = data->start_unix_time_ms;
   context->end_unix_time_ms = data->end_unix_time_ms;
-  if (data->result != PROFILING_ERROR_NONE || data->pprof_size == 0) {
+  if (data->result != 0 || data->pprof_size == 0) {
     return;
   }
   copy = (uint8_t*)malloc(data->pprof_size);
@@ -65,11 +65,10 @@ int main(void) {
     return 1;
   }
 
-  success = context.calls == 1 && !context.allocation_failed &&
-            context.result == PROFILING_ERROR_NONE && context.is_last &&
-            context.size >= 4 && context.bytes[0] == 0x28 && context.bytes[1] == 0xb5 &&
-            context.bytes[2] == 0x2f && context.bytes[3] == 0xfd &&
-            context.start_unix_time_ms > 0 &&
+  success = context.calls == 1 && !context.allocation_failed && context.result == 0 &&
+            context.is_last && context.size >= 4 && context.bytes[0] == 0x28 &&
+            context.bytes[1] == 0xb5 && context.bytes[2] == 0x2f &&
+            context.bytes[3] == 0xfd && context.start_unix_time_ms > 0 &&
             context.end_unix_time_ms >= context.start_unix_time_ms;
   free(context.bytes);
   if (!success) {

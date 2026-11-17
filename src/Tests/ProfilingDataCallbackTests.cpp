@@ -20,6 +20,10 @@
 #include "pch.h"
 
 namespace {
+constexpr uint32_t ToResult(ProfilingErrorCode code) {
+  return static_cast<uint32_t>(code);
+}
+
 struct EncodingFailureState {
   bool serialize = false;
   bool bytes = false;
@@ -359,12 +363,12 @@ TEST_F(ProfilingDataCallbackTests, CallbackDiscardsRumRecordsWithoutMetadataFile
 
 TEST_F(ProfilingDataCallbackTests, EncodingErrorsReturnCodesAndNextExportRecovers) {
   for (const auto code :
-       {PROFILING_ERROR_SERIALIZATION_FAILED,
-        PROFILING_ERROR_PROFILE_BYTES_UNAVAILABLE}) {
-    SCOPED_TRACE(code);
+       {ProfilingErrorCode::SerializationFailed,
+        ProfilingErrorCode::ProfileBytesUnavailable}) {
+    SCOPED_TRACE(ToResult(code));
     encodingFailure = {};
-    encodingFailure.serialize = code == PROFILING_ERROR_SERIALIZATION_FAILED;
-    encodingFailure.bytes = code == PROFILING_ERROR_PROFILE_BYTES_UNAVAILABLE;
+    encodingFailure.serialize = code == ProfilingErrorCode::SerializationFailed;
+    encodingFailure.bytes = code == ProfilingErrorCode::ProfileBytesUnavailable;
     CallbackContext context;
     ASSERT_TRUE(SetupProfilingDataCallback(CaptureCallback, &context));
     const dd_win_prof::ProfileEncodingApi api{
@@ -388,11 +392,12 @@ TEST_F(ProfilingDataCallbackTests, EncodingErrorsReturnCodesAndNextExportRecover
     EXPECT_FALSE(exporter.Export());
     EXPECT_EQ(encodingFailure.serializeCalls, 1);
     EXPECT_EQ(
-        encodingFailure.bytesCalls, code == PROFILING_ERROR_SERIALIZATION_FAILED ? 0 : 1
+        encodingFailure.bytesCalls,
+        code == ProfilingErrorCode::SerializationFailed ? 0 : 1
     );
     EXPECT_EQ(encodingFailure.resetCalls, 1);
     ASSERT_EQ(context.results.size(), 1u);
-    EXPECT_EQ(context.results.front().result, code);
+    EXPECT_EQ(context.results.front().result, ToResult(code));
     EXPECT_EQ(context.results.front().structSize, sizeof(ProfilingData));
     EXPECT_TRUE(context.results.front().pointerNull);
     EXPECT_EQ(context.results.front().pprofSize, 0u);
@@ -411,11 +416,11 @@ TEST_F(ProfilingDataCallbackTests, EncodingErrorsReturnCodesAndNextExportRecover
     EXPECT_EQ(context.results.back().result, 0u);
     EXPECT_FALSE(context.results.back().pprof.empty());
     EXPECT_TRUE(context.results.back().isLast);
-    encodingFailure.serialize = code == PROFILING_ERROR_SERIALIZATION_FAILED;
-    encodingFailure.bytes = code == PROFILING_ERROR_PROFILE_BYTES_UNAVAILABLE;
+    encodingFailure.serialize = code == ProfilingErrorCode::SerializationFailed;
+    encodingFailure.bytes = code == ProfilingErrorCode::ProfileBytesUnavailable;
     EXPECT_FALSE(exporter.Export(true));
     ASSERT_EQ(context.results.size(), 3u);
-    EXPECT_EQ(context.results.back().result, code);
+    EXPECT_EQ(context.results.back().result, ToResult(code));
     EXPECT_TRUE(context.results.back().pprof.empty());
     EXPECT_TRUE(context.results.back().isLast);
     exporter.Cleanup();
@@ -465,7 +470,9 @@ TEST_F(ProfilingDataCallbackTests, BackgroundErrorCanBeExplainedAfterCallbackRet
       }).get();
   EXPECT_TRUE(failed);
   ASSERT_EQ(context.results.size(), 1u);
-  EXPECT_EQ(context.results.front().result, PROFILING_ERROR_SERIALIZATION_FAILED);
+  EXPECT_EQ(
+      context.results.front().result, ToResult(ProfilingErrorCode::SerializationFailed)
+  );
   EXPECT_TRUE(context.results.front().pprof.empty());
   EXPECT_STREQ(
       GetProfilingErrorMessage(context.results.front().result),
@@ -596,7 +603,9 @@ TEST(ProfilingDataExportTests, ResetErrorIsDeliveredAndNextExportRecovers) {
     EXPECT_EQ(context.results.front().result, 0u);
     EXPECT_EQ(context.results.front().isLast, lastCall);
     EXPECT_FALSE(context.results.front().pprof.empty());
-    EXPECT_EQ(context.results.back().result, PROFILING_ERROR_PROFILE_RESET_FAILED);
+    EXPECT_EQ(
+        context.results.back().result, ToResult(ProfilingErrorCode::ProfileResetFailed)
+    );
     EXPECT_EQ(context.results.back().isLast, lastCall);
     EXPECT_TRUE(context.results.back().pprof.empty());
     EXPECT_STREQ(

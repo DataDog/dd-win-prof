@@ -17,7 +17,8 @@ extern "C" {
 typedef struct ProfilingData {
   // Size of this append-only structure.
   uint32_t struct_size;
-  // Zero on success; otherwise a ProfilingErrorCode with null pprof bytes.
+  // Zero on success. Nonzero values are opaque errors with null pprof bytes;
+  // pass them to GetProfilingErrorMessage for static descriptive text.
   uint32_t result;
   // Zstd-compressed pprof (libdatadog v47). Older profiler versions emitted LZ4.
   // Consumers supporting both versions must detect compression from the frame bytes.

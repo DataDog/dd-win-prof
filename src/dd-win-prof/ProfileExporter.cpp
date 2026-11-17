@@ -284,7 +284,7 @@ bool ProfileExporter::ExportCurrentProfile(
   }
   EncodedProfilePtr profile(_aggregator->Serialize(startUnixTimeMs, endUnixTimeMs));
   if (!profile) {
-    return ReportError(PROFILING_ERROR_SERIALIZATION_FAILED, lastCall);
+    return ReportError(ProfilingErrorCode::SerializationFailed, lastCall);
   }
 
   std::vector<std::string> rumSessionIds;
@@ -303,7 +303,7 @@ bool ProfileExporter::ExportCurrentProfile(
     );
     ddog_Error_drop(&bytes.err);
     Log::Error(message);
-    return ReportError(PROFILING_ERROR_PROFILE_BYTES_UNAVAILABLE, lastCall);
+    return ReportError(ProfilingErrorCode::ProfileBytesUnavailable, lastCall);
   }
 
   LogExport(lastCall, endUnixTimeMs - startUnixTimeMs, bytes.ok.len);
@@ -431,7 +431,7 @@ bool ProfileExporter::ReportError(ProfilingErrorCode code, bool lastCall) {
   if (_profilingDataCallback) {
     ProfilingData data{};
     data.struct_size = sizeof(data);
-    data.result = code;
+    data.result = static_cast<uint32_t>(code);
     data.is_last = lastCall ? 1 : 0;
     DeliverProfilingData(data);
   }
@@ -443,10 +443,10 @@ bool ProfileExporter::FinishExport(
 ) {
   bool success = true;
   if (!_aggregator->Reset()) {
-    success = ReportError(PROFILING_ERROR_PROFILE_RESET_FAILED, lastCall);
+    success = ReportError(ProfilingErrorCode::ProfileResetFailed, lastCall);
   }
   if (!InternSampleLabels(_sampleLabels)) {
-    success = ReportError(PROFILING_ERROR_SAMPLE_LABELS_UNAVAILABLE, lastCall);
+    success = ReportError(ProfilingErrorCode::SampleLabelsUnavailable, lastCall);
   }
 
   // Reset the profile start time for the next collection cycle

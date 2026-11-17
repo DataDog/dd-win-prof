@@ -10,19 +10,13 @@
 #include "pch.h"
 
 TEST(ProfilingErrorMessageTests, KnownCallbackCodesHaveStaticMessages) {
-  for (const auto code :
-       {PROFILING_ERROR_NONE,
-        PROFILING_ERROR_SERIALIZATION_FAILED,
-        PROFILING_ERROR_PROFILE_BYTES_UNAVAILABLE,
-        PROFILING_ERROR_PROFILE_RESET_FAILED,
-        PROFILING_ERROR_SAMPLE_LABELS_UNAVAILABLE}) {
+  for (const uint32_t code : {0u, 1u, 2u, 3u, 4u}) {
     SCOPED_TRACE(code);
-    const auto result = code;
-    const char* message = GetProfilingErrorMessage(result);
+    const char* message = GetProfilingErrorMessage(code);
     ASSERT_NE(message, nullptr);
     EXPECT_STRNE(message, "");
     EXPECT_STRNE(message, "Unknown profiling error");
-    EXPECT_EQ(message, GetProfilingErrorMessage(result));
+    EXPECT_EQ(message, GetProfilingErrorMessage(code));
   }
 }
 
