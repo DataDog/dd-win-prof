@@ -4,17 +4,22 @@
 
 #pragma once
 
-#include <cstdint>
+#include <stdint.h>
 
 #include "dd-win-prof.h"
 
-enum class ProfilingErrorCode : uint32_t {
-  None = 0,
-  SerializationFailed = 1,
-  ProfileBytesUnavailable = 2,
-  ProfileResetFailed = 3,
-  SampleLabelsUnavailable = 4,
-};
-
+// Zero means success. Nonzero values are opaque implementation-defined errors.
 // Always returns non-null static text, valid until DLL unload.
-DD_WIN_PROF_API const char* GetProfilingErrorMessage(uint32_t result) noexcept;
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+DD_WIN_PROF_API const char* GetProfilingErrorMessage(uint32_t result)
+#ifdef __cplusplus
+    noexcept
+#endif
+    ;
+
+#ifdef __cplusplus
+}
+#endif

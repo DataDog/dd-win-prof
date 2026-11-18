@@ -7,6 +7,10 @@
 #include <Windows.h>
 #include <stdint.h>
 
+#ifndef __cplusplus
+#include <stdbool.h>
+#endif
+
 #ifdef DD_WIN_PROF_STATIC_LINK
 #define DD_WIN_PROF_API
 #elif defined(DD_WIN_PROF_EXPORTS)
@@ -14,6 +18,8 @@
 #else
 #define DD_WIN_PROF_API __declspec(dllimport)
 #endif
+
+#define DD_WIN_PROF_CALL __cdecl
 
 // define a struct that will hold configuration parameters
 typedef struct _ProfilerConfig {
@@ -55,7 +61,9 @@ typedef struct _ProfilerConfig {
                                      // (default: empty = disabled)
 } ProfilerConfig;
 
+#ifdef __cplusplus
 extern "C" {
+#endif
 // Start automatic detection of UI hangs for the current profiling session.
 // Returns false unless the profiler is running, or if a window is already monitored.
 DD_WIN_PROF_API bool MonitorWindowHangs(HWND hWnd);
@@ -102,4 +110,6 @@ DD_WIN_PROF_API bool LeaveCurrentView();
 //   - true/1: Auto-start when DLL is injected/loaded
 //   - false/0 or not set: Manual control only
 //
+#ifdef __cplusplus
 }
+#endif

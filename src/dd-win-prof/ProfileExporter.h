@@ -13,6 +13,7 @@
 
 #include "Configuration.h"
 #include "PprofAggregator.h"
+#include "ProfilingErrorCode.h"
 #include "RumContext.h"
 #include "Sample.h"
 #include "Symbolication.h"
@@ -26,7 +27,8 @@ class ProfileExporter {
       Configuration* pConfiguration,
       std::span<const SampleValueType> sampleTypeDefinitions,
       IRumRecordProvider* pRumRecordProvider = nullptr,
-      ProfilingDataCallback callback = {},
+      ProfilingDataCallback callback = nullptr,
+      void* callbackUserData = nullptr,
       dd_win_prof::ProfileEncodingApi encodingApi = {}
   );
   ~ProfileExporter();
@@ -124,7 +126,7 @@ class ProfileExporter {
       int64_t endUnixTimeMs,
       bool lastCall
   );
-  bool DeliverProfilingData(ProfilingData data);
+  bool DeliverProfilingData(const ProfilingData& data);
   bool ReportError(ProfilingErrorCode code, bool lastCall);
   void LogExport(bool lastCall, int64_t durationMs, size_t profileSize) const;
   bool FinishExport(std::chrono::system_clock::time_point end, bool lastCall);
@@ -231,6 +233,7 @@ class ProfileExporter {
   // Export configuration and state
   bool _exportEnabled;
   ProfilingDataCallback _profilingDataCallback;
+  void* _profilingDataCallbackUserData;
   ddog_prof_ProfileExporter _exporter;  // Value type, not pointer
   std::string _exportUrl;
   std::string _apiKey;

@@ -18,6 +18,29 @@ namespace {
 constexpr int64_t kStartNs = 1700000000000000000;
 constexpr int64_t kDetectionNs = kStartNs + 100000000;
 
+struct CapturedProfile {
+  uint32_t result;
+  std::vector<uint8_t> pprof;
+  int64_t startUnixTimeMs;
+  int64_t endUnixTimeMs;
+  bool isLast;
+};
+
+void DD_WIN_PROF_CALL CaptureProfile(const ProfilingData* data, void* userData) {
+  auto& profiles = *static_cast<std::vector<CapturedProfile>*>(userData);
+  CapturedProfile profile{
+      data->result,
+      {},
+      data->start_unix_time_ms,
+      data->end_unix_time_ms,
+      data->is_last != 0
+  };
+  if (data->pprof_size != 0) {
+    profile.pprof.assign(data->pprof_bytes, data->pprof_bytes + data->pprof_size);
+  }
+  profiles.push_back(std::move(profile));
+}
+
 class UiHangProfileTest : public ::testing::Test {
  protected:
   SampleValueTypeProvider registry;
@@ -144,11 +167,9 @@ TEST_F(UiHangProfileTest, CallbackKeepsWaitAndHangCustomSlotsAcrossTwoFlushes) {
   Configuration config;
   config.ResetToDefaults();
   config.SetExportEnabled(false);
-  std::vector<ProfilingData> profiles;
+  std::vector<CapturedProfile> profiles;
   ProfileExporter exporter(
-      &config, registry.GetValueTypes(), nullptr, [&](ProfilingData data) {
-        profiles.push_back(std::move(data));
-      }
+      &config, registry.GetValueTypes(), nullptr, CaptureProfile, &profiles
   );
   ASSERT_TRUE(exporter.Initialize());
   for (int cycle = 1; cycle <= 2; ++cycle) {
@@ -176,11 +197,9 @@ TEST_F(UiHangProfileTest, PartialEndpointsAcrossFlushesDoNotInventDurations) {
   Configuration config;
   config.ResetToDefaults();
   config.SetExportEnabled(false);
-  std::vector<ProfilingData> profiles;
+  std::vector<CapturedProfile> profiles;
   ProfileExporter exporter(
-      &config, registry.GetValueTypes(), nullptr, [&](ProfilingData data) {
-        profiles.push_back(std::move(data));
-      }
+      &config, registry.GetValueTypes(), nullptr, CaptureProfile, &profiles
   );
   ASSERT_TRUE(exporter.Initialize());
   ASSERT_TRUE(exporter.Add(Endpoint(1, true)));

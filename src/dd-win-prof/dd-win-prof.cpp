@@ -4,6 +4,7 @@
 
 #include "Log.h"
 #include "Profiler.h"
+#include "ProfilingErrorCode.h"
 #include "dd-win-prof-internal.h"
 #include "internal/dd-win-rum-private.h"
 #include "pch.h"
@@ -35,11 +36,12 @@ bool RunLifecycle(Action action) noexcept {
 }
 }  // namespace
 
-DD_WIN_PROF_API bool SetupProfilingDataCallback(
-    const ProfilingDataCallback& callback
-) noexcept {
+extern "C" {
+
+DD_WIN_PROF_API bool DD_WIN_PROF_CALL
+SetupProfilingDataCallback(ProfilingDataCallback callback, void* userData) {
   return RunLifecycle([&](Profiler& profiler) {
-    return profiler.SetProfilingDataCallback(callback);
+    return profiler.SetProfilingDataCallback(callback, userData);
   });
 }
 
@@ -59,8 +61,6 @@ DD_WIN_PROF_API const char* GetProfilingErrorMessage(uint32_t result) noexcept {
       return "Unknown profiling error";
   }
 }
-
-extern "C" {
 
 DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig* pSettings) {
   if (pSettings == nullptr) {

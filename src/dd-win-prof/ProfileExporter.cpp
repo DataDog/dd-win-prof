@@ -40,6 +40,7 @@ ProfileExporter::ProfileExporter(
     std::span<const SampleValueType> sampleTypeDefinitions,
     IRumRecordProvider* pRumRecordProvider,
     ProfilingDataCallback callback,
+    void* callbackUserData,
     ProfileEncodingApi encodingApi
 )
     : _pConfiguration(pConfiguration),
@@ -52,7 +53,8 @@ ProfileExporter::ProfileExporter(
       _debugPprofFileWritingEnabled(false),
       _debugPprofPrefix(""),
       _exportEnabled(false),
-      _profilingDataCallback(std::move(callback)),
+      _profilingDataCallback(callback),
+      _profilingDataCallbackUserData(callbackUserData),
       _exporter(nullptr),
       _agentMode(true),
       _consecutiveErrors(0),
@@ -122,7 +124,8 @@ void ProfileExporter::Cleanup(bool skipExporterCleanup) {
   // Clean up libdatadog's managed string storage
   ddog_prof_ManagedStringStorage_drop(_stringStorage);
 
-  _profilingDataCallback = {};
+  _profilingDataCallback = nullptr;
+  _profilingDataCallbackUserData = nullptr;
   _initialized = false;
   Log::Debug("Exporter cleanup completed");
 }
@@ -381,14 +384,14 @@ bool ProfileExporter::DeliverProfileToCallback(
     int64_t endUnixTimeMs,
     bool lastCall
 ) {
-  ProfilingData data;
-  if (bytes.len != 0) {
-    data.pprof.assign(bytes.ptr, bytes.ptr + bytes.len);
-  }
-  data.startUnixTimeMs = startUnixTimeMs;
-  data.endUnixTimeMs = endUnixTimeMs;
-  data.isLast = lastCall;
-  return DeliverProfilingData(std::move(data));
+  ProfilingData data{};
+  data.struct_size = sizeof(data);
+  data.pprof_bytes = bytes.len == 0 ? nullptr : bytes.ptr;
+  data.pprof_size = bytes.len;
+  data.start_unix_time_ms = startUnixTimeMs;
+  data.end_unix_time_ms = endUnixTimeMs;
+  data.is_last = lastCall ? 1 : 0;
+  return DeliverProfilingData(data);
 }
 
 void ProfileExporter::LogExport(
@@ -412,9 +415,9 @@ void ProfileExporter::LogExport(
   );
 }
 
-bool ProfileExporter::DeliverProfilingData(ProfilingData data) {
+bool ProfileExporter::DeliverProfilingData(const ProfilingData& data) {
   try {
-    _profilingDataCallback(std::move(data));
+    _profilingDataCallback(&data, _profilingDataCallbackUserData);
     return true;
   } catch (const std::exception& error) {
     Log::Error("Profiling data callback threw: ", error.what());
@@ -426,10 +429,11 @@ bool ProfileExporter::DeliverProfilingData(ProfilingData data) {
 
 bool ProfileExporter::ReportError(ProfilingErrorCode code, bool lastCall) {
   if (_profilingDataCallback) {
-    ProfilingData data;
+    ProfilingData data{};
+    data.struct_size = sizeof(data);
     data.result = static_cast<uint32_t>(code);
-    data.isLast = lastCall;
-    DeliverProfilingData(std::move(data));
+    data.is_last = lastCall ? 1 : 0;
+    DeliverProfilingData(data);
   }
   return false;
 }
