@@ -429,11 +429,11 @@ TEST_F(ProfilingDataCallbackTests, EncodingErrorsReturnCodesAndNextExportRecover
     profiler->ConsumeSessionRecords(remainingSessions);
     EXPECT_TRUE(remainingViews.empty());
     EXPECT_TRUE(remainingSessions.empty());
-    EXPECT_TRUE(exporter.Export(true));
+    EXPECT_TRUE(exporter.Export());
     ASSERT_EQ(context.results.size(), 2u);
     EXPECT_EQ(context.results.back().result, 0u);
     EXPECT_FALSE(context.results.back().pprof.empty());
-    EXPECT_TRUE(context.results.back().isLast);
+    EXPECT_FALSE(context.results.back().isLast);
     EXPECT_TRUE(context.results.back().reservedBytesAreZero);
     encodingFailure.serialize = code == ProfilingErrorCode::SerializationFailed;
     encodingFailure.bytes = code == ProfilingErrorCode::ProfileBytesUnavailable;
@@ -463,7 +463,7 @@ TEST_F(ProfilingDataCallbackTests, InternalExportUsesBooleanResults) {
   EXPECT_EQ(encodingFailure.resetCalls, 0);
   ASSERT_TRUE(exporter.Initialize());
   encodingFailure.serialize = true;
-  EXPECT_FALSE(exporter.Export(true));
+  EXPECT_FALSE(exporter.Export());
   EXPECT_EQ(encodingFailure.bytesCalls, 0);
   EXPECT_EQ(encodingFailure.resetCalls, 1);
   EXPECT_TRUE(exporter.Export(true));
@@ -606,64 +606,66 @@ TEST(ProfilingDataExportTests, CallbackBorrowsBytesAndCallerCopySurvives) {
 }
 
 TEST(ProfilingDataExportTests, ResetErrorIsDeliveredAndNextExportRecovers) {
-  for (const bool lastCall : {false, true}) {
-    SCOPED_TRACE(lastCall);
-    encodingFailure = {};
-    encodingFailure.reset = true;
-    Configuration config;
-    config.ResetToDefaults();
-    CallbackContext context;
-    dd_win_prof::ProfileEncodingApi api;
-    api.reset = ResetWithFailure;
-    std::vector<SampleValueType> types{{"cpu-time", "nanoseconds"}};
-    ProfileExporter exporter(&config, types, nullptr, CaptureCallback, &context, api);
-    ASSERT_TRUE(exporter.Initialize());
-    EXPECT_FALSE(exporter.Export(lastCall));
-    ASSERT_EQ(context.results.size(), 2u);
-    EXPECT_EQ(context.results.front().result, 0u);
-    EXPECT_EQ(context.results.front().isLast, lastCall);
-    EXPECT_FALSE(context.results.front().pprof.empty());
-    EXPECT_TRUE(context.results.front().reservedBytesAreZero);
-    EXPECT_EQ(
-        context.results.back().result, ToResult(ProfilingErrorCode::ProfileResetFailed)
-    );
-    EXPECT_EQ(context.results.back().isLast, lastCall);
-    EXPECT_TRUE(context.results.back().pprof.empty());
-    EXPECT_TRUE(context.results.back().reservedBytesAreZero);
-    EXPECT_STREQ(
-        GetProfilingErrorMessage(context.results.back().result), "Profile reset failed"
-    );
+  encodingFailure = {};
+  encodingFailure.reset = true;
+  Configuration config;
+  config.ResetToDefaults();
+  CallbackContext context;
+  dd_win_prof::ProfileEncodingApi api;
+  api.reset = ResetWithFailure;
+  std::vector<SampleValueType> types{{"cpu-time", "nanoseconds"}};
+  ProfileExporter exporter(&config, types, nullptr, CaptureCallback, &context, api);
+  ASSERT_TRUE(exporter.Initialize());
+  EXPECT_FALSE(exporter.Export());
+  ASSERT_EQ(context.results.size(), 2u);
+  EXPECT_EQ(context.results.front().result, 0u);
+  EXPECT_FALSE(context.results.front().isLast);
+  EXPECT_FALSE(context.results.front().pprof.empty());
+  EXPECT_TRUE(context.results.front().reservedBytesAreZero);
+  EXPECT_EQ(
+      context.results.back().result, ToResult(ProfilingErrorCode::ProfileResetFailed)
+  );
+  EXPECT_FALSE(context.results.back().isLast);
+  EXPECT_TRUE(context.results.back().pprof.empty());
+  EXPECT_TRUE(context.results.back().reservedBytesAreZero);
+  EXPECT_STREQ(
+      GetProfilingErrorMessage(context.results.back().result), "Profile reset failed"
+  );
 
-    Sample::SetValuesCount(types.size());
-    HANDLE thread = nullptr;
-    ASSERT_TRUE(
-        ::DuplicateHandle(
-            ::GetCurrentProcess(),
-            ::GetCurrentThread(),
-            ::GetCurrentProcess(),
-            &thread,
-            0,
-            FALSE,
-            DUPLICATE_SAME_ACCESS
-        )
-    );
-    auto threadInfo = std::make_shared<ThreadInfo>(::GetCurrentThreadId(), thread);
-    uint64_t frames[] = {reinterpret_cast<uint64_t>(&ResetWithFailure)};
-    auto sample = std::make_shared<Sample>(
-        std::chrono::duration_cast<std::chrono::nanoseconds>(
-            std::chrono::system_clock::now().time_since_epoch()
-        ),
-        threadInfo,
-        frames,
-        1
-    );
-    sample->AddValue(42, 0);
-    ASSERT_TRUE(exporter.Add(sample));
+  Sample::SetValuesCount(types.size());
+  HANDLE thread = nullptr;
+  ASSERT_TRUE(
+      ::DuplicateHandle(
+          ::GetCurrentProcess(),
+          ::GetCurrentThread(),
+          ::GetCurrentProcess(),
+          &thread,
+          0,
+          FALSE,
+          DUPLICATE_SAME_ACCESS
+      )
+  );
+  auto threadInfo = std::make_shared<ThreadInfo>(::GetCurrentThreadId(), thread);
+  uint64_t frames[] = {reinterpret_cast<uint64_t>(&ResetWithFailure)};
+  auto sample = std::make_shared<Sample>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(
+          std::chrono::system_clock::now().time_since_epoch()
+      ),
+      threadInfo,
+      frames,
+      1
+  );
+  sample->AddValue(42, 0);
+  ASSERT_TRUE(exporter.Add(sample));
 
-    EXPECT_TRUE(exporter.Export(true));
-    ASSERT_EQ(context.results.size(), 3u);
-    EXPECT_EQ(context.results.back().result, 0u);
-    EXPECT_FALSE(context.results.back().pprof.empty());
-    exporter.Cleanup();
-  }
+  // The final export seals the exporter instead of resetting the profile, so a
+  // reset failure cannot follow the last profile.
+  encodingFailure.reset = true;
+  EXPECT_TRUE(exporter.Export(true));
+  EXPECT_EQ(encodingFailure.resetCalls, 1);
+  ASSERT_EQ(context.results.size(), 3u);
+  EXPECT_EQ(context.results.back().result, 0u);
+  EXPECT_TRUE(context.results.back().isLast);
+  EXPECT_FALSE(context.results.back().pprof.empty());
+  exporter.Cleanup();
 }

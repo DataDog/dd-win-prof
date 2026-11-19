@@ -7,10 +7,14 @@
 
 #include <filesystem>
 #include <memory>
+#include <stdexcept>
 #include <thread>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "../dd-win-prof/Configuration.h"
+#include "../dd-win-prof/LibDatadogHelper.h"
 #include "../dd-win-prof/ProfileExporter.h"
 #include "../dd-win-prof/Sample.h"
 #include "../dd-win-prof/SampleValueType.h"
@@ -609,7 +613,11 @@ TEST_F(ProfileExporterExportTests, HttpResponsePolicyAcrossFinalThreadTransition
     });
     periodic.join();
     ASSERT_TRUE(exp.Add(CreateTestSample()));
-    EXPECT_EQ(exp.Export(true), expected);
+    // The final export only reports delivery for a 2xx response.
+    EXPECT_EQ(
+        exp.ExportFinal(),
+        status < 300 ? FinalExportStatus::Delivered : FinalExportStatus::NetworkFailed
+    );
     exp.Cleanup();
     EXPECT_TRUE(server.Error().empty()) << server.Error();
     const auto requests = server.Requests();
@@ -636,7 +644,7 @@ TEST_F(
     send(false, true);
   });
   periodic.join();
-  send(true, false);
+  send(false, false);
   send(false, true);
   send(false, true);
   send(false, true);
@@ -657,7 +665,7 @@ TEST_F(ProfileExporterExportTests, HttpTimeoutIsBoundedAndRecoverableTransportEr
   ASSERT_TRUE(exp.Initialize());
   ASSERT_TRUE(exp.Add(CreateTestSample()));
   const auto start = std::chrono::steady_clock::now();
-  EXPECT_TRUE(exp.Export(true));
+  EXPECT_TRUE(exp.Export());
   const auto elapsed = std::chrono::steady_clock::now() - start;
   EXPECT_GE(elapsed, std::chrono::seconds(8));
   EXPECT_LT(elapsed, std::chrono::seconds(15));
@@ -666,4 +674,301 @@ TEST_F(ProfileExporterExportTests, HttpTimeoutIsBoundedAndRecoverableTransportEr
   EXPECT_TRUE(exp.Export(true));
   exp.Cleanup();
   EXPECT_EQ(server.Requests().size(), 2u);
+}
+
+// ===========================================================================
+// Failure-safe initialization and exactly-once final delivery
+// ===========================================================================
+
+namespace {
+int serializeFailures = 0;
+int serializeCalls = 0;
+
+ddog_Error MakeNativeError() {
+  // The FFI has no error constructor; tag validation produces a Rust-owned error.
+  auto tags = ddog_Vec_Tag_new();
+  auto result = ddog_Vec_Tag_push(
+      &tags, dd_win_prof::to_CharSlice(""), dd_win_prof::to_CharSlice("")
+  );
+  ddog_Vec_Tag_drop(tags);
+  if (result.tag != DDOG_VEC_TAG_PUSH_RESULT_ERR) {
+    throw std::runtime_error("Empty tag unexpectedly accepted");
+  }
+  return result.err;
+}
+
+ddog_prof_Profile_SerializeResult SerializeWithFailure(
+    ddog_prof_Profile* profile, const ddog_Timespec* start, const ddog_Timespec* end
+) {
+  ++serializeCalls;
+  if (serializeFailures > 0) {
+    --serializeFailures;
+    ddog_prof_Profile_SerializeResult result{};
+    result.tag = DDOG_PROF_PROFILE_SERIALIZE_RESULT_ERR;
+    result.err = MakeNativeError();
+    return result;
+  }
+  return ddog_prof_Profile_serialize(profile, start, end);
+}
+
+dd_win_prof::ProfileEncodingApi FailingSerializeApi(int failures) {
+  serializeFailures = failures;
+  serializeCalls = 0;
+  dd_win_prof::ProfileEncodingApi api;
+  api.serialize = SerializeWithFailure;
+  return api;
+}
+
+struct FinalCallbackState {
+  int calls = 0;
+  std::vector<uint32_t> results;
+  std::vector<bool> isLast;
+  bool throwOnLast = false;
+};
+
+void DD_WIN_PROF_CALL RecordFinalCallback(const ProfilingData* data, void* userData) {
+  auto& state = *static_cast<FinalCallbackState*>(userData);
+  ++state.calls;
+  state.results.push_back(data->result);
+  state.isLast.push_back(data->is_last != 0);
+  if (state.throwOnLast && data->is_last != 0) {
+    throw std::runtime_error("callback failure");
+  }
+}
+
+class BufferedRumRecords : public IRumRecordProvider {
+ public:
+  std::vector<RumViewRecord> views;
+  std::vector<RumSessionRecord> sessions;
+
+  void ConsumeViewRecords(std::vector<RumViewRecord>& records) override {
+    views.swap(records);
+  }
+  void ConsumeSessionRecords(std::vector<RumSessionRecord>& records) override {
+    sessions.swap(records);
+  }
+  std::string GetCurrentSessionId() const override { return {}; }
+};
+
+Configuration HttpConfigurationWithUrl(const std::string& url) {
+  ScopedEnvironment agent("DD_TRACE_AGENT_URL", url);
+  ScopedEnvironment pipe("DD_TRACE_PIPE_NAME", "");
+  Configuration config;
+  config.SetApiKey("");
+  config.SetExportEnabled(true);
+  config.SetProfilesOutputDirectory({});
+  return config;
+}
+
+void ExpectRejectsUse(ProfileExporter& exporter) {
+  EXPECT_FALSE(exporter.Add(CreateTestSample()));
+  EXPECT_FALSE(exporter.Export());
+}
+}  // namespace
+
+TEST_F(ProfileExporterExportTests, FailedInitializationIsNotUsableAndIsSafeToDestroy) {
+  // libdatadog supports at most five custom sample types, so the aggregator fails
+  // after the string storage and symbolication were created.
+  std::vector<SampleValueType> tooManyCustomTypes = {
+      {"a", "x"}, {"b", "x"}, {"c", "x"}, {"d", "x"}, {"e", "x"}, {"f", "x"}
+  };
+  Sample::SetValuesCount(tooManyCustomTypes.size());
+  FinalCallbackState state;
+  auto exp = std::make_unique<ProfileExporter>(
+      config.get(), tooManyCustomTypes, nullptr, RecordFinalCallback, &state
+  );
+  for (int attempt = 0; attempt < 2; ++attempt) {
+    SCOPED_TRACE(attempt);
+    EXPECT_FALSE(exp->Initialize());
+    EXPECT_FALSE(exp->IsInitialized());
+    ExpectRejectsUse(*exp);
+    EXPECT_EQ(exp->ExportFinal(), FinalExportStatus::NotInitialized);
+  }
+  exp->Cleanup();
+  exp.reset();
+  EXPECT_EQ(state.calls, 0);
+}
+
+TEST_F(ProfileExporterExportTests, FailedExporterCreationCanBeRetried) {
+  LocalHttpServer server;
+  // An unparsable agent URL makes the last initialization step fail.
+  auto httpConfig = HttpConfigurationWithUrl("http://invalid host:1");
+  ProfileExporter exp(&httpConfig, sampleTypes);
+  ASSERT_FALSE(exp.Initialize());
+  EXPECT_FALSE(exp.IsInitialized());
+  ExpectRejectsUse(exp);
+  EXPECT_EQ(exp.ExportFinal(), FinalExportStatus::NotInitialized);
+
+  httpConfig = HttpConfiguration(server);
+  ASSERT_TRUE(exp.Initialize());
+  EXPECT_TRUE(exp.IsInitialized());
+  EXPECT_FALSE(exp.Initialize());
+  EXPECT_TRUE(exp.IsInitialized());
+  ASSERT_TRUE(exp.Add(CreateTestSample()));
+  EXPECT_TRUE(exp.Export());
+  ASSERT_TRUE(exp.Add(CreateTestSample()));
+  EXPECT_EQ(exp.ExportFinal(), FinalExportStatus::Delivered);
+  exp.Cleanup();
+  EXPECT_TRUE(server.Error().empty()) << server.Error();
+  const auto requests = server.Requests();
+  ASSERT_EQ(requests.size(), 2u);
+  EXPECT_EQ(Tag(requests[0].body, "profile_seq"), "0");
+  EXPECT_EQ(Tag(requests[1].body, "profile_seq"), "1");
+}
+
+TEST_F(ProfileExporterExportTests, FinalCallbackFailureIsReportedOnceAndSealsExporter) {
+  FinalCallbackState state;
+  state.throwOnLast = true;
+  {
+    ProfileExporter exp(
+        config.get(), sampleTypes, nullptr, RecordFinalCallback, &state
+    );
+    ASSERT_TRUE(exp.Initialize());
+    ASSERT_TRUE(exp.Add(CreateTestSample()));
+    EXPECT_TRUE(exp.Export());
+    ASSERT_TRUE(exp.Add(CreateTestSample()));
+    EXPECT_EQ(exp.ExportFinal(), FinalExportStatus::CallbackFailed);
+    EXPECT_TRUE(exp.IsFinalized());
+    EXPECT_EQ(exp.ExportFinal(), FinalExportStatus::AlreadyFinalized);
+    EXPECT_FALSE(exp.Export(true));
+    ExpectRejectsUse(exp);
+    exp.Cleanup();
+    EXPECT_EQ(exp.ExportFinal(), FinalExportStatus::NotInitialized);
+  }
+  ASSERT_EQ(state.calls, 2);
+  EXPECT_EQ(state.isLast, (std::vector<bool>{false, true}));
+  EXPECT_EQ(state.results, (std::vector<uint32_t>{0, 0}));
+}
+
+TEST_F(ProfileExporterExportTests, FinalBuildFailureReportsOneLastErrorToCallback) {
+  FinalCallbackState state;
+  ProfileExporter exp(
+      config.get(),
+      sampleTypes,
+      nullptr,
+      RecordFinalCallback,
+      &state,
+      FailingSerializeApi(1)
+  );
+  ASSERT_TRUE(exp.Initialize());
+  ASSERT_TRUE(exp.Add(CreateTestSample()));
+  EXPECT_EQ(exp.ExportFinal(), FinalExportStatus::ProfileBuildFailed);
+  EXPECT_EQ(exp.ExportFinal(), FinalExportStatus::AlreadyFinalized);
+  exp.Cleanup();
+  EXPECT_EQ(serializeCalls, 1);
+  ASSERT_EQ(state.calls, 1);
+  EXPECT_EQ(
+      state.results.front(),
+      static_cast<uint32_t>(ProfilingErrorCode::SerializationFailed)
+  );
+  EXPECT_TRUE(state.isLast.front());
+}
+
+TEST_F(ProfileExporterExportTests, FinalNetworkFailureIsReportedOnceAndNotRetried) {
+  // 403 is a rejected response; 0 is a transport error that periodic exports tolerate.
+  for (const auto status : {403, 0}) {
+    SCOPED_TRACE(status);
+    LocalHttpServer server({status});
+    auto httpConfig = HttpConfiguration(server);
+    {
+      ProfileExporter exp(&httpConfig, sampleTypes);
+      ASSERT_TRUE(exp.Initialize());
+      ASSERT_TRUE(exp.Add(CreateTestSample()));
+      EXPECT_EQ(exp.ExportFinal(), FinalExportStatus::NetworkFailed);
+      EXPECT_EQ(exp.ExportFinal(), FinalExportStatus::AlreadyFinalized);
+      ExpectRejectsUse(exp);
+      exp.Cleanup();
+    }
+    EXPECT_TRUE(server.Error().empty()) << server.Error();
+    EXPECT_EQ(server.Requests().size(), 1u);
+  }
+}
+
+TEST_F(ProfileExporterExportTests, FinalLocalWriteFailureIsReported) {
+  const auto missing =
+      fs::temp_directory_path() /
+      ("dd-win-prof-missing-" + std::to_string(::GetCurrentProcessId()) + "-" +
+       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  ASSERT_FALSE(fs::exists(missing));
+  exporter->SetDebugPprofPrefix((missing / "profile_").string());
+  exporter->SetDebugPprofFileWritingEnabled(true);
+  ASSERT_TRUE(exporter->Initialize());
+  ASSERT_TRUE(exporter->Add(CreateTestSample()));
+  // Debug files never fail periodic exports.
+  EXPECT_TRUE(exporter->Export());
+  EXPECT_EQ(exporter->ExportFinal(), FinalExportStatus::LocalWriteFailed);
+  EXPECT_EQ(exporter->ExportFinal(), FinalExportStatus::AlreadyFinalized);
+  EXPECT_FALSE(fs::exists(missing));
+}
+
+TEST_F(ProfileExporterExportTests, CleanupAndDestructionNeverSendTheFinalProfile) {
+  LocalHttpServer server;
+  auto httpConfig = HttpConfiguration(server);
+  FinalCallbackState state;
+  {
+    ProfileExporter callback(
+        config.get(), sampleTypes, nullptr, RecordFinalCallback, &state
+    );
+    ASSERT_TRUE(callback.Initialize());
+    ASSERT_TRUE(callback.Add(CreateTestSample()));
+    callback.Cleanup();
+    EXPECT_EQ(callback.ExportFinal(), FinalExportStatus::NotInitialized);
+  }
+  {
+    // Destroyed without Cleanup or a final export.
+    ProfileExporter http(&httpConfig, sampleTypes);
+    ASSERT_TRUE(http.Initialize());
+    ASSERT_TRUE(http.Add(CreateTestSample()));
+  }
+  static_assert(std::is_nothrow_destructible_v<ProfileExporter>);
+  EXPECT_EQ(state.calls, 0);
+  EXPECT_TRUE(server.Requests().empty());
+}
+
+TEST_F(ProfileExporterExportTests, FailedFinalDeliveryDoesNotLeakIntoNextSession) {
+  BufferedRumRecords records;
+  // A failed build must still consume the session's RUM records; a failed send
+  // consumes them with the request.
+  for (const bool buildFails : {true, false}) {
+    SCOPED_TRACE(buildFails);
+    {
+      LocalHttpServer server({403});
+      auto httpConfig = HttpConfiguration(server);
+      records.views = {{0, 1, "stale-view", "Stale", {}}};
+      records.sessions = {{0, 1, "stale-session"}};
+      ProfileExporter session(
+          &httpConfig,
+          sampleTypes,
+          &records,
+          nullptr,
+          nullptr,
+          FailingSerializeApi(buildFails ? 1 : 0)
+      );
+      ASSERT_TRUE(session.Initialize());
+      ASSERT_TRUE(session.Add(CreateTestSample()));
+      EXPECT_EQ(
+          session.ExportFinal(),
+          buildFails ? FinalExportStatus::ProfileBuildFailed
+                     : FinalExportStatus::NetworkFailed
+      );
+      session.Cleanup();
+      EXPECT_EQ(server.Requests().size(), buildFails ? 0u : 1u);
+    }
+    EXPECT_TRUE(records.views.empty());
+    EXPECT_TRUE(records.sessions.empty());
+
+    LocalHttpServer server;
+    auto httpConfig = HttpConfiguration(server);
+    records.views = {{0, 1, "fresh-view", "Fresh", {}}};
+    ProfileExporter next(&httpConfig, sampleTypes, &records);
+    ASSERT_TRUE(next.Initialize());
+    ASSERT_TRUE(next.Add(CreateTestSample()));
+    EXPECT_EQ(next.ExportFinal(), FinalExportStatus::Delivered);
+    next.Cleanup();
+    const auto requests = server.Requests();
+    ASSERT_EQ(requests.size(), 1u);
+    EXPECT_EQ(Tag(requests[0].body, "profile_seq"), "0");
+    EXPECT_EQ(Tag(requests[0].body, "rum.view_id"), "fresh-view");
+    EXPECT_EQ(requests[0].body.find("stale-"), std::string::npos);
+  }
 }
