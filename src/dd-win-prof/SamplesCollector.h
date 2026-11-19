@@ -7,6 +7,7 @@
 #include <forward_list>
 #include <future>
 #include <mutex>
+#include <optional>
 #include <thread>
 
 #include "Configuration.h"
@@ -19,9 +20,11 @@ class SamplesCollector {
   SamplesCollector(Configuration* pConfiguration, ProfileExporter* exporter);
   ~SamplesCollector() = default;
   void Start();
-  void Stop(bool shutdownOngoing = false);
+  // Returns the final export status, or nullopt when shutdown skips the final export.
+  std::optional<FinalExportStatus> Stop(bool shutdownOngoing = false);
   void Register(ISamplesProvider* samplesProvider);
   void Export(bool lastCall = false);
+  FinalExportStatus ExportFinal();
   static bool IsShutdownReceived();
   static void SignalShutdown();
 
