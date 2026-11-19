@@ -10,6 +10,7 @@ add_executable(Tests
     ProfilingDataCallbackTests.cpp
     ProfilingErrorMessageTests.cpp
     RumContextTests.cpp
+    StackSamplerLoopTests.cpp
     SymbolicationTests.cpp
     ThreadListTests.cpp
     UuidTests.cpp
