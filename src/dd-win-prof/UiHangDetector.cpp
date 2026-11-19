@@ -5,6 +5,7 @@
 #include "UiHangDetector.h"
 
 #include "Log.h"
+#include "OpSysTools.h"
 #include "ProfilingConstants.h"
 #include "pch.h"
 
@@ -13,34 +14,84 @@ std::mutex UiHangDetector::_instanceMutex;
 
 constexpr const wchar_t* ThreadName = L"DD_UI_Hang";
 
+namespace {
+class Win32UiHangDetectorPlatform final : public IUiHangDetectorPlatform {
+ public:
+  HANDLE CreateStopEvent() override {
+    return ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
+  }
+
+  BOOL SetEvent(HANDLE hEvent) override { return ::SetEvent(hEvent); }
+
+  DWORD WaitForSingleObject(HANDLE hHandle, DWORD milliseconds) override {
+    return ::WaitForSingleObject(hHandle, milliseconds);
+  }
+
+  BOOL CloseHandle(HANDLE hHandle) override { return ::CloseHandle(hHandle); }
+
+  BOOL IsWindow(HWND hWnd) override { return ::IsWindow(hWnd); }
+
+  DWORD GetWindowThreadProcessId(HWND hWnd, DWORD* pProcessId) override {
+    return ::GetWindowThreadProcessId(hWnd, pProcessId);
+  }
+
+  HHOOK SetGetMessageHook(HOOKPROC hookProc, DWORD threadId) override {
+    // Thread-specific hook on the window's UI thread. A global hook
+    // (dwThreadId == 0) would inject this DLL into every GUI process on the
+    // desktop, locking the file so rebuilds of consumers (e.g. UIApp) fail.
+    // hMod is NULL because the hook procedure lives in this process.
+    return ::SetWindowsHookExW(WH_GETMESSAGE, hookProc, nullptr, threadId);
+  }
+
+  BOOL UnhookWindowsHookEx(HHOOK hHook) override {
+    return ::UnhookWindowsHookEx(hHook);
+  }
+
+  BOOL PostMessageW(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) override {
+    return ::PostMessageW(hWnd, message, wParam, lParam);
+  }
+
+  std::unique_ptr<std::thread> StartThread(std::function<void()> threadProc) override {
+    return std::make_unique<std::thread>(std::move(threadProc));
+  }
+
+  std::chrono::nanoseconds GetHighPrecisionTimestamp() override {
+    return OpSysTools::GetHighPrecisionTimestamp();
+  }
+};
+}  // namespace
+
+IUiHangDetectorPlatform& UiHangDetector::GetWin32Platform() {
+  static Win32UiHangDetectorPlatform platform;
+  return platform;
+}
+
 UiHangDetector::UiHangDetector(
     UINT hangProbeMessageId,
     UiHangProvider* pHangProvider,
-    IRumViewContextProvider* pRumViewContextProvider
+    IRumViewContextProvider* pRumViewContextProvider,
+    IUiHangDetectorPlatform& platform
 )
-    : _hangProbeMessageId(hangProbeMessageId),
+    : _platform(platform),
+      _hangProbeMessageId(hangProbeMessageId),
+      _hWnd(nullptr),
       _pHangProvider(pHangProvider),
       _pRumViewContextProvider(pRumViewContextProvider),
-      _hWnd(nullptr),
       _hGetMessageHook(nullptr),
-      _pWatchdogThread(nullptr),
       _stopEvent(nullptr),
+      _pWatchdogThread(nullptr),
+      _isRouted(false),
       _isProcessed(false),
       _state(WatchdogState::None),
-      _hangDetectionTimestamp(0ns),
-      _initialHangDuration(0ns),
+      _processedProbeTimestamp(0ns),
       _postProbeTimestamp(0ns),
       _lastNoHangTimestamp(0ns),
-      _processedProbeTimestamp(0ns) {
-  UiHangDetector::_this = this;
-
-  // manual reset event set to stop the watchdog thread
-  _stopEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
-}
+      _hangDetectionTimestamp(0ns),
+      _initialHangDuration(0ns) {}
 
 UiHangDetector::~UiHangDetector() { Stop(); }
 
-LRESULT CALLBACK GetMsgProc(int code, WPARAM wParam, LPARAM lParam) {
+LRESULT CALLBACK UiHangDetector::GetMsgProc(int code, WPARAM wParam, LPARAM lParam) {
   if (code < 0) {
     return ::CallNextHookEx(nullptr, code, wParam, lParam);
   }
@@ -48,11 +99,11 @@ LRESULT CALLBACK GetMsgProc(int code, WPARAM wParam, LPARAM lParam) {
   // don't keep the lock when calling CallNextHookEx that could trigger a reentrency
   // issue
   {
-    std::lock_guard<std::mutex> lock(UiHangDetector::_instanceMutex);
+    std::lock_guard<std::mutex> lock(_instanceMutex);
 
     // forward to the current instance of UiHangDetector
-    if (UiHangDetector::_this != nullptr) {
-      UiHangDetector::_this->ProcessHook(code, wParam, lParam);
+    if (_this != nullptr) {
+      _this->ProcessHook(code, wParam, lParam);
     }
   }
 
@@ -63,19 +114,10 @@ bool UiHangDetector::MonitorWindowHangs(HWND hWnd, ThreadList* pThreadList) {
   if (hWnd == nullptr) {
     return false;
   }
-  if (IsWindow(hWnd) == FALSE) {
-    Log::Warn("The window handle to monitor is invalid.");
-    return false;
-  }
 
   // we can't monitor more than one window at a time
   if (_hWnd != nullptr) {
     Log::Warn("Impossible to monitor more than one window for UI hang detection.");
-    return false;
-  }
-
-  if (_stopEvent == nullptr) {
-    Log::Warn("Failed to create the stop event.");
     return false;
   }
 
@@ -89,8 +131,32 @@ bool UiHangDetector::MonitorWindowHangs(HWND hWnd, ThreadList* pThreadList) {
     return false;
   }
 
+  if (!Activate(hWnd, pThreadList)) {
+    // release what the successful stages acquired so that a later call can succeed
+    Deactivate();
+    return false;
+  }
+
+  return true;
+}
+
+// Returns false at the first stage that fails; this detector is published last, once
+// everything the hook callback and the watchdog rely on exists.
+bool UiHangDetector::Activate(HWND hWnd, ThreadList* pThreadList) {
+  // manual reset event set to stop the watchdog thread
+  _stopEvent = _platform.CreateStopEvent();
+  if (_stopEvent == nullptr) {
+    Log::Warn("Failed to create the stop event.");
+    return false;
+  }
+
+  if (_platform.IsWindow(hWnd) == FALSE) {
+    Log::Warn("The window handle to monitor is invalid.");
+    return false;
+  }
+
   DWORD pid = 0;
-  DWORD tid = ::GetWindowThreadProcessId(hWnd, &pid);
+  DWORD tid = _platform.GetWindowThreadProcessId(hWnd, &pid);
   if (tid == 0) {
     return false;
   }
@@ -99,67 +165,97 @@ bool UiHangDetector::MonitorWindowHangs(HWND hWnd, ThreadList* pThreadList) {
     return false;
   }
 
-  _hWnd = hWnd;
-
   // get the ThreadInfo corresponding to the hWnd's thread
   _pThreadInfo = pThreadList->GetThread(tid);
   if (_pThreadInfo == nullptr) {
     Log::Warn("The window to monitor does not belong to a monitored thread.");
     return false;
   }
+  _hWnd = hWnd;
 
-  // Thread-specific hook on the window's UI thread. A global hook
-  // (dwThreadId == 0) would inject this DLL into every GUI process on the
-  // desktop, locking the file so rebuilds of consumers (e.g. UIApp) fail.
-  // hMod is NULL because the hook procedure lives in this process.
-  _hGetMessageHook = ::SetWindowsHookExW(WH_GETMESSAGE, GetMsgProc, nullptr, tid);
-  if (_hGetMessageHook == NULL) {
+  _hGetMessageHook = _platform.SetGetMessageHook(GetMsgProc, tid);
+  if (_hGetMessageHook == nullptr) {
     DWORD lastError = ::GetLastError();
     Log::Warn(
         "Failed to set Windows hook for UI hang detection. Error code: ", lastError
     );
-
-    _hWnd = NULL;
-    _pThreadInfo = nullptr;
     return false;
   }
 
   // create the watchdog thread
-  _pWatchdogThread = std::make_unique<std::thread>([this] {
-    OpSysTools::SetNativeThreadName(ThreadName);
-    WatchdogLoop();
-  });
+  try {
+    _pWatchdogThread = _platform.StartThread([this] {
+      OpSysTools::SetNativeThreadName(ThreadName);
+      WatchdogLoop();
+    });
+  } catch (const std::exception& error) {
+    Log::Warn("Failed to create the UI hang watchdog thread: ", error.what());
+    return false;
+  }
 
-  return true;
+  return Publish();
 }
 
-void UiHangDetector::Stop() {
-  std::lock_guard<std::mutex> lock(UiHangDetector::_instanceMutex);
+bool UiHangDetector::Publish() {
+  {
+    std::lock_guard<std::mutex> lock(_instanceMutex);
 
-  // Do nothing if called several times
-  if (_stopEvent == nullptr) {
-    return;
-  }
-
-  // wait for the watchdog thread to exit
-  ::SetEvent(_stopEvent);
-  if (_pWatchdogThread != nullptr) {
-    try {
-      _pWatchdogThread->join();
-      _pWatchdogThread.reset();
-    } catch (const std::exception&) {
+    // there is a single router: never take over the callbacks of another detector
+    if (_this == nullptr) {
+      _this = this;
+      _isRouted.store(true, std::memory_order_release);
+      return true;
     }
   }
-  ::CloseHandle(_stopEvent);
-  _stopEvent = nullptr;
 
-  // unregister the Windows hook
+  Log::Warn("Impossible to monitor more than one window for UI hang detection.");
+  return false;
+}
+
+void UiHangDetector::Withdraw() {
+  // waits for a hook callback that is already running on this detector
+  std::lock_guard<std::mutex> lock(_instanceMutex);
+
+  if (_this == this) {
+    _this = nullptr;
+  }
+  _isRouted.store(false, std::memory_order_release);
+}
+
+// Releases whatever Activate() acquired; each step is skipped when already done.
+void UiHangDetector::Deactivate() {
+  // no hook callback can reach this detector once this returns
+  Withdraw();
+
+  // the router lock is not held from here: a callback entering the hook meanwhile
+  // finds no detector and returns
   if (_hGetMessageHook != nullptr) {
-    ::UnhookWindowsHookEx(_hGetMessageHook);
+    _platform.UnhookWindowsHookEx(_hGetMessageHook);
     _hGetMessageHook = nullptr;
   }
 
-  UiHangDetector::_this = nullptr;
+  // the watchdog uses the stop event, the window and the thread until it exits
+  if (_pWatchdogThread != nullptr) {
+    _platform.SetEvent(_stopEvent);
+    _pWatchdogThread->join();
+    _pWatchdogThread.reset();
+  }
+
+  if (_stopEvent != nullptr) {
+    _platform.CloseHandle(_stopEvent);
+    _stopEvent = nullptr;
+  }
+
+  _hWnd = nullptr;
+  _pThreadInfo.reset();
+}
+
+void UiHangDetector::Stop() {
+  Deactivate();
+
+  // the providers belong to the profiling session that is ending
+  _pHangProvider = nullptr;
+  _pRumViewContextProvider = nullptr;
 }
 
 void UiHangDetector::AddHangSample(
@@ -220,7 +316,7 @@ void UiHangDetector::ProcessHook(int code, WPARAM wParam, LPARAM lParam) {
   if (code == HC_ACTION && wParam == PM_REMOVE) {
     const MSG* m = reinterpret_cast<const MSG*>(lParam);
     if ((m != nullptr) && (m->hwnd == _hWnd) && (m->message == _hangProbeMessageId)) {
-      auto now = OpSysTools::GetHighPrecisionTimestamp();
+      auto now = _platform.GetHighPrecisionTimestamp();
       _processedProbeTimestamp.store(now);
 
       _isProcessed.store(true);
@@ -230,7 +326,7 @@ void UiHangDetector::ProcessHook(int code, WPARAM wParam, LPARAM lParam) {
 
 bool UiHangDetector::PostProbeMessage() {
   _state = WatchdogState::Probing;
-  _postProbeTimestamp = OpSysTools::GetHighPrecisionTimestamp();
+  _postProbeTimestamp = _platform.GetHighPrecisionTimestamp();
   _lastNoHangTimestamp = _postProbeTimestamp;
 
   // don't forget to reset the state to be ready to detect the next hang
@@ -238,7 +334,7 @@ bool UiHangDetector::PostProbeMessage() {
   _processedProbeTimestamp.store(0ns);
   _isProcessed.store(false);
 
-  if (!::PostMessageW(_hWnd, _hangProbeMessageId, 0, 0)) {
+  if (!_platform.PostMessageW(_hWnd, _hangProbeMessageId, 0, 0)) {
     // TODO: should be map this to a hang (i.e. queue might be full)?
     DWORD lastError = ::GetLastError();
     Log::Debug(
@@ -259,14 +355,16 @@ void UiHangDetector::WatchdogLoop() {
   for (;;) {
     // detect if the watchdog thread should stop/detect a hang every
     // dd_win_prof::kWatchdogTickMs
-    if (WaitForSingleObject(_stopEvent, dd_win_prof::kWatchdogTickMs) ==
+    if (_platform.WaitForSingleObject(_stopEvent, dd_win_prof::kWatchdogTickMs) ==
         WAIT_OBJECT_0) {
       break;
     }
 
-    // post a probe message at startup
+    // post a probe message at startup, once the hook callbacks reach this detector
     if (_state == WatchdogState::None) {
-      PostProbeMessage();
+      if (_isRouted.load(std::memory_order_acquire)) {
+        PostProbeMessage();
+      }
     } else if (_state == WatchdogState::Probing) {
       // previous posted probe message has been processed by the UI thread
       auto isProcessed = _isProcessed.load();
@@ -275,7 +373,7 @@ void UiHangDetector::WatchdogLoop() {
         PostProbeMessage();
       } else {
         // check for hang
-        auto now = OpSysTools::GetHighPrecisionTimestamp();
+        auto now = _platform.GetHighPrecisionTimestamp();
         auto probingDuration = now - _postProbeTimestamp;
         if (probingDuration >= dd_win_prof::kHangThresholdMs) {
           _state = WatchdogState::Hang;
