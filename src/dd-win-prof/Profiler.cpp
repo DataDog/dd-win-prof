@@ -211,7 +211,10 @@ void Profiler::StopProfiling(bool shutdownOngoing) {
   }
 
   if (_pSamplesCollector != nullptr) {
-    _pSamplesCollector->Stop(shutdownOngoing);
+    const auto finalStatus = _pSamplesCollector->Stop(shutdownOngoing);
+    if (finalStatus && *finalStatus != FinalExportStatus::Delivered) {
+      Log::Warn("Final profile was not delivered: ", ToString(*finalStatus));
+    }
     _pSamplesCollector.reset();
   }
 
