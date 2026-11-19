@@ -8,6 +8,16 @@ The remaining v19/v47 recipes below describe historical revisions and results,
 not measurements of the libdd-c integration. Reproduce those at consumer commit
 `86dd462ebad979855ac7119017a813fe9748f9ad`.
 
+Current `bench_core` calls `ddc_profile_clear_strings` after every tenth successful
+reset, before reseeding metadata, matching the native exporter's initial policy.
+The C backend uses public string views and the C-string helper for its
+NUL-terminated inputs. Link `ddc::profiling`, not its core archive alone: the
+producer supplies a separate private-dependency archive through that target.
+Its `explicitreset` phase and `explicit_reset_ns` include periodic maintenance;
+these are not isolated measurements of `ddc_profile_reset`. The current core does
+not automatically evict strings. Host recovery checks distinguish tenth-reset
+string clearing from the later release of non-string spare capacity.
+
 Benchmark-only standalone C11/C++20 project. No production SDK dependency, Rust build, download, layout manipulation, or API additions. Existing v1 evidence is preserved. **Do not use v1 relative times/allocation counts as a fair comparison:** its Rust global atomic allocator, per-record clocks, different setup calls, and differently classified churn reset/reconstruction costs bias those comparisons. V2 does not retroactively correct those CSVs. See the [historical v19 Windows results and evidence](../windows-v2/README.md).
 
 ## Build and sanity on the host

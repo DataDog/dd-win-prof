@@ -50,6 +50,9 @@ bool PprofAggregator::Serialize(
   return true;
 }
 bool PprofAggregator::Reset() { return m_api.reset(m_profile) == DDC_PROFILE_OK; }
+bool PprofAggregator::ClearStrings() {
+  return m_api.clearStrings(m_profile) == DDC_PROFILE_OK;
+}
 bool PprofAggregator::AddSample(
     std::span<const ddc_profile_id> locations,
     std::span<const int64_t> values,

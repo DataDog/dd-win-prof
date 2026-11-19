@@ -11,12 +11,14 @@
 #include "Uuid.h"
 #include "version.h"
 namespace {
+// TODO(PROF-16455): Tune this interval against retained memory and reinterning cost.
+constexpr unsigned StringClearInterval = 10;
 int64_t ToUnixTimeMs(std::chrono::system_clock::time_point t) {
   return std::chrono::duration_cast<std::chrono::milliseconds>(t.time_since_epoch())
       .count();
 }
 ddc_profile_status String(ddc_profile* p, std::string_view s, ddc_profile_id& id) {
-  return ddc_profile_intern_string(p, s.data(), s.size(), &id);
+  return ddc_profile_intern_string(p, {s.data(), s.size()}, &id);
 }
 }  // namespace
 ProfileExporter::ProfileExporter(
@@ -50,6 +52,7 @@ void ProfileExporter::Cleanup(bool) {
   _httpExporter.reset();
   _httpTags.clear();
   _consecutiveErrors = 0;
+  _resetsSinceStringClear = 0;
   _aggregator.reset();
   _symbolication.reset();
   _persistentSymbolCache.clear();
@@ -69,6 +72,7 @@ bool ProfileExporter::Initialize() {
     _aggregator = std::make_unique<dd_win_prof::PprofAggregator>(
         _sampleTypeDefinitions, 10, _encodingApi
     );
+    _resetsSinceStringClear = 0;
     if (!_aggregator->IsInitialized() || !InternSampleLabels()) return false;
     _profileStartTime = std::chrono::system_clock::now();
     _initialized = true;
@@ -392,6 +396,16 @@ bool ProfileExporter::Export(bool last) {
   // Recovery remains explicit even after encoding, sink or callback failures.
   if (!_aggregator->Reset()) {
     success = ReportError(ProfilingErrorCode::ProfileResetFailed, last);
+  } else {
+    if (_resetsSinceStringClear < StringClearInterval) ++_resetsSinceStringClear;
+    if (_resetsSinceStringClear == StringClearInterval) {
+      if (_aggregator->ClearStrings()) {
+        _resetsSinceStringClear = 0;
+      } else {
+        Log::Error("C profile string clearing failed");
+        success = ReportError(ProfilingErrorCode::ProfileResetFailed, last);
+      }
+    }
   }
   if (_currentExportLocationCache.size() > 10000) {
     decltype(_currentExportLocationCache)().swap(_currentExportLocationCache);

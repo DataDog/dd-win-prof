@@ -2,6 +2,7 @@ param(
     [Parameter(Mandatory=$true)][string]$LibddCSourceDir,
     [Parameter(Mandatory=$true)][string]$BaselineSourceDir,
     [Parameter(Mandatory=$true)][string]$ArtifactDirectory,
+    [string]$TestZstdSourceDir = '',
     [switch]$RemainingChecksOnly
 )
 $ErrorActionPreference = 'Stop'
@@ -20,7 +21,7 @@ try {
         Write-Host 'REUSING primary integration validation for the previously verified source snapshot.'
         Run 'cmake' @('--build', (Join-Path $root 'build-libdd-c'), '--config', 'Release', '--target', 'Tests', '--parallel', '4')
     } else {
-        & (Join-Path $PSScriptRoot 'validate-c-aggregation.ps1') -LibddCSourceDir $LibddCSourceDir
+        & (Join-Path $PSScriptRoot 'validate-c-aggregation.ps1') -LibddCSourceDir $LibddCSourceDir -TestZstdSourceDir $TestZstdSourceDir
     }
     $baselineBuild = Join-Path $BaselineSourceDir 'build-libdd-c-baseline'
     Run 'cmake' @('-S', $BaselineSourceDir, '-B', $baselineBuild, '-G', 'Visual Studio 17 2022', '-A', 'x64',

@@ -3,6 +3,7 @@
 param(
     [string]$Configuration = 'Release',
     [string]$LibddCSourceDir = '',
+    [string]$TestZstdSourceDir = '',
     [string]$ProfAnalyze = 'prof-analyze',
     [string]$ProfileCheck = 'libdd-c-profile-check'
 )
@@ -36,6 +37,7 @@ Run 'cmake' @('-S', $root, '-B', $build, '-G', 'Visual Studio 17 2022', '-A', 'x
     '-DDD_WIN_PROF_DEVELOPMENT=OFF', '-DDD_WIN_PROF_BUILD_TESTS=ON', '-DDD_WIN_PROF_BUILD_RUNNER=ON', '-DDD_WIN_PROF_BUILD_UIAPP=ON',
     '-DDD_WIN_PROF_BUILD_INJECTOR=OFF', '-DDD_WIN_PROF_BUILD_OBFUSCATION=OFF', '-DDD_WIN_PROF_BUILD_INSTALL=ON',
     "-DDD_WIN_PROF_LIBDD_C_SOURCE_DIR=$LibddCSourceDir",
+    "-DDDC_PROFILING_TEST_ZSTD_SOURCE_DIR=$TestZstdSourceDir",
     '-DDDC_PROFILING_BUILD_TESTS=ON', '-DDDC_PROFILING_BUILD_EXAMPLES=ON', '-DPE_BUILD_TESTS=ON')
 # Repair only the known file artifact from the early runtime-copy bug. Never
 # remove an existing output directory or any unrelated path.
@@ -73,8 +75,14 @@ if (-not $dumpbin) {
     $dumpbinPath = Get-ChildItem (Join-Path $vs 'VC/Tools/MSVC/*/bin/Hostx64/x64/dumpbin.exe') | Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
 } else { $dumpbinPath = $dumpbin.Source }
 if (-not $dumpbinPath) { throw 'dumpbin.exe not found; dependency validation incomplete' }
-$symbols = & $dumpbinPath /SYMBOLS (Join-Path $build "libdd-c-profiling/$Configuration/ddc_profiling.lib")
-if ($LASTEXITCODE -ne 0) { throw 'dumpbin archive symbol inspection failed' }
+$profilingArchives = @(
+    (Join-Path $build "libdd-c-profiling/$Configuration/ddc_profiling.lib"),
+    (Join-Path $build "libdd-c-profiling/private-dependencies/$Configuration/ddc_private_dependencies.lib")
+)
+$symbols = @(foreach ($archive in $profilingArchives) {
+    & $dumpbinPath /SYMBOLS $archive
+    if ($LASTEXITCODE -ne 0) { throw "dumpbin archive symbol inspection failed: $archive" }
+})
 $definitions = @($symbols | Where-Object { $_ -match 'External' -and $_ -notmatch '\bUNDEF\b' } | ForEach-Object {
     if ($_ -match '\|\s+(\S+)') { $Matches[1] }
 })
@@ -85,17 +93,22 @@ $exports = & $dumpbinPath /EXPORTS (Join-Path $build "src/dd-win-prof/$Configura
 if ($LASTEXITCODE -ne 0 -or ($exports -join "`n") -match '\b(ddc_|pa_|ddpa_|ZSTD_|pb_)') { throw 'Dependency symbols leaked through profiler DLL exports' }
 $exports | Set-Content (Join-Path $capture 'dll-exports.txt')
 $crt = @{}
-foreach ($project in @('libdd-c-profiling/ddc_profiling.vcxproj', 'src/dd-win-prof/dd-win-prof.vcxproj')) {
+$dependencyProjects = @('libdd-c-profiling/ddc_profiling.vcxproj', 'libdd-c-profiling/private-dependencies/ddc_private_dependencies.vcxproj')
+foreach ($project in ($dependencyProjects + @('src/dd-win-prof/dd-win-prof.vcxproj'))) {
     $xml = Get-Content (Join-Path $build $project) -Raw
     $crt[$project] = @([regex]::Matches($xml, '<RuntimeLibrary>([^<]+)</RuntimeLibrary>') | ForEach-Object { $_.Groups[1].Value })
 }
-if (-not $crt['libdd-c-profiling/ddc_profiling.vcxproj'].Count -or
-    ($crt['libdd-c-profiling/ddc_profiling.vcxproj'] -join ',') -ne ($crt['src/dd-win-prof/dd-win-prof.vcxproj'] -join ',')) {
-    throw 'libdd-c and native profiler MSVC CRT selections differ'
+foreach ($project in $dependencyProjects) {
+    if (-not $crt[$project].Count -or
+        ($crt[$project] -join ',') -ne ($crt['src/dd-win-prof/dd-win-prof.vcxproj'] -join ',')) {
+        throw "libdd-c and native profiler MSVC CRT selections differ: $project"
+    }
 }
 $crt | ConvertTo-Json | Set-Content (Join-Path $capture 'crt-audit.json')
-$directives = & $dumpbinPath /DIRECTIVES (Join-Path $build "libdd-c-profiling/$Configuration/ddc_profiling.lib")
-if ($LASTEXITCODE -ne 0) { throw 'dumpbin CRT directive inspection failed' }
+$directives = @(foreach ($archive in $profilingArchives) {
+    & $dumpbinPath /DIRECTIVES $archive
+    if ($LASTEXITCODE -ne 0) { throw "dumpbin CRT directive inspection failed: $archive" }
+})
 $directives | Set-Content (Join-Path $capture 'libdd-c-directives.txt')
 foreach ($binary in @((Join-Path $build "src/dd-win-prof/$Configuration/dd-win-prof.dll"), (Join-Path $build "src/Tests/$Configuration/Tests.exe"), (Join-Path $uiAppOutput "UIApp.exe"))) {
     $imports = & $dumpbinPath /DEPENDENTS $binary

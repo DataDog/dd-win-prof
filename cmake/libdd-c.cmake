@@ -22,12 +22,14 @@ else()
     set(_ddc_source "${dd_win_prof_libdd_c_SOURCE_DIR}")
 endif()
 
-if(NOT TARGET ddc::profiling OR NOT EXISTS "${_ddc_source}/profiling/include/ddc/profiling.h")
-    message(FATAL_ERROR "libdd-c source must provide ddc::profiling and its public ddc/profiling.h API")
+if(NOT TARGET ddc::profiling OR
+   NOT EXISTS "${_ddc_source}/profiling/include/ddc/profiling.h" OR
+   NOT EXISTS "${_ddc_source}/profiling/include/ddc/profiling_helpers.h")
+    message(FATAL_ERROR "libdd-c source must provide ddc::profiling and its public ddc/profiling.h and ddc/profiling_helpers.h APIs")
 endif()
 message(STATUS "libdd-c profiling source: ${_ddc_source} (requested revision: ${DD_WIN_PROF_LIBDD_C_REVISION})")
 if(DD_WIN_PROF_BUILD_INSTALL)
     install(FILES "${_ddc_source}/LICENSE" "${_ddc_source}/NOTICE"
         "${_ddc_source}/LICENSE-3rdparty.csv" DESTINATION licenses/libdd-c)
-    install(DIRECTORY "${_ddc_source}/profiling/licenses/" DESTINATION licenses/libdd-c/profiling)
+    install(DIRECTORY "${_ddc_source}/vendor/licenses/" DESTINATION licenses/libdd-c/vendor)
 endif()

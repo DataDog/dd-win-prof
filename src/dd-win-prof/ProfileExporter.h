@@ -91,6 +91,7 @@ class ProfileExporter {
   ddc_profile_id _threadKey = 0, _nameKey = 0, _viewKey = 0, _endpointKey = 0;
   uint32_t _currentExportId = 0;
   unsigned _consecutiveErrors = 0;
+  unsigned _resetsSinceStringClear = 0;
   std::chrono::system_clock::time_point _profileStartTime;
   std::vector<RumViewRecord> _viewRecordsBuffer;
   std::vector<RumSessionRecord> _sessionRecordsBuffer;

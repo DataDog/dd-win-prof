@@ -5,10 +5,13 @@
 - Consumer base: `86dd462ebad979855ac7119017a813fe9748f9ad`, branch
   `r1viollet/prof-16455-c-aggregation`.
 - Integration branch: `r1viollet/prof-16455-use-libdd-c`.
-- Producer tested revision: `c7c8a8520c99fddb87f04f8a1fe76258f2854dfa`, from
+- Original producer Windows-tested revision: `c7c8a8520c99fddb87f04f8a1fe76258f2854dfa`, from
   `r1viollet/prof-16455-extract-profile-core`. This includes encoded-stack caching
   from `9e9b88886edc6cc442bb47b12448ba6e3ecdf657`. The later cleanup commit changes
   tests/docs, not the production source, public header or vendors.
+- Current string-view API and Windows/host-validated revision:
+  `4e37730228b579860e0865cf6b8c3592666dc7ed`. Results for the retention and
+  string-view follow-ups are recorded separately below.
 - At the user's request, the build temporarily follows that producer branch.
   TODO(PROF-16455): pin its final full SHA in `cmake/libdd-c.cmake` before release.
   A local source override is never reset, fetched or modified by the build.
@@ -34,8 +37,8 @@ that serialization would reject. Direct adapter input above the limit fails.
 This reduction was explicitly approved for the stack optimization. It is not a
 claim of semantic equivalence for profiles with more than 256 frames.
 
-Apart from the upstream RUM HTTP tag change described below, behavior is unchanged:
-ordered/custom sample definitions, periods, labels,
+Apart from the upstream RUM HTTP tag change described below, emitted profile and
+callback behavior is unchanged: ordered/custom sample definitions, periods, labels,
 module-relative location addresses, generation-local IDs and cache invalidation,
 owned callback bytes after `StopProfiler`, stop/final delivery, and RUM/UI hangs.
 There is still exactly one reset on the native export path, including failed
@@ -49,6 +52,51 @@ Existing conventions intentionally retained, not fixed here:
 - The adapter uses `timestamp != 0` as presence. The core supports explicit epoch
   zero, but the adapter does not express it.
 
+## String retention follow-up
+
+The updated API at `1efe5ea5be96c36bf90906a1d2efcb20e1742261` retains strings
+across ordinary resets until explicitly cleared. The local exporter now calls
+`ddc_profile_clear_strings` after every tenth successful reset, before reinterning
+sample labels. Failed delivery and empty windows still count; failed resets do
+not. A failed clear remains due for the next reset. Native symbol caches remain
+intact. There is no new public setting or timer.
+
+Ten resets are roughly ten minutes at the default production upload interval.
+The constant carries a TODO to tune retention against memory and reinterning
+cost. This is an age policy, not a peak-memory limit. See the
+[string retention proposal and validation notes](libdd-c-string-retention-proposal.md).
+
+Against that producer revision, the local host harness passes 2/2 CTest checks
+and the 41-run smoke with independent wire decoding using Python 3.15's standard
+library Zstd decoder. Removing explicit clearing makes the new tenth-reset
+reclamation assertion fail. These checks do not execute the Windows exporter.
+Three native policy tests were added, and existing custom/NUL/wide fixtures now
+exercise clearing. The later Windows run below covers these changes; the original
+pre-main Windows results do not.
+
+## String-view API follow-up
+
+At producer `4e37730228b579860e0865cf6b8c3592666dc7ed`, string interning takes a
+`ddc_profile_string_view` rather than separate pointer/length arguments. Native
+`std::string_view` inputs retain explicit lengths; no `strlen` conversion is used
+for these or for custom type/unit definitions. Embedded NUL support is preserved.
+The harness and native test literals use `ddc/profiling_helpers.h`'s borrowed
+`ddc_profile_string_view_from_cstr` helper for NUL-terminated strings.
+
+The producer now links its private vendors through a separate
+`ddc_private_dependencies` archive. Consumers continue linking only the public
+`ddc::profiling` target, which supplies that dependency. License installation now
+copies `vendor/licenses` into `licenses/libdd-c/vendor`. Windows validation audits
+both static archives and both dependency projects' CRT settings. No new public SDK
+surface or runtime dependency DLL is added.
+
+Using a local producer snapshot, host configure/build and CTest pass 9/9, including
+the dependency's namespace audit and C/C++ examples. The 41-run smoke also passes
+with independent wire decoding. The reset-only negative variant still fails at
+the tenth-reset string reclamation assertion. All seven installed license/notice
+files match the source bytes. These host checks are separate from the later
+Windows SDK and PowerShell validation recorded below.
+
 ## Main synchronization
 
 The validated pre-sync integration is commit
@@ -59,9 +107,10 @@ retaining all nine upstream tests, including empty-ID handling, uncapped tag
 lists and no stale IDs on the next export. Callback delivery still discards
 these HTTP-only records.
 
-Windows validation of this main synchronization is pending. The 234-test results
-below describe the pre-sync implementation, not the current merged code; the
-native suite now contains 243 tests.
+The original 234-test results apply before that merge. The later 246-test run
+includes its nine upstream tests plus three retention tests. Newer main changes,
+including `3d62818` (stable C callback API) and `f2b8b52` (UI-hang duration profiles),
+are not merged into this branch.
 
 ## Build
 
@@ -88,8 +137,9 @@ cmake --build build-libdd-c-local --config Release --parallel 4
 ```
 
 The override names the libdd-c **repository root**, not its `profiling` directory.
-It must supply `profiling/include/ddc/profiling.h` and `ddc::profiling`; adapters
-compile directly against that API. Neither an implicit sibling path nor an
+It must supply `profiling/include/ddc/profiling.h`, `ddc/profiling_helpers.h` in
+the same public include tree, and `ddc::profiling`; adapters compile directly
+against that API. Neither an implicit sibling path nor an
 author-machine absolute path is part of the normal build. An installed consumer
 needs only the profiler's installed headers, import library and DLL.
 
@@ -113,8 +163,14 @@ Run on a fresh isolated mirror under `C:\Repos` via the win-sync SMB worker:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File e2e-tests/validate-c-aggregation.ps1 `
-  -LibddCSourceDir C:/Repos/my-libdd-c-source
+  -LibddCSourceDir C:/Repos/my-libdd-c-source `
+  -TestZstdSourceDir C:/Repos/zstd-1.5.7
 ```
+
+Dependency tests require an independent system libzstd >= 1.5.5 through pkg-config,
+or local upstream Zstd sources via `-TestZstdSourceDir` as above. Omit that argument
+when system libzstd is available. The producer no longer downloads its test decoder;
+the vendored production amalgamation is not an independent test decoder.
 
 This runs dependency correctness/collision/stack-encoding/namespace tests and C/C++
 examples, native tests, source and installed consumers with development options
@@ -134,7 +190,8 @@ For baseline equivalence and MSVC ASan as well:
 powershell -NoProfile -ExecutionPolicy Bypass -File e2e-tests/validate-libdd-c-worker.ps1 `
   -LibddCSourceDir C:/Repos/my-libdd-c-source `
   -BaselineSourceDir C:/Repos/isolated-consumer-base `
-  -ArtifactDirectory Z:/winshare/artifacts/my-libdd-c-validation
+  -ArtifactDirectory Z:/winshare/artifacts/my-libdd-c-validation `
+  -TestZstdSourceDir C:/Repos/zstd-1.5.7
 ```
 
 The baseline checkout must be the exact consumer base above. This builds its
@@ -147,10 +204,46 @@ native suite separately. `-RemainingChecksOnly` resumes this fixture/ASan phase
 without repeating primary integration checks; use it only when the production
 sources match the previously verified snapshot.
 
-### Results recorded 2026-11-16
+### Results recorded 2026-11-19: retention and string views
 
-Windows job `20261116T093328Z-run-script-dd-win-prof-97e367a1` used the exact
-producer revision above, verified by SHA256 source manifests before building.
+Producer `4e37730228b579860e0865cf6b8c3592666dc7ed` was built from a hash-verified
+source snapshot, with an independent upstream Zstd 1.5.7 test decoder. Worker job
+`20261119T104512Z-run-script-dd-win-prof-7d908250` passed the complete validation:
+
+- 246/246 native Release tests and 246/246 MSVC ASan `RelWithDebInfo` tests, with
+  zero failures, errors or disabled tests. This includes the three reset-cadence
+  tests and the nine earlier main-merge tests.
+- Seven dependency/example CTest checks, C exporter protocol tests and 12 Python
+  serialization/decoder tests.
+- Source/installed consumers, downstream isolation, both dependency archives'
+  namespaces and CRT settings, and DLL import/export audits.
+- prof-correctness v1.0.0 callback/Runner checks, WinHTTP loopback and failure
+  cases, RUM, UI-hang sleep/wait/CPU and restart checks.
+- All six decoded baseline/candidate fixtures matched, including embedded NULs,
+  seven columns, custom periods and reset/clear cycles.
+
+The first attempt, `20261119T103958Z-run-script-dd-win-prof-d29fe53f`, passed
+245/246 native tests. An earlier RUM test adaptation incorrectly required a comma
+after the final tag. The assertion now extracts the tag field and checks complete
+comma-delimited tokens, including the last one. Only that test changed between
+attempts; production, producer and baseline sources were unchanged. The passing
+job reran every phase using the existing isolated build directories, not
+`-RemainingChecksOnly`.
+
+Evidence is under `winshare/artifacts/prof-16455-libdd-c-api-4e37730-20261119-rerun/`:
+`validation.log`, source/tool manifests, CRT inventories, native/ASan XML and
+captures. Worker logs use the job IDs above under `winshare/worker/logs/`.
+
+GitHub CI is not green: its preceding run `43845705637` failed during configuration
+because it could not authenticate cloning private `DataDog/libdd-c`, including in
+the format job before formatting ran. Cross-repository CI credentials are unchanged.
+PR #95 also conflicts with the newer main changes noted above; resolving that merge
+is separate from this API update. No live intake or performance result is claimed.
+
+### Results recorded 2026-11-16 (original pre-main integration)
+
+Windows job `20261116T093328Z-run-script-dd-win-prof-97e367a1` used producer
+`c7c8a8520c99fddb87f04f8a1fe76258f2854dfa`, verified by SHA256 source manifests before building.
 The isolated Release build passed:
 
 - 234 native tests, seven dependency tests and the C exporter protocol tests.

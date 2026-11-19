@@ -12,6 +12,7 @@ namespace dd_win_prof {
 struct ProfileEncodingApi {
   decltype(&ddc_profile_serialize) serialize = ddc_profile_serialize;
   decltype(&ddc_profile_reset) reset = ddc_profile_reset;
+  decltype(&ddc_profile_clear_strings) clearStrings = ddc_profile_clear_strings;
 };
 class PprofAggregator {
  public:
@@ -26,6 +27,7 @@ class PprofAggregator {
   bool IsInitialized() const { return m_profile != nullptr; }
   bool Serialize(int64_t startMs, int64_t endMs, std::vector<uint8_t>& bytes);
   bool Reset();
+  bool ClearStrings();
   bool AddSample(
       std::span<const ddc_profile_id> locations,
       std::span<const int64_t> values,

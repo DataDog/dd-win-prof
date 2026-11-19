@@ -1,4 +1,6 @@
 // Copyright 2026 Datadog, Inc. SPDX-License-Identifier: Apache-2.0
+#include <ddc/profiling_helpers.h>
+
 #include "PprofAggregator.h"
 #include "ProfileExporter.h"
 #include "ProfileTestOutput.h"
@@ -20,7 +22,10 @@ class PprofAggregatorTest : public ::testing::Test {
   std::vector<ddc_profile_id> Locations(PprofAggregator& a) {
     ddc_profile_id name = 0, function = 0, location = 0;
     EXPECT_EQ(
-        ddc_profile_intern_string(a.GetProfile(), "Worker", 6, &name), DDC_PROFILE_OK
+        ddc_profile_intern_string(
+            a.GetProfile(), ddc_profile_string_view_from_cstr("Worker"), &name
+        ),
+        DDC_PROFILE_OK
     );
     ddc_profile_function f{name, name, 0, 42};
     EXPECT_EQ(
@@ -216,6 +221,7 @@ TEST_F(PprofAggregatorTest, CustomSampleTypesPreserveRepeatedAndDistinctDefiniti
     Encoded(bytes);
     WriteTestProfile("wide-" + std::to_string(cycle) + ".pprof", bytes);
     ASSERT_TRUE(aggregator.Reset());
+    ASSERT_TRUE(aggregator.ClearStrings());
   }
 }
 
@@ -250,6 +256,7 @@ TEST_F(PprofAggregatorTest, CustomPeriodAndDefinitionsSurviveInputLifetimeAndRes
     Encoded(bytes);
     WriteTestProfile("custom-" + std::to_string(cycle) + ".pprof", bytes);
     ASSERT_TRUE(aggregator.Reset());
+    ASSERT_TRUE(aggregator.ClearStrings());
   }
 }
 
@@ -266,5 +273,6 @@ TEST_F(PprofAggregatorTest, EmbeddedNulDefinitionsSurviveReset) {
     ASSERT_TRUE(aggregator.Serialize(1700000000000, 1700000001000, bytes));
     WriteTestProfile("nul-" + std::to_string(cycle) + ".pprof", bytes);
     ASSERT_TRUE(aggregator.Reset());
+    ASSERT_TRUE(aggregator.ClearStrings());
   }
 }

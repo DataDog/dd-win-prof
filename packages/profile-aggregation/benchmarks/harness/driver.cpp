@@ -25,7 +25,7 @@
 #if defined(PA_BENCH_V19) || defined(PA_BENCH_V47)
 #include <datadog/profiling.h>
 #else
-#include <ddc/profiling.h>
+#include <ddc/profiling_helpers.h>
 #endif
 
 #ifdef _WIN32
@@ -138,9 +138,13 @@ static void check(ddc_profile_status s) { require(s == DDC_PROFILE_OK, "C API st
 using String = ddc_profile_id; using Function = ddc_profile_id; using Location = ddc_profile_id; using Stack = ddc_profile_id; using Labels = ddc_profile_id;
 struct Backend {
   ddc_profile* p = nullptr; std::vector<uint8_t> output;
-  explicit Backend(Allocator& a) { ddc_profile_value_type types[] = {{{"cpu-time",8},{"nanoseconds",11}},{{"wall-time",9},{"nanoseconds",11}}};
+  unsigned resets_since_string_clear = 0;
+  explicit Backend(Allocator& a) {
+    ddc_profile_value_type types[] = {
+        {ddc_profile_string_view_from_cstr("cpu-time"), ddc_profile_string_view_from_cstr("nanoseconds")},
+        {ddc_profile_string_view_from_cstr("wall-time"), ddc_profile_string_view_from_cstr("nanoseconds")}};
     ddc_profile_allocator allocator{&a,Allocator::alloc,Allocator::release}; check(ddc_profile_create(types,2,10000000,a.enabled ? &allocator : nullptr,&p)); }
-  String string(const char* s) { ddc_profile_id id; check(ddc_profile_intern_string(p,s,std::strlen(s),&id)); return id; }
+  String string(const char* s) { ddc_profile_id id; check(ddc_profile_intern_string(p,ddc_profile_string_view_from_cstr(s),&id)); return id; }
   Function function() { ddc_profile_function f{}; ddc_profile_id id; check(ddc_profile_intern_function(p,&f,&id)); return id; }
   Location location(Function f, uint64_t address) { ddc_profile_location l{}; l.function=f; l.address=address; ddc_profile_id id; check(ddc_profile_intern_location(p,&l,&id)); return id; }
   Stack stack(const Location* ids, size_t n) { ddc_profile_id id; check(ddc_profile_intern_stack(p,ids,n,&id)); return id; }
@@ -152,7 +156,13 @@ struct Backend {
   void encode(size_t end) { check(ddc_profile_serialize(p,0,int64_t(end),sink,this)); }
   struct Bytes { const uint8_t* ptr; size_t len; };
   Bytes bytes() { return {output.data(),output.size()}; }
-  void reset() { check(ddc_profile_reset(p)); }
+  void reset() {
+    check(ddc_profile_reset(p));
+    if (++resets_since_string_clear == 10) {
+      check(ddc_profile_clear_strings(p));
+      resets_since_string_clear = 0;
+    }
+  }
   void free_output() { std::vector<uint8_t>().swap(output); }
   ~Backend() { ddc_profile_destroy(p); }
 };

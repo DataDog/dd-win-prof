@@ -8,6 +8,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -574,14 +575,21 @@ TEST_F(ProfileExporterExportTests, HttpEmitsAllRumTagsWithoutACapOrStaleIds) {
   const auto requests = server.Requests();
   ASSERT_EQ(requests.size(), 2u);
   const auto& body = requests[0].body;
+  constexpr std::string_view tagField = "\"tags_profiler\":\"";
+  const auto fieldStart = body.find(tagField);
+  ASSERT_NE(fieldStart, std::string::npos);
+  const auto valuesStart = fieldStart + tagField.size();
+  const auto valuesEnd = body.find('"', valuesStart);
+  ASSERT_NE(valuesEnd, std::string::npos);
+  const auto tags = "," + body.substr(valuesStart, valuesEnd - valuesStart) + ",";
   for (size_t i = 0; i < 32; ++i) {
     SCOPED_TRACE(i);
     EXPECT_NE(
-        body.find("rum.session_id:session-" + std::to_string(i) + ","),
+        tags.find(",rum.session_id:session-" + std::to_string(i) + ","),
         std::string::npos
     );
     EXPECT_NE(
-        body.find("rum.view_id:view-" + std::to_string(i) + ","), std::string::npos
+        tags.find(",rum.view_id:view-" + std::to_string(i) + ","), std::string::npos
     );
   }
   EXPECT_EQ(body.find("rum.session_id:,"), std::string::npos);

@@ -24,8 +24,10 @@ struct EncodingFailureState {
   bool serialize = false;
   bool output = false;
   bool reset = false;
+  bool clearStrings = false;
   int serializeCalls = 0;
   int resetCalls = 0;
+  int clearStringsCalls = 0;
 };
 thread_local EncodingFailureState encodingFailure;
 
@@ -50,6 +52,11 @@ ddc_profile_status ResetWithFailure(ddc_profile* profile) {
   ++encodingFailure.resetCalls;
   if (std::exchange(encodingFailure.reset, false)) return DDC_PROFILE_NOMEM;
   return ddc_profile_reset(profile);
+}
+ddc_profile_status ClearStringsWithFailure(ddc_profile* profile) {
+  ++encodingFailure.clearStringsCalls;
+  if (std::exchange(encodingFailure.clearStrings, false)) return DDC_PROFILE_INVALID;
+  return ddc_profile_clear_strings(profile);
 }
 
 }  // namespace
@@ -157,8 +164,9 @@ TEST_F(ProfilingDataCallbackTests, NoHttpSettingsNeededWithNoEnvVars) {
       Profiler::GetConfiguration()->GetUploadInterval(), std::chrono::seconds(17)
   );
   EXPECT_EQ(profiler->GetDeliveryMode(), ProfileDeliveryMode::Callback);
-  EXPECT_FALSE(Profiler::GetConfiguration()->IsExportEnabled(profiler->GetDeliveryMode()
-  ));
+  EXPECT_FALSE(
+      Profiler::GetConfiguration()->IsExportEnabled(profiler->GetDeliveryMode())
+  );
   EXPECT_TRUE(Profiler::GetConfiguration()->GetApiKey().empty());
 }
 
@@ -396,6 +404,99 @@ TEST_F(ProfilingDataCallbackTests, InternalExportUsesBooleanResults) {
   exporter.Cleanup();
 }
 
+TEST_F(
+    ProfilingDataCallbackTests, StringClearingFollowsResetCadenceAcrossReinitialization
+) {
+  encodingFailure = {};
+  Profiler::GetConfiguration()->SetExportEnabled(false);
+  const dd_win_prof::ProfileEncodingApi api{
+      SerializeWithFailure, ResetWithFailure, ClearStringsWithFailure
+  };
+  std::vector<SampleValueType> types{{"cpu-time", "nanoseconds"}};
+  ProfileExporter exporter(Profiler::GetConfiguration(), types, nullptr, {}, api);
+  for (int session = 0; session < 2; ++session) {
+    ASSERT_TRUE(exporter.Initialize());
+    for (int cycle = 1; cycle <= 21; ++cycle) {
+      SCOPED_TRACE(cycle);
+      ASSERT_TRUE(exporter.Export(cycle == 21));
+      EXPECT_EQ(encodingFailure.resetCalls, session * 21 + cycle);
+      EXPECT_EQ(encodingFailure.clearStringsCalls, session * 2 + cycle / 10);
+    }
+    exporter.Cleanup();
+  }
+}
+
+TEST_F(ProfilingDataCallbackTests, StringClearingCountsFailedExports) {
+  for (int failure = 0; failure < 3; ++failure) {
+    SCOPED_TRACE(failure);
+    encodingFailure = {};
+    bool throwCallback = false;
+    const dd_win_prof::ProfileEncodingApi api{
+        SerializeWithFailure, ResetWithFailure, ClearStringsWithFailure
+    };
+    std::vector<SampleValueType> types{{"cpu-time", "nanoseconds"}};
+    ProfileExporter exporter(
+        Profiler::GetConfiguration(),
+        types,
+        nullptr,
+        [&](ProfilingData) {
+          if (throwCallback) throw std::runtime_error("callback failed");
+        },
+        api
+    );
+    ASSERT_TRUE(exporter.Initialize());
+    for (int cycle = 0; cycle < 9; ++cycle) ASSERT_TRUE(exporter.Export());
+    encodingFailure.serialize = failure == 0;
+    encodingFailure.output = failure == 1;
+    throwCallback = failure == 2;
+    EXPECT_FALSE(exporter.Export());
+    EXPECT_EQ(encodingFailure.resetCalls, 10);
+    EXPECT_EQ(encodingFailure.clearStringsCalls, 1);
+    throwCallback = false;
+    EXPECT_TRUE(exporter.Export(true));
+  }
+}
+
+TEST_F(
+    ProfilingDataCallbackTests, StringClearingRetriesAfterFailureAndSkipsFailedReset
+) {
+  encodingFailure = {};
+  const dd_win_prof::ProfileEncodingApi api{
+      SerializeWithFailure, ResetWithFailure, ClearStringsWithFailure
+  };
+  std::vector<ProfilingData> results;
+  std::vector<SampleValueType> types{{"cpu-time", "nanoseconds"}};
+  ProfileExporter exporter(
+      Profiler::GetConfiguration(),
+      types,
+      nullptr,
+      [&](ProfilingData data) { results.push_back(std::move(data)); },
+      api
+  );
+  ASSERT_TRUE(exporter.Initialize());
+  for (int cycle = 0; cycle < 4; ++cycle) ASSERT_TRUE(exporter.Export());
+  encodingFailure.reset = true;
+  EXPECT_FALSE(exporter.Export());
+  EXPECT_EQ(encodingFailure.clearStringsCalls, 0);
+  for (int cycle = 0; cycle < 5; ++cycle) ASSERT_TRUE(exporter.Export());
+  EXPECT_EQ(encodingFailure.clearStringsCalls, 0);
+  encodingFailure.clearStrings = true;
+  EXPECT_FALSE(exporter.Export());
+  EXPECT_EQ(encodingFailure.clearStringsCalls, 1);
+  ASSERT_FALSE(results.empty());
+  EXPECT_EQ(
+      results.back().result,
+      static_cast<uint32_t>(ProfilingErrorCode::ProfileResetFailed)
+  );
+  EXPECT_TRUE(exporter.Export());
+  EXPECT_EQ(encodingFailure.clearStringsCalls, 2);
+  for (int cycle = 0; cycle < 9; ++cycle) ASSERT_TRUE(exporter.Export());
+  EXPECT_EQ(encodingFailure.clearStringsCalls, 2);
+  EXPECT_TRUE(exporter.Export(true));
+  EXPECT_EQ(encodingFailure.clearStringsCalls, 3);
+  EXPECT_EQ(encodingFailure.resetCalls, 22);
+}
+
 TEST_F(ProfilingDataCallbackTests, BackgroundErrorCanBeExplainedAfterCallbackReturns) {
   std::vector<ProfilingData> results;
   const bool failed =
@@ -592,15 +693,17 @@ TEST(ProfilingDataExportTests, ResetErrorIsDeliveredAndNextExportRecovers) {
 
     Sample::SetValuesCount(types.size());
     HANDLE thread = nullptr;
-    ASSERT_TRUE(::DuplicateHandle(
-        ::GetCurrentProcess(),
-        ::GetCurrentThread(),
-        ::GetCurrentProcess(),
-        &thread,
-        0,
-        FALSE,
-        DUPLICATE_SAME_ACCESS
-    ));
+    ASSERT_TRUE(
+        ::DuplicateHandle(
+            ::GetCurrentProcess(),
+            ::GetCurrentThread(),
+            ::GetCurrentProcess(),
+            &thread,
+            0,
+            FALSE,
+            DUPLICATE_SAME_ACCESS
+        )
+    );
     auto threadInfo = std::make_shared<ThreadInfo>(::GetCurrentThreadId(), thread);
     uint64_t frames[] = {reinterpret_cast<uint64_t>(&ResetWithFailure)};
     auto sample = std::make_shared<Sample>(
@@ -654,10 +757,10 @@ TEST(ProfilingDataExportTests, CallbackCustomDefinitionsSurviveResetAndCleanup) 
   };
   {
     ProfileExporter exporter(&config, definitions, nullptr, [&](ProfilingData data) {
-      results.push_back(std::move(data));
+      if (results.empty() || data.isLast) results.push_back(std::move(data));
     });
     ASSERT_TRUE(exporter.Initialize());
-    ASSERT_TRUE(exporter.Export());
+    for (int cycle = 0; cycle < 10; ++cycle) ASSERT_TRUE(exporter.Export());
     ASSERT_TRUE(exporter.Export(true));
     exporter.Cleanup();
   }

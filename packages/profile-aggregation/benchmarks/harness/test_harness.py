@@ -149,7 +149,8 @@ def main():
                 assert int(stage["core_allocations"]) == 0, stage
         retained = {int(s["cycle"]): int(s["core_live_bytes"]) for s in stages if s["phase"] == "explicitreset"}
         assert retained[7] > retained[3] * 2, retained
-        assert retained[8] == retained[9] == retained[7], retained
+        assert retained[8] == retained[7], retained
+        assert retained[9] < retained[8], retained
         assert retained[10] < retained[7] and retained[11] < retained[3] + 256 * 1024, retained
         assert stages[-1]["core_live_bytes"] == "0"
         capped = root / "capped"
@@ -164,7 +165,7 @@ def main():
             assert report["groups"] == 16
             reject_missing_function_metadata(decompress(next(fixtures.glob('core-*.pprof'))))
             print("PASS: independent wire decode, expected observations/aggregation, stacks, labels and times")
-        print("PASS: warmed cycles allocate/free nothing, allocation-free reset, three-cycle spike recovery")
+        print("PASS: warmed cycles allocate/free nothing, allocation-free reset, tenth-reset string clearing and non-string spike recovery")
         print("PASS: %d runs; stage/memory lifecycle, allocator accounting, exact percentiles/max index" % runs)
 
 
