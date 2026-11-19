@@ -63,6 +63,7 @@ This is a Windows native profiler that performs CPU sampling and exports profile
 
 **`StackSamplerLoop.cpp/.h`** - Main sampling thread ("DD_StackSampler")
 - Runs at configurable frequency (default: every 10ms)
+- `Stop()` wakes the wait for the next iteration immediately and joins the thread; `Start()` after `Stop()` begins a fresh run
 - Implements CPU-based sampling strategy:
   - Only samples threads currently consuming CPU or about to run
   - Limits concurrent sampling to number of logical cores

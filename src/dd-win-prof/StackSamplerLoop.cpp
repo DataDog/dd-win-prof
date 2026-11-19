@@ -23,7 +23,8 @@ StackSamplerLoop::StackSamplerLoop(
     : _samplingPeriod(pConfiguration->CpuWallTimeSamplingPeriod()),
       _cpuThreadsThreshold(pConfiguration->CpuThreadsThreshold()),
       _walltimeThreadsThreshold(pConfiguration->WalltimeThreadsThreshold()),
-      _shutdownRequested(false),
+      _stopEvent(::CreateEventW(nullptr, TRUE, FALSE, nullptr)),
+      _stopRequested(false),
       _pThreadList(pThreadList),
       _pCpuTimeProvider(pCpuTimeProvider),
       _pWallTimeProvider(pWallTimeProvider),
@@ -45,10 +46,27 @@ StackSamplerLoop::StackSamplerLoop(
 StackSamplerLoop::~StackSamplerLoop() { Stop(); }
 
 void StackSamplerLoop::Start() {
+  std::lock_guard<std::mutex> lifecycleLock(_lifecycleMutex);
+
   // avoid consuming resources if neither cpu nor walltime profiling is enabled
   if ((_pCpuTimeProvider == nullptr) && (_pWallTimeProvider == nullptr)) {
     return;
   }
+
+  if (_pLoopThread != nullptr) {
+    Log::Warn("StackSamplerLoop is already running.");
+    return;
+  }
+
+  if (!_stopEvent.IsValid()) {
+    Log::Error("Failed to create the StackSamplerLoop stop event.");
+    return;
+  }
+
+  // a stop requested by a previous run, or before the first start, must not end
+  // this run
+  _stopRequested.store(false, std::memory_order_release);
+  ::ResetEvent(_stopEvent);
 
   _pLoopThread = std::make_unique<std::thread>([this] {
     OpSysTools::SetNativeThreadName(ThreadName);
@@ -57,7 +75,10 @@ void StackSamplerLoop::Start() {
 }
 
 void StackSamplerLoop::Stop() {
-  _shutdownRequested = true;
+  std::lock_guard<std::mutex> lifecycleLock(_lifecycleMutex);
+
+  _stopRequested.store(true, std::memory_order_release);
+  ::SetEvent(_stopEvent);
 
   if (_pLoopThread != nullptr) {
     try {
@@ -68,11 +89,27 @@ void StackSamplerLoop::Stop() {
   }
 }
 
+bool StackSamplerLoop::IsStopRequested() const {
+  return _stopRequested.load(std::memory_order_acquire);
+}
+
 void StackSamplerLoop::MainLoop() {
   DWORD samplingPeriodMs = static_cast<DWORD>(_samplingPeriod.count() / 1000000);
-  while (!_shutdownRequested) {
+  for (;;) {
+    // same timeout as a ::Sleep() to keep the sampling cadence, but Stop() ends
+    // the wait immediately
+    DWORD waitResult = ::WaitForSingleObject(_stopEvent, samplingPeriodMs);
+    if (waitResult != WAIT_TIMEOUT) {
+      if (waitResult == WAIT_FAILED) {
+        Log::Error(
+            "StackSamplerLoop failed to wait for its stop event. Error code: ",
+            ::GetLastError()
+        );
+      }
+      break;
+    }
+
     try {
-      ::Sleep(samplingPeriodMs);
       MainLoopIteration();
     } catch (...) {
       Log::Error("Unknown Exception in StackSamplerLoop::MainLoop.");
@@ -96,7 +133,7 @@ void StackSamplerLoop::CpuProfilingIteration() {
   uint32_t sampledThreadsCount = (std::min)(managedThreadsCount, _cpuThreadsThreshold);
   std::shared_ptr<ThreadInfo> pThreadInfo = nullptr;
 
-  for (uint32_t i = 0; i < sampledThreadsCount && !_shutdownRequested; i++) {
+  for (uint32_t i = 0; i < sampledThreadsCount && !IsStopRequested(); i++) {
     pThreadInfo = _pThreadList->LoopNext(_iteratorCpuTime);
     if (pThreadInfo != nullptr) {
       // don't sample the sampling thread
@@ -228,7 +265,7 @@ void StackSamplerLoop::WalltimeProfilingIteration() {
     pThreadInfo.reset();
     i++;
 
-  } while (i < sampledThreadsCount && !_shutdownRequested);
+  } while (i < sampledThreadsCount && !IsStopRequested());
 }
 
 void StackSamplerLoop::CollectOneThreadSample(
