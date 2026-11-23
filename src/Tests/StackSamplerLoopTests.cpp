@@ -4,7 +4,8 @@
 
 #include <gtest/gtest.h>
 
-#include <future>
+#include <cstdio>
+#include <cstdlib>
 #include <thread>
 
 #include "../dd-win-prof/OsSpecificApi.h"
@@ -19,6 +20,46 @@ using namespace std::chrono_literals;
 constexpr auto kTimeout = 10s;
 constexpr auto kFastPeriod = 1ms;
 constexpr auto kNeverElapsingPeriod = 1h;
+constexpr DWORD kTimeoutMs = static_cast<DWORD>(
+    std::chrono::duration_cast<std::chrono::milliseconds>(kTimeout).count()
+);
+
+// A cancellation regression must fail the process instead of hanging while a
+// blocked task is joined. Declare this before the loop it protects so it remains
+// armed during loop destruction.
+class ProcessDeadline {
+ public:
+  explicit ProcessDeadline(const char* operation)
+      : _completed(::CreateEventW(nullptr, TRUE, FALSE, nullptr)),
+        _operation(operation) {
+    if (_completed.IsValid()) {
+      _watchdog = std::thread([this] {
+        if (::WaitForSingleObject(_completed, kTimeoutMs) == WAIT_TIMEOUT) {
+          std::fprintf(stderr, "%s exceeded the process deadline\n", _operation);
+          std::fflush(stderr);
+          ::TerminateProcess(::GetCurrentProcess(), ERROR_TIMEOUT);
+          std::abort();
+        }
+      });
+    }
+  }
+
+  ~ProcessDeadline() {
+    if (_completed.IsValid()) {
+      ::SetEvent(_completed);
+    }
+    if (_watchdog.joinable()) {
+      _watchdog.join();
+    }
+  }
+
+  bool IsValid() { return _completed.IsValid(); }
+
+ private:
+  ScopedHandle _completed;
+  const char* _operation;
+  std::thread _watchdog;
+};
 
 class StackSamplerLoopTest : public ::testing::Test {
  protected:
@@ -43,7 +84,8 @@ class StackSamplerLoopTest : public ::testing::Test {
             DUPLICATE_SAME_ACCESS
         )
     );
-    _threadList.AddThread(::GetThreadId(hThread), hThread);
+    _sampledThreadId = ::GetThreadId(hThread);
+    _threadList.AddThread(_sampledThreadId, hThread);
   }
 
   void TearDown() override {
@@ -69,6 +111,10 @@ class StackSamplerLoopTest : public ::testing::Test {
   static bool IsRunning(StackSamplerLoop& loop) {
     std::lock_guard<std::mutex> lock(loop._lifecycleMutex);
     return loop._pLoopThread != nullptr;
+  }
+
+  static std::pair<uint32_t, uint32_t> GetIteratorIds(StackSamplerLoop& loop) {
+    return {loop._iteratorCpuTime, loop._iteratorWallTime};
   }
 
   // The returned handle stays usable after the loop object is gone, to check
@@ -114,11 +160,6 @@ class StackSamplerLoopTest : public ::testing::Test {
     });
   }
 
-  static bool StopWithinTimeout(StackSamplerLoop& loop) {
-    auto stopped = std::async(std::launch::async, [&loop] { loop.Stop(); });
-    return stopped.wait_for(kTimeout) == std::future_status::ready;
-  }
-
   size_t DrainSamples() {
     std::vector<Sample> samples;
     return _wallTimeProvider.MoveSamples(samples);
@@ -134,6 +175,7 @@ class StackSamplerLoopTest : public ::testing::Test {
   ThreadList _threadList;
   size_t _previousValuesCount = 0;
   HANDLE _releaseEvent = nullptr;
+  DWORD _sampledThreadId = 0;
   std::thread _sampledThread;
 };
 
@@ -157,6 +199,8 @@ TEST_F(StackSamplerLoopTest, SecondRunSamplesAfterStop) {
 }
 
 TEST_F(StackSamplerLoopTest, StopWakesLoopWaitingForNextIteration) {
+  ProcessDeadline deadline("StopWakesLoopWaitingForNextIteration");
+  ASSERT_TRUE(deadline.IsValid());
   auto loop = CreateLoop(kNeverElapsingPeriod);
 
   loop->Start();
@@ -164,7 +208,7 @@ TEST_F(StackSamplerLoopTest, StopWakesLoopWaitingForNextIteration) {
   ASSERT_NE(hLoopThread, nullptr);
   EXPECT_TRUE(WaitForLoopToWait(hLoopThread));
 
-  EXPECT_TRUE(StopWithinTimeout(*loop)) << "Stop() waited for the sampling period";
+  loop->Stop();
   EXPECT_EQ(::WaitForSingleObject(hLoopThread, 0), WAIT_OBJECT_0);
   EXPECT_FALSE(IsRunning(*loop));
   EXPECT_EQ(DrainSamples(), 0u);
@@ -182,13 +226,15 @@ TEST_F(StackSamplerLoopTest, StopIsIdempotentInEveryState) {
   for (int run = 0; run < 3; run++) {
     loop->Start();
     ASSERT_TRUE(WaitForSamples()) << "run " << run << " did not sample";
-    ASSERT_TRUE(StopWithinTimeout(*loop)) << "run " << run;
-    ASSERT_TRUE(StopWithinTimeout(*loop)) << "run " << run;
+    loop->Stop();
+    loop->Stop();
     EXPECT_FALSE(IsRunning(*loop));
   }
 }
 
 TEST_F(StackSamplerLoopTest, StartWhileRunningKeepsCurrentRun) {
+  ProcessDeadline deadline("StartWhileRunningKeepsCurrentRun");
+  ASSERT_TRUE(deadline.IsValid());
   auto loop = CreateLoop(kNeverElapsingPeriod);
 
   loop->Start();
@@ -200,20 +246,22 @@ TEST_F(StackSamplerLoopTest, StartWhileRunningKeepsCurrentRun) {
   ASSERT_NE(hCurrentLoopThread, nullptr);
   EXPECT_EQ(::GetThreadId(hCurrentLoopThread), ::GetThreadId(hLoopThread));
 
-  EXPECT_TRUE(StopWithinTimeout(*loop));
+  loop->Stop();
   EXPECT_FALSE(IsRunning(*loop));
   ::CloseHandle(hCurrentLoopThread);
   ::CloseHandle(hLoopThread);
 }
 
 TEST_F(StackSamplerLoopTest, DestructionAfterRestartStopsWaitingLoop) {
+  ProcessDeadline deadline("DestructionAfterRestartStopsWaitingLoop");
+  ASSERT_TRUE(deadline.IsValid());
   auto loop = CreateLoop(kNeverElapsingPeriod);
 
   loop->Start();
   HANDLE hFirstLoopThread = DuplicateLoopThreadHandle(*loop);
   ASSERT_NE(hFirstLoopThread, nullptr);
   EXPECT_TRUE(WaitForLoopToWait(hFirstLoopThread));
-  ASSERT_TRUE(StopWithinTimeout(*loop));
+  loop->Stop();
   EXPECT_EQ(::WaitForSingleObject(hFirstLoopThread, 0), WAIT_OBJECT_0);
   ::CloseHandle(hFirstLoopThread);
 
@@ -222,15 +270,44 @@ TEST_F(StackSamplerLoopTest, DestructionAfterRestartStopsWaitingLoop) {
   ASSERT_NE(hLoopThread, nullptr);
   EXPECT_TRUE(WaitForLoopToWait(hLoopThread)) << "second run is not waiting";
 
-  auto destroyed = std::async(std::launch::async, [&loop] { loop.reset(); });
-  EXPECT_EQ(destroyed.wait_for(kTimeout), std::future_status::ready)
-      << "destructor waited for the sampling period";
-  destroyed.wait();
+  loop.reset();
 
   EXPECT_EQ(::WaitForSingleObject(hLoopThread, 0), WAIT_OBJECT_0)
       << "loop thread still running after destruction";
   EXPECT_EQ(DrainSamples(), 0u);
   ::CloseHandle(hLoopThread);
+}
+
+TEST_F(StackSamplerLoopTest, RestartRebasesSamplingBaselines) {
+  ProcessDeadline deadline("RestartRebasesSamplingBaselines");
+  ASSERT_TRUE(deadline.IsValid());
+  auto loop = CreateLoop(kNeverElapsingPeriod);
+  auto iteratorIds = GetIteratorIds(*loop);
+
+  loop->Start();
+  HANDLE hLoopThread = DuplicateLoopThreadHandle(*loop);
+  ASSERT_NE(hLoopThread, nullptr);
+  EXPECT_TRUE(WaitForLoopToWait(hLoopThread));
+  loop->Stop();
+  ::CloseHandle(hLoopThread);
+
+  auto thread = _threadList.GetThread(_sampledThreadId);
+  ASSERT_NE(thread, nullptr);
+  thread->SetLastWalltimeSampleTimestamp(123ns);
+  thread->SetLastWaitSampleTimestamp(456ns);
+  thread->SetCpuConsumption(std::chrono::milliseconds::max(), 789ns);
+
+  loop->Start();
+
+  EXPECT_EQ(GetIteratorIds(*loop), iteratorIds);
+  EXPECT_NE(_threadList.LoopNext(iteratorIds.first), nullptr);
+  EXPECT_NE(_threadList.LoopNext(iteratorIds.second), nullptr);
+  EXPECT_EQ(thread->SetLastWalltimeSampleTimestamp(1ns), 0ns);
+  EXPECT_EQ(thread->SetLastWaitSampleTimestamp(1ns), 0ns);
+  EXPECT_EQ(thread->GetCpuTimestamp(), 0ns);
+  EXPECT_NE(thread->GetCpuConsumption(), std::chrono::milliseconds::max());
+
+  loop->Stop();
 }
 
 TEST_F(StackSamplerLoopTest, DestructionWithoutStartIsSafe) {

@@ -63,6 +63,8 @@ void StackSamplerLoop::Start() {
     return;
   }
 
+  _pThreadList->RebaseSamplingBaselines();
+
   // a stop requested by a previous run, or before the first start, must not end
   // this run
   _stopRequested.store(false, std::memory_order_release);
@@ -98,6 +100,10 @@ void StackSamplerLoop::MainLoop() {
   for (;;) {
     // same timeout as a ::Sleep() to keep the sampling cadence, but Stop() ends
     // the wait immediately
+    if (samplingPeriodMs == 0) {
+      // A zero-timeout wait only polls; preserve the previous scheduler yield.
+      ::Sleep(0);
+    }
     DWORD waitResult = ::WaitForSingleObject(_stopEvent, samplingPeriodMs);
     if (waitResult != WAIT_TIMEOUT) {
       if (waitResult == WAIT_FAILED) {

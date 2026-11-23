@@ -54,14 +54,19 @@ class ThreadInfo {
     return _hangDetected.exchange(value, std::memory_order_acq_rel);
   }
 
-  // Called between profiling sessions, after all sampler/watchdog threads have
-  // stopped. ThreadInfo itself is process-scoped, so none of these values may
-  // carry over into the next session.
-  inline void ResetProfilingState(std::chrono::milliseconds cpuConsumption) {
+  // Called between sampler runs, after the previous sampler thread has stopped.
+  inline void RebaseSamplingBaselines(std::chrono::milliseconds cpuConsumption) {
     _lastWalltimeSampleTimestamp = 0ns;
     _cpuConsumption = cpuConsumption;
     _timestamp = 0ns;
     _lastWaitSampleTimestamp.store(0ns, std::memory_order_relaxed);
+  }
+
+  // Called between profiling sessions, after all sampler/watchdog threads have
+  // stopped. ThreadInfo itself is process-scoped, so none of these values may
+  // carry over into the next session.
+  inline void ResetProfilingState(std::chrono::milliseconds cpuConsumption) {
+    RebaseSamplingBaselines(cpuConsumption);
     _hangDetected.store(false, std::memory_order_release);
   }
 
