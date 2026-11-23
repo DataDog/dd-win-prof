@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <functional>
 #include <thread>
 
@@ -14,10 +15,12 @@
 #include "pch.h"
 
 // Runtime services used by UiHangDetector. Tests provide their own implementation to
-// inject failures and to control how hook callbacks, probes and teardown interleave.
+// inject failures and to control how hook notifications, probes and teardown
+// interleave.
 class IUiHangDetectorRuntime {
  public:
-  virtual ~IUiHangDetectorRuntime() = default;
+  // receives each message that the hooked thread removes from its queue
+  using MessageCallback = void (*)(const MSG& message);
 
   // manual-reset event, initially non-signaled; nullptr on failure
   virtual HANDLE CreateStopEvent() = 0;
@@ -28,9 +31,11 @@ class IUiHangDetectorRuntime {
   virtual BOOL IsWindow(HWND hWnd) = 0;
   virtual DWORD GetWindowThreadProcessId(HWND hWnd, DWORD* pProcessId) = 0;
 
-  // WH_GETMESSAGE hook on the given thread; nullptr on failure
-  virtual HHOOK SetGetMessageHook(HOOKPROC hookProc, DWORD threadId) = 0;
-  virtual BOOL UnhookWindowsHookEx(HHOOK hHook) = 0;
+  // One hook at a time, on the given thread; false on failure. onMessage runs on that
+  // thread and can still run shortly after RemoveMessageHook() returns.
+  virtual bool InstallMessageHook(DWORD threadId, MessageCallback onMessage) = 0;
+  // false on failure
+  virtual bool RemoveMessageHook() = 0;
 
   virtual BOOL PostMessageW(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) = 0;
 
@@ -40,19 +45,20 @@ class IUiHangDetectorRuntime {
   ) = 0;
 
   virtual std::chrono::nanoseconds GetHighPrecisionTimestamp() = 0;
+
+ protected:
+  ~IUiHangDetectorRuntime() = default;
 };
 
 // Detects hangs of a window by posting probe messages from a watchdog thread and
-// observing them from a WH_GETMESSAGE hook on the window's thread.
+// observing them from a message hook on the window's thread.
 //
-// Hook callbacks reach a detector only through the static _instance router. Activation
-// creates the stop event, validates the window and its thread, installs the hook and
-// starts the watchdog before publishing _instance; a failed stage releases the earlier
-// ones and leaves the detector ready for another attempt. Stop() withdraws _instance
-// under _instanceMutex, then unhooks, signals and joins the watchdog without holding
-// it, before closing the event and dropping its references. Stop() is idempotent and a
-// stopped detector cannot monitor again. MonitorWindowHangs() and Stop() must not run
-// concurrently.
+// _instance is set once activation has fully succeeded, so a hook notification never
+// reaches a partially initialized detector. Stop() stops the watchdog and removes the
+// hook, then clears _instance under _instanceMutex, which waits for a notification
+// being processed. Only one detector is active at a time, and MonitorWindowHangs() and
+// Stop() calls must not overlap, on any detector. Stop() is idempotent and a stopped
+// detector cannot monitor again.
 class UiHangDetector {
  public:
   UiHangDetector(
@@ -60,10 +66,10 @@ class UiHangDetector {
       UiHangProvider* pHangProvider,
       IRumViewContextProvider* pRumViewContextProvider
   );
-  ~UiHangDetector();
+  ~UiHangDetector() noexcept;
 
-  bool MonitorWindowHangs(HWND hWnd, ThreadList* pThreadList);
-  void Stop();
+  bool MonitorWindowHangs(HWND hWnd, ThreadList* pThreadList) noexcept;
+  void Stop() noexcept;
 
  private:
   friend class UiHangDetectorLifetimeTests;
@@ -75,13 +81,13 @@ class UiHangDetector {
       IUiHangDetectorRuntime& runtime
   );
 
-  static LRESULT CALLBACK GetMsgProc(int code, WPARAM wParam, LPARAM lParam);
+  // Passed to the message hook, which can still call it after Stop() removed the
+  // hook: only the active detector, if any, is notified.
+  static void OnMessage(const MSG& message);
 
   bool Activate(HWND hWnd, ThreadList* pThreadList);
-  bool Publish();
-  void Withdraw();
-  void Deactivate();
-  void ProcessHook(int code, WPARAM wParam, LPARAM lParam);
+  void Deactivate() noexcept;
+  void ProcessMessage(const MSG& message);
   void WatchdogLoop();
   bool PostProbeMessage();
   void AddHangSample(
@@ -100,10 +106,11 @@ class UiHangDetector {
  private:
   static const int MaxFrameCount = dd_win_prof::kMaxStackDepth;
 
-  // the detector receiving the Windows hook callbacks, if any
-  static UiHangDetector* _instance;
-  // held by the hook callback while it uses _instance, so that withdrawing _instance
-  // also waits for a callback already running on the detector
+  // the fully activated detector receiving hook notifications, if any; atomic because
+  // the watchdog reads it without _instanceMutex
+  static std::atomic<UiHangDetector*> _instance;
+  // held by OnMessage() while it uses _instance, so clearing _instance also waits for a
+  // notification being processed
   static std::mutex _instanceMutex;
 
   IUiHangDetectorRuntime& _runtime;
@@ -114,13 +121,13 @@ class UiHangDetector {
 
   StackFrameCollector _stackFrameCollector;
   std::shared_ptr<ThreadInfo> _pThreadInfo = nullptr;
-  HHOOK _hGetMessageHook;
+  bool _isHookInstalled;
   HANDLE _stopEvent;
   std::unique_ptr<std::thread> _pWatchdogThread = nullptr;
 
-  // mirrors (_instance == this) for the watchdog, which never takes _instanceMutex: a
-  // probe posted before publication would be processed without being observed
-  std::atomic<bool> _isRouted;
+  // lets the watchdog exit on its next timeout if signaling the stop event fails
+  std::atomic<bool> _stopRequested;
+  bool _isStopped;
 
   // read/write by the watchdog thread and write by the hook
   std::atomic<bool> _isProcessed;

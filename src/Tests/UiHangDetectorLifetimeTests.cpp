@@ -32,17 +32,17 @@ constexpr auto kTimeout = std::chrono::seconds(10);
 // time given to an operation that must stay blocked
 constexpr auto kBlockedDuration = std::chrono::milliseconds(100);
 
-// platform calls that acquire, use or release the detector resources
+// runtime calls that acquire, use or release the detector resources
 enum class Op {
   CreateStopEvent,
   IsWindow,
   GetWindowThreadProcessId,
-  SetGetMessageHook,
+  InstallMessageHook,
   StartThread,
   PostMessageW,
-  UnhookWindowsHookEx,
   SetEvent,
   WatchdogExit,
+  RemoveMessageHook,
   CloseHandle,
 };
 
@@ -54,29 +54,31 @@ std::ostream& operator<<(std::ostream& os, Op op) {
       return os << "IsWindow";
     case Op::GetWindowThreadProcessId:
       return os << "GetWindowThreadProcessId";
-    case Op::SetGetMessageHook:
-      return os << "SetGetMessageHook";
+    case Op::InstallMessageHook:
+      return os << "InstallMessageHook";
     case Op::StartThread:
       return os << "StartThread";
     case Op::PostMessageW:
       return os << "PostMessageW";
-    case Op::UnhookWindowsHookEx:
-      return os << "UnhookWindowsHookEx";
     case Op::SetEvent:
       return os << "SetEvent";
     case Op::WatchdogExit:
       return os << "WatchdogExit";
+    case Op::RemoveMessageHook:
+      return os << "RemoveMessageHook";
     case Op::CloseHandle:
       return os << "CloseHandle";
   }
   return os << "Op(" << static_cast<int>(op) << ")";
 }
 
+// the watchdog is gone before the hook, so it never sees a probe left unprocessed by
+// the teardown
 std::vector<Op> TeardownOps() {
-  return {Op::UnhookWindowsHookEx, Op::SetEvent, Op::WatchdogExit, Op::CloseHandle};
+  return {Op::SetEvent, Op::WatchdogExit, Op::RemoveMessageHook, Op::CloseHandle};
 }
 
-// activation stage made to fail by FakePlatform
+// runtime call made to fail by FakeRuntime
 enum class Failure {
   None,
   StopEvent,
@@ -85,7 +87,12 @@ enum class Failure {
   ForeignWindow,
   UnmonitoredThread,
   Hook,
+  HookThrows,
   Watchdog,
+  WatchdogNull,
+  WatchdogUnjoinable,
+  StopSignal,
+  Wait,
 };
 
 MSG ProbeMessage() {
@@ -117,15 +124,15 @@ class NoRumView : public IRumViewContextProvider {
 
 class UiHangDetectorLifetimeTests : public ::testing::Test {
  protected:
-  // what a hook callback starting now would find
-  struct RouterView {
+  // State observed by a hook notification starting now.
+  struct HookView {
     bool isLockFree = false;
-    const UiHangDetector* pRouted = nullptr;
+    const UiHangDetector* pDetector = nullptr;
   };
 
   struct Call {
     Op op;
-    RouterView router;
+    HookView hook;
   };
 
   struct HookCallResult {
@@ -133,13 +140,13 @@ class UiHangDetectorLifetimeTests : public ::testing::Test {
     bool reachedDetector = false;
   };
 
-  // Records the platform calls with the router state they observed, fails the
-  // requested activation stage and parks callers at points chosen by the test. Its
-  // stop event only wakes up when signaled or when the test grants a watchdog tick, and
-  // its clock never advances, so no hang is ever detected.
-  class FakePlatform final : public IUiHangDetectorRuntime {
+  // Records the runtime calls with the hook state they observed, fails the requested
+  // call and parks callers at points chosen by the test. Its stop event only wakes up
+  // when signaled or when the test grants a watchdog tick, and its clock never
+  // advances, so no hang is ever detected.
+  class FakeRuntime final : public IUiHangDetectorRuntime {
    public:
-    ~FakePlatform() override {
+    ~FakeRuntime() {
       ReleaseAll();
       JoinHookCaller();
     }
@@ -160,10 +167,10 @@ class UiHangDetectorLifetimeTests : public ::testing::Test {
       _tickWatchdogOnStart = true;
     }
 
-    // another thread calls the hook procedure while the hook is being removed
-    void CallHookDuringUnhook() {
+    // another thread delivers a message while the hook is being removed
+    void CallHookDuringRemoval() {
       std::lock_guard<std::mutex> lock(_mutex);
-      _callHookDuringUnhook = true;
+      _callHookDuringRemoval = true;
     }
 
     void BlockNextTimestamp() { Arm(_timestampGate); }
@@ -203,26 +210,26 @@ class UiHangDetectorLifetimeTests : public ::testing::Test {
 
     bool WaitUntilCalled(Op op) {
       std::unique_lock<std::mutex> lock(_mutex);
-      return WaitLocked(lock, "platform call", [&] {
+      return WaitLocked(lock, "runtime call", [&] {
         return std::any_of(_calls.begin(), _calls.end(), [op](const Call& call) {
           return call.op == op;
         });
       });
     }
 
-    // calls the hook procedure as the window thread's message loop would
-    void InvokeHook(const MSG& msg) {
-      HOOKPROC hookProc = nullptr;
+    // delivers a message as the hooked thread's message loop would; like Windows, it
+    // can still deliver one after the hook was removed
+    void InvokeHook(const MSG& message) {
+      MessageCallback onMessage = nullptr;
       {
         std::lock_guard<std::mutex> lock(_mutex);
-        hookProc = _hookProc;
-        if (hookProc == nullptr) {
-          _errors.push_back("no hook procedure was registered");
+        onMessage = _onMessage;
+        if (onMessage == nullptr) {
+          _errors.push_back("no message hook was installed");
           return;
         }
       }
-      MSG message = msg;
-      hookProc(HC_ACTION, PM_REMOVE, reinterpret_cast<LPARAM>(&message));
+      onMessage(message);
     }
 
     void JoinHookCaller() {
@@ -276,9 +283,7 @@ class UiHangDetectorLifetimeTests : public ::testing::Test {
 
     size_t LiveHooks() {
       std::lock_guard<std::mutex> lock(_mutex);
-      return static_cast<size_t>(std::count_if(
-          _hooks.begin(), _hooks.end(), [](const auto& hook) { return hook.second; }
-      ));
+      return _isHookInstalled ? 1u : 0u;
     }
 
     size_t RunningThreads() {
@@ -286,9 +291,9 @@ class UiHangDetectorLifetimeTests : public ::testing::Test {
       return _startedThreads - _exitedThreads;
     }
 
-    HookCallResult HookCallDuringUnhook() {
+    HookCallResult HookCallDuringRemoval() {
       std::lock_guard<std::mutex> lock(_mutex);
-      return _hookCallDuringUnhook;
+      return _hookCallDuringRemoval;
     }
 
     std::vector<std::string> Errors() {
@@ -314,6 +319,13 @@ class UiHangDetectorLifetimeTests : public ::testing::Test {
       if (pEvent == nullptr) {
         return FALSE;
       }
+      if (_failure == Failure::StopSignal) {
+        // the event stays non-signaled: the watchdog only wakes up on a wait timeout
+        ++_ticks;
+        _changed.notify_all();
+        ::SetLastError(ERROR_INVALID_HANDLE);
+        return FALSE;
+      }
       pEvent->isSignaled = true;
       _changed.notify_all();
       return TRUE;
@@ -323,6 +335,11 @@ class UiHangDetectorLifetimeTests : public ::testing::Test {
     // fails the test instead of spinning or hanging its watchdog
     DWORD WaitForSingleObject(HANDLE hHandle, DWORD) override {
       std::unique_lock<std::mutex> lock(_mutex);
+      if (_failure == Failure::Wait) {
+        _failure = Failure::None;
+        ::SetLastError(ERROR_INVALID_HANDLE);
+        return WAIT_FAILED;
+      }
       EventState* pEvent = FindEvent(hHandle, "WaitForSingleObject");
       if (pEvent == nullptr) {
         return WAIT_OBJECT_0;
@@ -375,38 +392,43 @@ class UiHangDetectorLifetimeTests : public ::testing::Test {
                                                       : kUiThreadId;
     }
 
-    HHOOK SetGetMessageHook(HOOKPROC hookProc, DWORD threadId) override {
-      Record(Op::SetGetMessageHook);
+    bool InstallMessageHook(DWORD threadId, MessageCallback onMessage) override {
+      Record(Op::InstallMessageHook);
       std::lock_guard<std::mutex> lock(_mutex);
-      if (_failure == Failure::Hook) {
-        return nullptr;
+      if (_failure == Failure::HookThrows) {
+        throw std::runtime_error("injected hook failure");
       }
-      HHOOK hHook = reinterpret_cast<HHOOK>(NextHandleValue());
-      _hooks[hHook] = true;
-      _hookProc = hookProc;
+      if (_failure == Failure::Hook) {
+        return false;
+      }
+      if (_isHookInstalled) {
+        _errors.push_back("InstallMessageHook while a hook is installed");
+        return false;
+      }
+      _isHookInstalled = true;
+      _onMessage = onMessage;
       _hookThreadId = threadId;
-      return hHook;
+      return true;
     }
 
-    BOOL UnhookWindowsHookEx(HHOOK hHook) override {
-      Record(Op::UnhookWindowsHookEx);
+    bool RemoveMessageHook() override {
+      Record(Op::RemoveMessageHook);
       bool callHook = false;
       {
         std::lock_guard<std::mutex> lock(_mutex);
-        callHook = std::exchange(_callHookDuringUnhook, false);
+        callHook = std::exchange(_callHookDuringRemoval, false);
       }
       if (callHook) {
         CallHookFromAnotherThread();
       }
 
       std::lock_guard<std::mutex> lock(_mutex);
-      auto hook = _hooks.find(hHook);
-      if (hook == _hooks.end() || !hook->second) {
-        _errors.push_back("UnhookWindowsHookEx on a removed or unknown hook");
-        return FALSE;
+      if (!_isHookInstalled) {
+        _errors.push_back("RemoveMessageHook without an installed hook");
+        return false;
       }
-      hook->second = false;
-      return TRUE;
+      _isHookInstalled = false;
+      return true;
     }
 
     BOOL PostMessageW(HWND hWnd, UINT message, WPARAM, LPARAM) override {
@@ -428,6 +450,12 @@ class UiHangDetectorLifetimeTests : public ::testing::Test {
           throw std::system_error(
               std::make_error_code(std::errc::resource_unavailable_try_again)
           );
+        }
+        if (_failure == Failure::WatchdogNull) {
+          return nullptr;
+        }
+        if (_failure == Failure::WatchdogUnjoinable) {
+          return std::make_unique<std::thread>();
         }
         ++_startedThreads;
         tickWatchdog = std::exchange(_tickWatchdogOnStart, false);
@@ -468,9 +496,9 @@ class UiHangDetectorLifetimeTests : public ::testing::Test {
     };
 
     void Record(Op op) {
-      RouterView router = ObserveRouter();
+      HookView hook = ObserveHook();
       std::lock_guard<std::mutex> lock(_mutex);
-      _calls.push_back({op, router});
+      _calls.push_back({op, hook});
       _changed.notify_all();
     }
 
@@ -528,23 +556,27 @@ class UiHangDetectorLifetimeTests : public ::testing::Test {
       return _nextHandleValue;
     }
 
-    // a stuck callback is joined only after the detector released the router lock
+    // a stuck callback is joined only after the detector released the instance mutex
     void CallHookFromAnotherThread() {
       JoinHookCaller();
       size_t timestampCalls = TimestampCalls();
+      {
+        std::lock_guard<std::mutex> lock(_mutex);
+        _hookCallDuringRemoval = {};
+      }
       _hookCaller = std::thread([this] {
         InvokeHook(ProbeMessage());
         std::lock_guard<std::mutex> lock(_mutex);
-        _hookCallDuringUnhook.isCompleted = true;
+        _hookCallDuringRemoval.isCompleted = true;
         _changed.notify_all();
       });
 
       std::unique_lock<std::mutex> lock(_mutex);
-      if (WaitLocked(lock, "hook callback during unhook", [&] {
-            return _hookCallDuringUnhook.isCompleted;
+      if (WaitLocked(lock, "hook callback during removal", [&] {
+            return _hookCallDuringRemoval.isCompleted;
           })) {
-        // only the detector reads the clock while the watchdog waits for a tick
-        _hookCallDuringUnhook.reachedDetector = _timestampCalls != timestampCalls;
+        // only the detector reads the clock once the watchdog has exited
+        _hookCallDuringRemoval.reachedDetector = _timestampCalls != timestampCalls;
       }
     }
 
@@ -555,8 +587,8 @@ class UiHangDetectorLifetimeTests : public ::testing::Test {
     std::vector<std::string> _errors;
     uintptr_t _nextHandleValue = 0x10000;
     std::map<HANDLE, EventState> _events;
-    std::map<HHOOK, bool> _hooks;  // true until unhooked
-    HOOKPROC _hookProc = nullptr;
+    bool _isHookInstalled = false;
+    MessageCallback _onMessage = nullptr;
     DWORD _hookThreadId = 0;
     std::vector<std::pair<HWND, UINT>> _posts;
     bool _failNextPost = false;
@@ -570,8 +602,8 @@ class UiHangDetectorLifetimeTests : public ::testing::Test {
     Gate _timestampGate;
     Gate _postGate;
     bool _isReleasingAll = false;
-    bool _callHookDuringUnhook = false;
-    HookCallResult _hookCallDuringUnhook;
+    bool _callHookDuringRemoval = false;
+    HookCallResult _hookCallDuringRemoval;
     std::thread _hookCaller;
   };
 
@@ -580,47 +612,43 @@ class UiHangDetectorLifetimeTests : public ::testing::Test {
   }
 
   void TearDown() override {
-    _platform.JoinHookCaller();
-    if (ObserveRouter().pRouted != nullptr) {
-      ADD_FAILURE() << "a detector is still routed";
-      ClearRouter();
+    _runtime.JoinHookCaller();
+    if (ObserveHook().pDetector != nullptr) {
+      ADD_FAILURE() << "an active detector remains";
+      ClearInstance();
     }
-    EXPECT_EQ(_platform.LiveEvents(), 0u);
-    EXPECT_EQ(_platform.LiveHooks(), 0u);
-    EXPECT_EQ(_platform.RunningThreads(), 0u);
-    for (const std::string& error : _platform.Errors()) {
+    EXPECT_EQ(_runtime.LiveEvents(), 0u);
+    EXPECT_EQ(_runtime.LiveHooks(), 0u);
+    EXPECT_EQ(_runtime.RunningThreads(), 0u);
+    for (const std::string& error : _runtime.Errors()) {
       ADD_FAILURE() << error;
     }
   }
 
   std::unique_ptr<UiHangDetector> MakeDetector() {
     return std::unique_ptr<UiHangDetector>(
-        new UiHangDetector(kProbeMessage, &_hangProvider, &_rumViewProvider, _platform)
+        new UiHangDetector(kProbeMessage, &_hangProvider, &_rumViewProvider, _runtime)
     );
   }
 
-  static RouterView ObserveRouter() {
+  static HookView ObserveHook() {
     // probed from another thread: a std::mutex can't be try-locked by its owner
-    std::mutex& routerMutex = UiHangDetector::_instanceMutex;
-    UiHangDetector* const& pRouted = UiHangDetector::_instance;
-    RouterView view;
+    std::mutex& instanceMutex = UiHangDetector::_instanceMutex;
+    HookView view;
+    view.pDetector = UiHangDetector::_instance.load(std::memory_order_acquire);
     std::thread observer([&] {
-      std::unique_lock<std::mutex> lock(routerMutex, std::try_to_lock);
+      std::unique_lock<std::mutex> lock(instanceMutex, std::try_to_lock);
       if (lock.owns_lock()) {
-        view = {true, pRouted};
+        view.isLockFree = true;
       }
     });
     observer.join();
     return view;
   }
 
-  static void ClearRouter() {
+  static void ClearInstance() {
     std::lock_guard<std::mutex> lock(UiHangDetector::_instanceMutex);
-    UiHangDetector::_instance = nullptr;
-  }
-
-  static bool IsRouted(const UiHangDetector& detector) {
-    return detector._isRouted.load();
+    UiHangDetector::_instance.store(nullptr, std::memory_order_release);
   }
 
   static bool IsProbeObserved(const UiHangDetector& detector) {
@@ -632,40 +660,51 @@ class UiHangDetectorLifetimeTests : public ::testing::Test {
            detector._pRumViewContextProvider != nullptr;
   }
 
-  // no routing, hook, watchdog, event, window or thread is left behind
+  // no active detector, hook, watchdog, event, window or thread is left behind
   static void ExpectReleased(const UiHangDetector& detector) {
-    EXPECT_NE(ObserveRouter().pRouted, &detector);
-    EXPECT_FALSE(detector._isRouted.load());
-    EXPECT_EQ(detector._hGetMessageHook, nullptr);
+    EXPECT_NE(ObserveHook().pDetector, &detector);
+    EXPECT_FALSE(detector._isHookInstalled);
     EXPECT_EQ(detector._pWatchdogThread, nullptr);
     EXPECT_EQ(detector._stopEvent, nullptr);
     EXPECT_EQ(detector._hWnd, nullptr);
     EXPECT_EQ(detector._pThreadInfo, nullptr);
   }
 
+  // the teardown never holds the instance mutex and clears _instance before closing
+  // the stop event
+  void ExpectTeardownWithoutInstanceMutex() {
+    EXPECT_EQ(_runtime.Ops(), TeardownOps());
+    std::vector<Call> calls = _runtime.Calls();
+    for (const Call& call : calls) {
+      EXPECT_TRUE(call.hook.isLockFree) << call.op;
+    }
+    ASSERT_FALSE(calls.empty());
+    EXPECT_EQ(calls.back().hook.pDetector, nullptr);
+  }
+
   // Fails activation at one stage, then checks that the stages before it were released
-  // without the router lock and that the same detector activates once the failure is
-  // gone.
+  // without the instance mutex and that the same detector activates once the failure
+  // is gone.
   void ExpectRollbackAndRetry(Failure failure, const std::vector<Op>& expectedOps) {
     auto detector = MakeDetector();
-    _platform.Fail(failure);
+    _runtime.Fail(failure);
 
     EXPECT_FALSE(detector->MonitorWindowHangs(kWindow, &_threadList));
 
-    EXPECT_EQ(_platform.Ops(), expectedOps);
-    for (const Call& call : _platform.Calls()) {
-      EXPECT_TRUE(call.router.isLockFree) << call.op;
-      EXPECT_EQ(call.router.pRouted, nullptr) << call.op;
+    EXPECT_EQ(_runtime.Ops(), expectedOps);
+    for (const Call& call : _runtime.Calls()) {
+      EXPECT_TRUE(call.hook.isLockFree) << call.op;
+      EXPECT_EQ(call.hook.pDetector, nullptr) << call.op;
     }
-    EXPECT_EQ(_platform.LiveEvents(), 0u);
-    EXPECT_EQ(_platform.LiveHooks(), 0u);
-    EXPECT_EQ(_platform.RunningThreads(), 0u);
+    EXPECT_EQ(_runtime.LiveEvents(), 0u);
+    EXPECT_EQ(_runtime.LiveHooks(), 0u);
+    EXPECT_EQ(_runtime.RunningThreads(), 0u);
     ExpectReleased(*detector);
     EXPECT_TRUE(HasProviders(*detector));
 
-    _platform.Fail(Failure::None);
+    _runtime.Fail(Failure::None);
     EXPECT_TRUE(detector->MonitorWindowHangs(kWindow, &_threadList));
-    EXPECT_EQ(ObserveRouter().pRouted, detector.get());
+    EXPECT_EQ(ObserveHook().pDetector, detector.get());
 
     detector->Stop();
     ExpectReleased(*detector);
@@ -675,50 +714,60 @@ class UiHangDetectorLifetimeTests : public ::testing::Test {
   UiHangProvider _hangProvider{_valueTypes};
   NoRumView _rumViewProvider;
   ThreadList _threadList;
-  FakePlatform _platform;
+  FakeRuntime _runtime;
 };
 
 TEST_F(UiHangDetectorLifetimeTests, UnusedDetectorTouchesNothing) {
   auto detector = MakeDetector();
-  EXPECT_EQ(ObserveRouter().pRouted, nullptr);
+  EXPECT_EQ(ObserveHook().pDetector, nullptr);
 
   detector->Stop();
   detector->Stop();
   detector.reset();
 
-  EXPECT_TRUE(_platform.Ops().empty());
+  EXPECT_TRUE(_runtime.Ops().empty());
 }
 
-TEST_F(UiHangDetectorLifetimeTests, ActivationPublishesOnceEveryStageSucceeded) {
+TEST_F(UiHangDetectorLifetimeTests, PublicConstructorUsesProductionRuntime) {
+  UiHangDetector detector(kProbeMessage, &_hangProvider, &_rumViewProvider);
+  detector.Stop();
+}
+
+TEST_F(UiHangDetectorLifetimeTests, ActivationSetsInstanceAfterEveryStageSucceeded) {
   auto detector = MakeDetector();
 
   ASSERT_TRUE(detector->MonitorWindowHangs(kWindow, &_threadList));
 
   EXPECT_EQ(
-      _platform.Ops(),
+      _runtime.Ops(),
       (std::vector<Op>{
           Op::CreateStopEvent,
           Op::IsWindow,
           Op::GetWindowThreadProcessId,
-          Op::SetGetMessageHook,
+          Op::InstallMessageHook,
           Op::StartThread
       })
   );
-  for (const Call& call : _platform.Calls()) {
-    EXPECT_TRUE(call.router.isLockFree) << call.op;
-    EXPECT_EQ(call.router.pRouted, nullptr) << "published before " << call.op;
+  for (const Call& call : _runtime.Calls()) {
+    EXPECT_TRUE(call.hook.isLockFree) << call.op;
+    EXPECT_EQ(call.hook.pDetector, nullptr) << "active before " << call.op;
   }
-  EXPECT_EQ(ObserveRouter().pRouted, detector.get());
-  EXPECT_TRUE(IsRouted(*detector));
-  EXPECT_EQ(_platform.HookThreadId(), kUiThreadId);
+  EXPECT_EQ(ObserveHook().pDetector, detector.get());
+  EXPECT_EQ(_runtime.HookThreadId(), kUiThreadId);
 
   // an active detector rejects another window without touching its resources
-  _platform.ClearCalls();
+  _runtime.ClearCalls();
   EXPECT_FALSE(detector->MonitorWindowHangs(kWindow, &_threadList));
-  EXPECT_TRUE(_platform.Ops().empty());
-  EXPECT_EQ(ObserveRouter().pRouted, detector.get());
+  EXPECT_TRUE(_runtime.Ops().empty());
+  EXPECT_EQ(ObserveHook().pDetector, detector.get());
 
   detector->Stop();
+}
+
+TEST_F(UiHangDetectorLifetimeTests, NullThreadListIsRejectedBeforeActivation) {
+  auto detector = MakeDetector();
+  EXPECT_FALSE(detector->MonitorWindowHangs(kWindow, nullptr));
+  EXPECT_TRUE(_runtime.Ops().empty());
 }
 
 TEST_F(UiHangDetectorLifetimeTests, StopEventFailureLeavesNothingAndRetrySucceeds) {
@@ -758,185 +807,251 @@ TEST_F(UiHangDetectorLifetimeTests, HookFailureClosesEventAndRetrySucceeds) {
       {Op::CreateStopEvent,
        Op::IsWindow,
        Op::GetWindowThreadProcessId,
-       Op::SetGetMessageHook,
+       Op::InstallMessageHook,
        Op::CloseHandle}
   );
 }
 
-TEST_F(UiHangDetectorLifetimeTests, WatchdogFailureUnhooksAndRetrySucceeds) {
+TEST_F(UiHangDetectorLifetimeTests, ThrowingHookRollsBackAndRetrySucceeds) {
+  ExpectRollbackAndRetry(
+      Failure::HookThrows,
+      {Op::CreateStopEvent,
+       Op::IsWindow,
+       Op::GetWindowThreadProcessId,
+       Op::InstallMessageHook,
+       Op::CloseHandle}
+  );
+}
+
+TEST_F(UiHangDetectorLifetimeTests, WatchdogFailureRemovesHookAndRetrySucceeds) {
   ExpectRollbackAndRetry(
       Failure::Watchdog,
       {Op::CreateStopEvent,
        Op::IsWindow,
        Op::GetWindowThreadProcessId,
-       Op::SetGetMessageHook,
+       Op::InstallMessageHook,
        Op::StartThread,
-       Op::UnhookWindowsHookEx,
+       Op::RemoveMessageHook,
        Op::CloseHandle}
   );
 }
 
-TEST_F(UiHangDetectorLifetimeTests, OccupiedRouterRollsBackEveryStageAndRetrySucceeds) {
+TEST_F(UiHangDetectorLifetimeTests, NullWatchdogRollsBackAndRetrySucceeds) {
+  ExpectRollbackAndRetry(
+      Failure::WatchdogNull,
+      {Op::CreateStopEvent,
+       Op::IsWindow,
+       Op::GetWindowThreadProcessId,
+       Op::InstallMessageHook,
+       Op::StartThread,
+       Op::RemoveMessageHook,
+       Op::CloseHandle}
+  );
+}
+
+TEST_F(UiHangDetectorLifetimeTests, UnjoinableWatchdogRollsBackAndRetrySucceeds) {
+  ExpectRollbackAndRetry(
+      Failure::WatchdogUnjoinable,
+      {Op::CreateStopEvent,
+       Op::IsWindow,
+       Op::GetWindowThreadProcessId,
+       Op::InstallMessageHook,
+       Op::StartThread,
+       Op::RemoveMessageHook,
+       Op::CloseHandle}
+  );
+}
+
+TEST_F(UiHangDetectorLifetimeTests, SecondDetectorIsRejectedWhileAnotherIsActive) {
   auto active = MakeDetector();
   ASSERT_TRUE(active->MonitorWindowHangs(kWindow, &_threadList));
-  _platform.ClearCalls();
+  _runtime.ClearCalls();
 
   auto detector = MakeDetector();
   EXPECT_FALSE(detector->MonitorWindowHangs(kWindow, &_threadList));
 
-  EXPECT_EQ(
-      _platform.Ops(),
-      (std::vector<Op>{
-          Op::CreateStopEvent,
-          Op::IsWindow,
-          Op::GetWindowThreadProcessId,
-          Op::SetGetMessageHook,
-          Op::StartThread,
-          Op::UnhookWindowsHookEx,
-          Op::SetEvent,
-          Op::WatchdogExit,
-          Op::CloseHandle
-      })
-  );
+  EXPECT_TRUE(_runtime.Ops().empty());
   ExpectReleased(*detector);
   EXPECT_TRUE(HasProviders(*detector));
-  // the active detector keeps its routing, hook, watchdog and event
-  EXPECT_EQ(ObserveRouter().pRouted, active.get());
-  EXPECT_EQ(_platform.LiveHooks(), 1u);
-  EXPECT_EQ(_platform.RunningThreads(), 1u);
-  EXPECT_EQ(_platform.LiveEvents(), 1u);
+  // the active detector keeps its hook, watchdog and event
+  EXPECT_EQ(ObserveHook().pDetector, active.get());
+  EXPECT_EQ(_runtime.LiveHooks(), 1u);
+  EXPECT_EQ(_runtime.RunningThreads(), 1u);
+  EXPECT_EQ(_runtime.LiveEvents(), 1u);
 
   active->Stop();
   EXPECT_TRUE(detector->MonitorWindowHangs(kWindow, &_threadList));
-  EXPECT_EQ(ObserveRouter().pRouted, detector.get());
+  EXPECT_EQ(ObserveHook().pDetector, detector.get());
 
   detector->Stop();
 }
 
-TEST_F(
-    UiHangDetectorLifetimeTests, StopWithdrawsRoutingBeforeTeardownWithoutRouterLock
-) {
+TEST_F(UiHangDetectorLifetimeTests, StopTearsDownWithoutInstanceMutex) {
   auto detector = MakeDetector();
   ASSERT_TRUE(detector->MonitorWindowHangs(kWindow, &_threadList));
-  _platform.ClearCalls();
-  _platform.CallHookDuringUnhook();
+  _runtime.ClearCalls();
+  _runtime.CallHookDuringRemoval();
 
   detector->Stop();
 
-  EXPECT_EQ(_platform.Ops(), TeardownOps());
-  for (const Call& call : _platform.Calls()) {
-    EXPECT_TRUE(call.router.isLockFree) << call.op;
-    EXPECT_EQ(call.router.pRouted, nullptr) << call.op;
-  }
-  // a callback entering the hook during teardown returns without reaching the detector
-  HookCallResult hookCall = _platform.HookCallDuringUnhook();
+  ExpectTeardownWithoutInstanceMutex();
+  // a message delivered while the hook is removed still reaches the live detector
+  HookCallResult hookCall = _runtime.HookCallDuringRemoval();
   EXPECT_TRUE(hookCall.isCompleted);
-  EXPECT_FALSE(hookCall.reachedDetector);
+  EXPECT_TRUE(hookCall.reachedDetector);
   ExpectReleased(*detector);
   EXPECT_FALSE(HasProviders(*detector));
 }
 
-TEST_F(UiHangDetectorLifetimeTests, StopWaitsForRunningHookCallbackBeforeTeardown) {
+TEST_F(UiHangDetectorLifetimeTests, FailedStopSignalStillStopsWatchdog) {
   auto detector = MakeDetector();
   ASSERT_TRUE(detector->MonitorWindowHangs(kWindow, &_threadList));
-  _platform.ClearCalls();
+  _runtime.RunWatchdogTick();
+  _runtime.ClearCalls();
+  _runtime.Fail(Failure::StopSignal);
 
-  // the callback parks inside the detector while holding the router lock
-  _platform.BlockNextTimestamp();
+  detector->Stop();
+
+  ExpectTeardownWithoutInstanceMutex();
+  ExpectReleased(*detector);
+}
+
+TEST_F(UiHangDetectorLifetimeTests, FailedWaitExitsWatchdog) {
+  auto detector = MakeDetector();
+  _runtime.Fail(Failure::Wait);
+
+  ASSERT_TRUE(detector->MonitorWindowHangs(kWindow, &_threadList));
+  ASSERT_TRUE(_runtime.WaitUntilCalled(Op::WatchdogExit));
+  detector->Stop();
+
+  ExpectReleased(*detector);
+}
+
+TEST_F(UiHangDetectorLifetimeTests, StopWaitsForRunningHookCallback) {
+  auto detector = MakeDetector();
+  ASSERT_TRUE(detector->MonitorWindowHangs(kWindow, &_threadList));
+  _runtime.ClearCalls();
+
+  // the callback parks inside the detector while holding the instance mutex
+  _runtime.BlockNextTimestamp();
   auto callback =
-      std::async(std::launch::async, [&] { _platform.InvokeHook(ProbeMessage()); });
-  ASSERT_TRUE(_platform.WaitUntilTimestampBlocked());
+      std::async(std::launch::async, [&] { _runtime.InvokeHook(ProbeMessage()); });
+  ASSERT_TRUE(_runtime.WaitUntilTimestampBlocked());
 
   auto stop = std::async(std::launch::async, [&] { detector->Stop(); });
+  // the watchdog and the hook are gone, but the detector is still in use
+  EXPECT_TRUE(_runtime.WaitUntilCalled(Op::RemoveMessageHook));
   EXPECT_EQ(stop.wait_for(kBlockedDuration), std::future_status::timeout);
-  EXPECT_TRUE(_platform.Ops().empty());
+  EXPECT_EQ(
+      _runtime.Ops(),
+      (std::vector<Op>{Op::SetEvent, Op::WatchdogExit, Op::RemoveMessageHook})
+  );
 
-  _platform.ReleaseTimestamp();
+  _runtime.ReleaseTimestamp();
   callback.get();
   stop.get();
 
-  // the callback completed on the live detector before the first teardown step
+  // the callback completed on the live detector before it was released
   EXPECT_TRUE(IsProbeObserved(*detector));
-  EXPECT_EQ(_platform.Ops(), TeardownOps());
+  EXPECT_EQ(_runtime.Ops(), TeardownOps());
   ExpectReleased(*detector);
 }
 
 TEST_F(UiHangDetectorLifetimeTests, DestructionWaitsForRunningHookCallback) {
   auto detector = MakeDetector();
   ASSERT_TRUE(detector->MonitorWindowHangs(kWindow, &_threadList));
-  _platform.ClearCalls();
+  _runtime.ClearCalls();
 
-  _platform.BlockNextTimestamp();
+  _runtime.BlockNextTimestamp();
   auto callback =
-      std::async(std::launch::async, [&] { _platform.InvokeHook(ProbeMessage()); });
-  ASSERT_TRUE(_platform.WaitUntilTimestampBlocked());
+      std::async(std::launch::async, [&] { _runtime.InvokeHook(ProbeMessage()); });
+  ASSERT_TRUE(_runtime.WaitUntilTimestampBlocked());
 
   auto destroy = std::async(std::launch::async, [&] { detector.reset(); });
+  EXPECT_TRUE(_runtime.WaitUntilCalled(Op::RemoveMessageHook));
   EXPECT_EQ(destroy.wait_for(kBlockedDuration), std::future_status::timeout);
-  EXPECT_TRUE(_platform.Ops().empty());
+  EXPECT_EQ(
+      _runtime.Ops(),
+      (std::vector<Op>{Op::SetEvent, Op::WatchdogExit, Op::RemoveMessageHook})
+  );
 
-  _platform.ReleaseTimestamp();
+  _runtime.ReleaseTimestamp();
   callback.get();
   destroy.get();
-  EXPECT_EQ(_platform.Ops(), TeardownOps());
+  EXPECT_EQ(_runtime.Ops(), TeardownOps());
 
   // later callbacks find no detector
-  size_t timestampCalls = _platform.TimestampCalls();
-  _platform.InvokeHook(ProbeMessage());
-  EXPECT_EQ(_platform.TimestampCalls(), timestampCalls);
+  size_t timestampCalls = _runtime.TimestampCalls();
+  _runtime.InvokeHook(ProbeMessage());
+  EXPECT_EQ(_runtime.TimestampCalls(), timestampCalls);
 }
 
-TEST_F(UiHangDetectorLifetimeTests, StopJoinsWatchdogPostingProbeWithoutRouterLock) {
+TEST_F(UiHangDetectorLifetimeTests, StopJoinsWatchdogPostingProbeWithoutInstanceMutex) {
   auto detector = MakeDetector();
   ASSERT_TRUE(detector->MonitorWindowHangs(kWindow, &_threadList));
-  _platform.ClearCalls();
+  _runtime.ClearCalls();
 
-  _platform.BlockNextPost();
-  _platform.GrantWatchdogTick();
-  ASSERT_TRUE(_platform.WaitUntilPostBlocked());
+  _runtime.BlockNextPost();
+  _runtime.GrantWatchdogTick();
+  ASSERT_TRUE(_runtime.WaitUntilPostBlocked());
 
   auto stop = std::async(std::launch::async, [&] { detector->Stop(); });
-  EXPECT_TRUE(_platform.WaitUntilCalled(Op::SetEvent));
-  // Stop is now joining the watchdog, which is still inside PostMessageW
+  EXPECT_TRUE(_runtime.WaitUntilCalled(Op::SetEvent));
+  // Stop is now joining the watchdog, which is still inside PostMessageW, while hook
+  // notifications still reach the detector
   EXPECT_EQ(stop.wait_for(kBlockedDuration), std::future_status::timeout);
-  RouterView router = ObserveRouter();
-  EXPECT_TRUE(router.isLockFree);
-  EXPECT_EQ(router.pRouted, nullptr);
+  HookView hook = ObserveHook();
+  EXPECT_TRUE(hook.isLockFree);
+  EXPECT_EQ(hook.pDetector, detector.get());
 
-  _platform.ReleasePost();
+  _runtime.ReleasePost();
   stop.get();
 
-  EXPECT_EQ(
-      _platform.Ops(),
-      (std::vector<Op>{
-          Op::PostMessageW,
-          Op::UnhookWindowsHookEx,
-          Op::SetEvent,
-          Op::WatchdogExit,
-          Op::CloseHandle
-      })
-  );
+  std::vector<Op> expectedOps = TeardownOps();
+  expectedOps.insert(expectedOps.begin(), Op::PostMessageW);
+  EXPECT_EQ(_runtime.Ops(), expectedOps);
   ExpectReleased(*detector);
 }
 
-TEST_F(UiHangDetectorLifetimeTests, WatchdogPostsFirstProbeOnlyOncePublished) {
+TEST_F(UiHangDetectorLifetimeTests, HookIgnoresOtherWindowsAndMessages) {
   auto detector = MakeDetector();
-  _platform.TickWatchdogOnStart();
+  ASSERT_TRUE(detector->MonitorWindowHangs(kWindow, &_threadList));
+
+  MSG otherWindow = ProbeMessage();
+  otherWindow.hwnd = reinterpret_cast<HWND>(static_cast<uintptr_t>(0xBAD));
+  MSG otherMessage = ProbeMessage();
+  ++otherMessage.message;
+  size_t timestampCalls = _runtime.TimestampCalls();
+  _runtime.InvokeHook(otherWindow);
+  _runtime.InvokeHook(otherMessage);
+  EXPECT_EQ(_runtime.TimestampCalls(), timestampCalls);
+  EXPECT_FALSE(IsProbeObserved(*detector));
+
+  _runtime.InvokeHook(ProbeMessage());
+  EXPECT_EQ(_runtime.TimestampCalls(), timestampCalls + 1);
+  EXPECT_TRUE(IsProbeObserved(*detector));
+
+  detector->Stop();
+}
+
+TEST_F(UiHangDetectorLifetimeTests, WatchdogPostsFirstProbeOnlyOnceInstanceIsSet) {
+  auto detector = MakeDetector();
+  _runtime.TickWatchdogOnStart();
 
   ASSERT_TRUE(detector->MonitorWindowHangs(kWindow, &_threadList));
-  // a probe posted before publication would be processed without being observed
-  EXPECT_TRUE(_platform.Posts().empty());
+  // a probe processed before the detector is the instance would never be observed
+  EXPECT_TRUE(_runtime.Posts().empty());
 
-  _platform.RunWatchdogTick();
+  _runtime.RunWatchdogTick();
   EXPECT_EQ(
-      _platform.Posts(), (std::vector<std::pair<HWND, UINT>>{{kWindow, kProbeMessage}})
+      _runtime.Posts(), (std::vector<std::pair<HWND, UINT>>{{kWindow, kProbeMessage}})
   );
 
   // the processed probe reaches the detector, so the next tick probes again
-  _platform.InvokeHook(ProbeMessage());
+  _runtime.InvokeHook(ProbeMessage());
   EXPECT_TRUE(IsProbeObserved(*detector));
-  _platform.RunWatchdogTick();
-  EXPECT_EQ(_platform.Posts().size(), 2u);
+  _runtime.RunWatchdogTick();
+  EXPECT_EQ(_runtime.Posts().size(), 2u);
 
   detector->Stop();
 }
@@ -945,10 +1060,10 @@ TEST_F(UiHangDetectorLifetimeTests, FailedProbePostIsRetriedOnNextTick) {
   auto detector = MakeDetector();
   ASSERT_TRUE(detector->MonitorWindowHangs(kWindow, &_threadList));
 
-  _platform.FailNextPost();
-  _platform.RunWatchdogTick();
-  _platform.RunWatchdogTick();
-  EXPECT_EQ(_platform.Posts().size(), 2u);
+  _runtime.FailNextPost();
+  _runtime.RunWatchdogTick();
+  _runtime.RunWatchdogTick();
+  EXPECT_EQ(_runtime.Posts().size(), 2u);
 
   detector->Stop();
   ExpectReleased(*detector);
@@ -958,29 +1073,25 @@ TEST_F(UiHangDetectorLifetimeTests, RepeatedStopAndDestructionDoNothing) {
   auto detector = MakeDetector();
   ASSERT_TRUE(detector->MonitorWindowHangs(kWindow, &_threadList));
   detector->Stop();
-  _platform.ClearCalls();
+  _runtime.ClearCalls();
 
   detector->Stop();
-  EXPECT_TRUE(_platform.Ops().empty());
+  EXPECT_TRUE(_runtime.Ops().empty());
   ExpectReleased(*detector);
   EXPECT_FALSE(HasProviders(*detector));
 
   // a stopped detector stays stopped
   EXPECT_FALSE(detector->MonitorWindowHangs(kWindow, &_threadList));
   detector.reset();
-  EXPECT_TRUE(_platform.Ops().empty());
+  EXPECT_TRUE(_runtime.Ops().empty());
 }
 
 TEST_F(UiHangDetectorLifetimeTests, DestructionTearsDownActiveDetector) {
   auto detector = MakeDetector();
   ASSERT_TRUE(detector->MonitorWindowHangs(kWindow, &_threadList));
-  _platform.ClearCalls();
+  _runtime.ClearCalls();
 
   detector.reset();
 
-  EXPECT_EQ(_platform.Ops(), TeardownOps());
-  for (const Call& call : _platform.Calls()) {
-    EXPECT_TRUE(call.router.isLockFree) << call.op;
-    EXPECT_EQ(call.router.pRouted, nullptr) << call.op;
-  }
+  ExpectTeardownWithoutInstanceMutex();
 }
