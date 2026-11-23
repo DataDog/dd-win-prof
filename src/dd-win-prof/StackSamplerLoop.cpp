@@ -41,6 +41,9 @@ StackSamplerLoop::StackSamplerLoop(
   if (!pConfiguration->IsCpuProfilingEnabled()) {
     _pCpuTimeProvider = nullptr;
   }
+  if (!pConfiguration->IsWallTimeProfilingEnabled()) {
+    _pWallTimeProvider = nullptr;
+  }
 }
 
 StackSamplerLoop::~StackSamplerLoop() { Stop(); }
@@ -58,18 +61,17 @@ void StackSamplerLoop::Start() {
     return;
   }
 
+  if (_hasStarted || IsStopRequested()) {
+    Log::Warn("StackSamplerLoop cannot be restarted: create a new instance.");
+    return;
+  }
+
   if (!_stopEvent.IsValid()) {
     Log::Error("Failed to create the StackSamplerLoop stop event.");
     return;
   }
 
-  _pThreadList->RebaseSamplingBaselines();
-
-  // a stop requested by a previous run, or before the first start, must not end
-  // this run
-  _stopRequested.store(false, std::memory_order_release);
-  ::ResetEvent(_stopEvent);
-
+  _hasStarted = true;
   _pLoopThread = std::make_unique<std::thread>([this] {
     OpSysTools::SetNativeThreadName(ThreadName);
     MainLoop();
@@ -86,7 +88,8 @@ void StackSamplerLoop::Stop() {
     try {
       _pLoopThread->join();
       _pLoopThread.reset();
-    } catch (const std::exception&) {
+    } catch (const std::exception& e) {
+      Log::Error("Failed to join the StackSamplerLoop thread: ", e.what());
     }
   }
 }
@@ -128,7 +131,8 @@ void StackSamplerLoop::MainLoopIteration() {
     CpuProfilingIteration();
   }
 
-  if (_pWallTimeProvider != nullptr) {
+  // the walltime pass samples its first thread before checking for a stop
+  if ((_pWallTimeProvider != nullptr) && !IsStopRequested()) {
     WalltimeProfilingIteration();
   }
 }

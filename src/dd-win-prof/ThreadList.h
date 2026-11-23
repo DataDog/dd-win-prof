@@ -21,9 +21,6 @@ class ThreadList {
   // we can't use a lock in a const method so... don't make it const
   size_t Count();
 
-  // Refresh per-thread sampling baselines without changing iterator positions.
-  void RebaseSamplingBaselines();
-
   // Reset process-scoped ThreadInfo objects and sampling iterators before a
   // new profiling session starts.
   void ResetProfilingState();

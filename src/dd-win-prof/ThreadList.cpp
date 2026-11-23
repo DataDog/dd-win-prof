@@ -63,15 +63,6 @@ size_t ThreadList::Count() {
   return _threads.size();
 }
 
-void ThreadList::RebaseSamplingBaselines() {
-  std::lock_guard<std::recursive_mutex> lock(_mutex);
-
-  for (auto& pInfo : _threads) {
-    auto cpuConsumption = OsSpecificApi::GetThreadCpuTime(pInfo->GetOsThreadHandle());
-    pInfo->RebaseSamplingBaselines(cpuConsumption);
-  }
-}
-
 void ThreadList::ResetProfilingState() {
   std::lock_guard<std::recursive_mutex> lock(_mutex);
 

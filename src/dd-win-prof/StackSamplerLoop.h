@@ -33,14 +33,14 @@ class StackSamplerLoop {
   );
   ~StackSamplerLoop();
 
-  // Start() and Stop() may be called in any order and any number of times:
-  // Start() is ignored while running, and a Start() after Stop() begins a new run
-  // with a cleared stop request.
+  // One instance runs at most once: each profiling session creates its own loop.
+  // Start() is ignored while running and after Stop(). Stop() may be called any
+  // number of times, before Start(), while running, and from the destructor.
   void Start();
   void Stop();
 
  private:
-  friend class StackSamplerLoopTest;
+  friend class StackSamplerLoopTests;
 
   bool IsStopRequested() const;
   void MainLoop();
@@ -65,10 +65,10 @@ class StackSamplerLoop {
   // serializes Start() and Stop()
   std::mutex _lifecycleMutex;
   std::unique_ptr<std::thread> _pLoopThread;
+  bool _hasStarted = false;
 
-  // Manual-reset: once Stop() sets it, every wait of the current run returns
-  // immediately, so a stop cannot be missed whatever the loop is doing. Only
-  // Start() resets it, when no loop thread is running.
+  // Manual-reset and never reset: once Stop() sets it, every wait returns
+  // immediately, so a stop cannot be missed whatever the loop is doing.
   ScopedHandle _stopEvent;
   // lets an ongoing iteration give up without a system call
   std::atomic<bool> _stopRequested;
