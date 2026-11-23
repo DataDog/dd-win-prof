@@ -137,7 +137,7 @@ class UiHangDetectorLifetimeTests : public ::testing::Test {
   // requested activation stage and parks callers at points chosen by the test. Its
   // stop event only wakes up when signaled or when the test grants a watchdog tick, and
   // its clock never advances, so no hang is ever detected.
-  class FakePlatform final : public IUiHangDetectorPlatform {
+  class FakePlatform final : public IUiHangDetectorRuntime {
    public:
     ~FakePlatform() override {
       ReleaseAll();
@@ -594,15 +594,15 @@ class UiHangDetectorLifetimeTests : public ::testing::Test {
   }
 
   std::unique_ptr<UiHangDetector> MakeDetector() {
-    return std::make_unique<UiHangDetector>(
-        kProbeMessage, &_hangProvider, &_rumViewProvider, _platform
+    return std::unique_ptr<UiHangDetector>(
+        new UiHangDetector(kProbeMessage, &_hangProvider, &_rumViewProvider, _platform)
     );
   }
 
   static RouterView ObserveRouter() {
     // probed from another thread: a std::mutex can't be try-locked by its owner
     std::mutex& routerMutex = UiHangDetector::_instanceMutex;
-    UiHangDetector* const& pRouted = UiHangDetector::_this;
+    UiHangDetector* const& pRouted = UiHangDetector::_instance;
     RouterView view;
     std::thread observer([&] {
       std::unique_lock<std::mutex> lock(routerMutex, std::try_to_lock);
@@ -616,7 +616,7 @@ class UiHangDetectorLifetimeTests : public ::testing::Test {
 
   static void ClearRouter() {
     std::lock_guard<std::mutex> lock(UiHangDetector::_instanceMutex);
-    UiHangDetector::_this = nullptr;
+    UiHangDetector::_instance = nullptr;
   }
 
   static bool IsRouted(const UiHangDetector& detector) {

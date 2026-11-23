@@ -13,11 +13,11 @@
 #include "UiHangProvider.h"
 #include "pch.h"
 
-// Win32 services used by UiHangDetector. Tests provide their own implementation to
+// Runtime services used by UiHangDetector. Tests provide their own implementation to
 // inject failures and to control how hook callbacks, probes and teardown interleave.
-class IUiHangDetectorPlatform {
+class IUiHangDetectorRuntime {
  public:
-  virtual ~IUiHangDetectorPlatform() = default;
+  virtual ~IUiHangDetectorRuntime() = default;
 
   // manual-reset event, initially non-signaled; nullptr on failure
   virtual HANDLE CreateStopEvent() = 0;
@@ -45,12 +45,12 @@ class IUiHangDetectorPlatform {
 // Detects hangs of a window by posting probe messages from a watchdog thread and
 // observing them from a WH_GETMESSAGE hook on the window's thread.
 //
-// Hook callbacks reach a detector only through the static _this router. Activation
+// Hook callbacks reach a detector only through the static _instance router. Activation
 // creates the stop event, validates the window and its thread, installs the hook and
-// starts the watchdog before publishing _this; a failed stage releases the earlier ones
-// and leaves the detector ready for another attempt. Stop() withdraws _this under
-// _instanceMutex, then unhooks, signals and joins the watchdog without holding it,
-// before closing the event and dropping its references. Stop() is idempotent and a
+// starts the watchdog before publishing _instance; a failed stage releases the earlier
+// ones and leaves the detector ready for another attempt. Stop() withdraws _instance
+// under _instanceMutex, then unhooks, signals and joins the watchdog without holding
+// it, before closing the event and dropping its references. Stop() is idempotent and a
 // stopped detector cannot monitor again. MonitorWindowHangs() and Stop() must not run
 // concurrently.
 class UiHangDetector {
@@ -58,18 +58,22 @@ class UiHangDetector {
   UiHangDetector(
       UINT hangProbeMessageId,
       UiHangProvider* pHangProvider,
-      IRumViewContextProvider* pRumViewContextProvider,
-      IUiHangDetectorPlatform& platform = GetWin32Platform()
+      IRumViewContextProvider* pRumViewContextProvider
   );
   ~UiHangDetector();
 
   bool MonitorWindowHangs(HWND hWnd, ThreadList* pThreadList);
   void Stop();
 
-  static IUiHangDetectorPlatform& GetWin32Platform();
-
  private:
   friend class UiHangDetectorLifetimeTests;
+
+  UiHangDetector(
+      UINT hangProbeMessageId,
+      UiHangProvider* pHangProvider,
+      IRumViewContextProvider* pRumViewContextProvider,
+      IUiHangDetectorRuntime& runtime
+  );
 
   static LRESULT CALLBACK GetMsgProc(int code, WPARAM wParam, LPARAM lParam);
 
@@ -97,12 +101,12 @@ class UiHangDetector {
   static const int MaxFrameCount = dd_win_prof::kMaxStackDepth;
 
   // the detector receiving the Windows hook callbacks, if any
-  static UiHangDetector* _this;
-  // held by the hook callback while it uses _this, so that withdrawing _this also waits
-  // for a callback already running on the detector
+  static UiHangDetector* _instance;
+  // held by the hook callback while it uses _instance, so that withdrawing _instance
+  // also waits for a callback already running on the detector
   static std::mutex _instanceMutex;
 
-  IUiHangDetectorPlatform& _platform;
+  IUiHangDetectorRuntime& _runtime;
   UINT _hangProbeMessageId;
   HWND _hWnd;
   UiHangProvider* _pHangProvider = nullptr;
@@ -114,8 +118,8 @@ class UiHangDetector {
   HANDLE _stopEvent;
   std::unique_ptr<std::thread> _pWatchdogThread = nullptr;
 
-  // mirrors (_this == this) for the watchdog, which never takes _instanceMutex: a probe
-  // posted before publication would be processed without being observed
+  // mirrors (_instance == this) for the watchdog, which never takes _instanceMutex: a
+  // probe posted before publication would be processed without being observed
   std::atomic<bool> _isRouted;
 
   // read/write by the watchdog thread and write by the hook
