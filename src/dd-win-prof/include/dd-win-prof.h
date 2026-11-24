@@ -41,7 +41,8 @@ typedef struct _ProfilerConfig {
 
   // profiling tuning parameters
   uint64_t cpuWallTimeSamplingPeriodNs;  // sampling period in nanoseconds (default:
-                                         // 20ms = 20,000,000ns)
+                                         // 20ms = 20,000,000ns, min: 5ms; smaller
+                                         // values use 5ms, 0 uses the default)
   int32_t walltimeThreadsThreshold;      // number of threads to sample for wall time
                                          // (default: 5, min: 5, max: 64)
   int32_t cpuThreadsThreshold;    // number of threads to sample for CPU time (default:
@@ -73,7 +74,9 @@ DD_WIN_PROF_API bool MonitorWindowHangs(HWND hWnd);
 // the initial setup configuration is kept even if StopProfiler is called.
 // Each call reset previous settings and only updates default with pSettings values.
 // Omitted values use environment variables (unless noEnvVars is set) or defaults.
-// Does not clear SDK-private callback registration. Serialize setup/start/stop calls.
+// Settings are committed only after validation: a failure keeps the previous
+// configuration. Does not clear SDK-private callback registration.
+// Rejected while the profiler runs; serialized with start and stop.
 DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig* pSettings);
 
 // Start profiling manually (returns false if already started or explicitly disabled).

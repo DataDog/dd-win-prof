@@ -475,65 +475,89 @@ T Configuration::GetEnvironmentValue(char const* name, T const& defaultValue) {
 bool InitializeConfiguration(
     Configuration* pConfig, const ProfilerConfig* pSettings, ProfileDeliveryMode mode
 ) {
+  auto candidate = Configuration::Create(pSettings, mode);
+  if (!candidate.has_value()) {
+    return false;
+  }
+
+  *pConfig = std::move(*candidate);
+  return true;
+}
+
+std::optional<Configuration> Configuration::Create(
+    const ProfilerConfig* pSettings, ProfileDeliveryMode mode
+) {
+  Configuration candidate;
   if (pSettings->noEnvVars) {
-    pConfig->ResetToDefaults();
-  } else {
-    *pConfig = Configuration();
+    candidate.ResetToDefaults();
   }
 
   if (pSettings->url != nullptr) {
-    pConfig->SetEndpoint(pSettings->url);
+    candidate.SetEndpoint(pSettings->url);
   } else if (pSettings->noEnvVars && mode == ProfileDeliveryMode::Http) {
     Log::Error("Url endpoint must be set.");
-    return false;
+    return std::nullopt;
   }
 
   if (pSettings->apiKey != nullptr) {
-    pConfig->SetApiKey(pSettings->apiKey);
+    candidate.SetApiKey(pSettings->apiKey);
   } else if (pSettings->noEnvVars && mode == ProfileDeliveryMode::Http) {
     Log::Error("Datadog API Key must be set.");
-    return false;
+    return std::nullopt;
   }
 
   if (pSettings->serviceEnvironment != nullptr) {
-    pConfig->SetEnvironmentName(pSettings->serviceEnvironment);
+    candidate.SetEnvironmentName(pSettings->serviceEnvironment);
   }
   if (pSettings->serviceName != nullptr) {
-    pConfig->SetServiceName(pSettings->serviceName);
+    candidate.SetServiceName(pSettings->serviceName);
   }
   if (pSettings->serviceVersion != nullptr) {
-    pConfig->SetVersion(pSettings->serviceVersion);
+    candidate.SetVersion(pSettings->serviceVersion);
   }
 
   if (pSettings->cpuWallTimeSamplingPeriodNs > 0) {
-    pConfig->SetCpuWallTimeSamplingPeriod(
-        std::chrono::nanoseconds(pSettings->cpuWallTimeSamplingPeriodNs)
-    );
+    constexpr auto minimumPeriod = std::chrono::milliseconds(MinimumSamplingPeriod);
+    auto period = std::chrono::nanoseconds(pSettings->cpuWallTimeSamplingPeriodNs);
+    if (period < minimumPeriod) {
+      Log::Warn(
+          "cpuWallTimeSamplingPeriodNs ",
+          pSettings->cpuWallTimeSamplingPeriodNs,
+          " is below the minimum: using ",
+          MinimumSamplingPeriod,
+          " ms."
+      );
+      period = minimumPeriod;
+    }
+    candidate.SetCpuWallTimeSamplingPeriod(period);
   }
 
   if (pSettings->walltimeThreadsThreshold > 0) {
-    pConfig->SetWalltimeThreadsThreshold(pSettings->walltimeThreadsThreshold);
+    candidate.SetWalltimeThreadsThreshold(pSettings->walltimeThreadsThreshold);
   }
 
   if (pSettings->cpuThreadsThreshold > 0) {
-    pConfig->SetCpuThreadsThreshold(pSettings->cpuThreadsThreshold);
+    candidate.SetCpuThreadsThreshold(pSettings->cpuThreadsThreshold);
   }
 
   if (pSettings->uploadIntervalSeconds > 0) {
-    pConfig->SetUploadInterval(std::chrono::seconds(pSettings->uploadIntervalSeconds));
+    candidate.SetUploadInterval(std::chrono::seconds(pSettings->uploadIntervalSeconds));
   }
 
   if (pSettings->tags != nullptr) {
-    pConfig->SetUserTags(TagsHelper::Parse(pSettings->tags));
+    candidate.SetUserTags(TagsHelper::Parse(pSettings->tags));
   }
 
   if (pSettings->pprofOutputDirectory != nullptr) {
-    pConfig->SetProfilesOutputDirectory(fs::path(pSettings->pprofOutputDirectory));
+    candidate.SetProfilesOutputDirectory(fs::path(pSettings->pprofOutputDirectory));
   }
 
   if (pSettings->symbolizeCallstacks) {
-    pConfig->EnableSymbolizedCallstacks();
+    candidate.EnableSymbolizedCallstacks();
   }
 
-  return pConfig->ValidateTransportConfig(mode);
+  if (!candidate.ValidateTransportConfig(mode)) {
+    return std::nullopt;
+  }
+  return candidate;
 }

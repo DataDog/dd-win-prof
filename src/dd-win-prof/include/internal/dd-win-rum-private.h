@@ -53,8 +53,8 @@ typedef struct _RumViewValues {
   const char* view_name;  // human-readable name, e.g. "HomePage"
 } RumViewValues;
 
-// Register while stopped; serialize with lifecycle calls. A non-null callback may use a
-// null context. (NULL, NULL) unregisters and restores HTTP delivery; (NULL, non-NULL)
+// Register while stopped; serialized with lifecycle calls. A non-null callback may use
+// a null context. (NULL, NULL) unregisters and restores HTTP delivery; (NULL, non-NULL)
 // is rejected without changing the current registration.
 // Registration survives setup and stop/start. Failure preserves the previous callback.
 // Register before setup to omit HTTP credentials in noEnvVars mode.

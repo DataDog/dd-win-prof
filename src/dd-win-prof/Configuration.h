@@ -4,7 +4,10 @@
 
 #pragma once
 
+#include <optional>
+
 #include "TagsHelper.h"
+#include "dd-win-prof.h"
 #include "pch.h"
 
 enum class ProfileDeliveryMode { Http, Callback };
@@ -12,7 +15,12 @@ enum class ProfileDeliveryMode { Http, Callback };
 class Configuration {
  public:
   Configuration();
-  ~Configuration() = default;
+
+  // Builds and validates a configuration from pSettings without side effects.
+  static std::optional<Configuration> Create(
+      const ProfilerConfig* pSettings,
+      ProfileDeliveryMode mode = ProfileDeliveryMode::Http
+  );
 
   fs::path const& GetLogDirectory() const;
   fs::path const& GetProfilesOutputDirectory() const;

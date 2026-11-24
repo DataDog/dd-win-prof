@@ -24,6 +24,7 @@ class Profiler : public IRumViewContextProvider,
   Profiler();
   virtual ~Profiler();
 
+  bool Setup(const ProfilerConfig* pSettings);
   // underLoaderLock: called from DllMain, where a failed start must not join threads
   bool StartProfiling(bool underLoaderLock = false);
   bool MonitorWindowHangs(HWND hWnd);
@@ -32,16 +33,9 @@ class Profiler : public IRumViewContextProvider,
   [[nodiscard]] bool SetProfilingDataCallback(
       ProfilingDataCallback callback, void* userData
   );
-  ProfilingDataCallback GetProfilingDataCallback() const {
-    return _profilingDataCallback;
-  }
-  void* GetProfilingDataCallbackUserData() const {
-    return _profilingDataCallbackUserData;
-  }
-  ProfileDeliveryMode GetDeliveryMode() const {
-    return _profilingDataCallback ? ProfileDeliveryMode::Callback
-                                  : ProfileDeliveryMode::Http;
-  }
+  ProfilingDataCallback GetProfilingDataCallback() const;
+  void* GetProfilingDataCallbackUserData() const;
+  ProfileDeliveryMode GetDeliveryMode() const;
 
   bool AddCurrentThread();
   void RemoveCurrentThread();
@@ -84,6 +78,7 @@ class Profiler : public IRumViewContextProvider,
 
  private:
   friend class ProfilerShutdownTest;
+  friend class ProfilingDataCallbackTests;
 
   // configuration
   inline static constexpr std::chrono::seconds UploadInterval =
@@ -94,9 +89,16 @@ class Profiler : public IRumViewContextProvider,
   // configuration
   static std::unique_ptr<Configuration> _pConfiguration;
 
-  // protect the lifecycle of the profiler (start/stop/monitor) and the resources below
+  // protect the lifecycle of the profiler (setup/registration/start/stop/monitor) and
+  // the resources below
   mutable std::mutex _lifecycleMutex;
+  // True from the start of collection until StopProfiling has delivered the final
+  // profile, so it covers every callback invocation.
   std::atomic<bool> _isStarted;
+
+  // Returns an unowned lock while a run is active. The unlocked check lets a callback
+  // fail fast instead of waiting for the lock held by StopProfiling.
+  std::unique_lock<std::mutex> LockWhileStopped();
 
   std::unique_ptr<ThreadList> _pThreadList;
   std::unique_ptr<StackSamplerLoop> _pStackSamplerLoop;
@@ -106,10 +108,16 @@ class Profiler : public IRumViewContextProvider,
   std::unique_ptr<WallTimeProvider> _pCpuWallTimeProvider = nullptr;
   std::unique_ptr<UiHangProvider> _pUiHangProvider = nullptr;
 
-  // exporter
-  ProfilingDataCallback _profilingDataCallback = nullptr;
-  void* _profilingDataCallbackUserData = nullptr;
-  std::atomic<bool> _callbackRegistrationFrozen{false};
+  // Protected by _lifecycleMutex. StartProfiling copies it into the run's exporter.
+  struct CallbackRegistration {
+    ProfilingDataCallback callback = nullptr;
+    void* userData = nullptr;
+
+    ProfileDeliveryMode DeliveryMode() const {
+      return callback ? ProfileDeliveryMode::Callback : ProfileDeliveryMode::Http;
+    }
+  };
+  CallbackRegistration _callbackRegistration;
   std::unique_ptr<ProfileExporter> _pProfileExporter = nullptr;
 
   // samples collector

@@ -501,6 +501,31 @@ TEST_F(ConfigurationTest, InitConfig_NoEnvVars_PartialFields_DefaultsPreserved) 
 }
 
 // ===========================================================================
+// InitializeConfiguration -- sampling period minimum (5 ms) and 0 = default
+// ===========================================================================
+
+TEST_F(ConfigurationTest, InitConfig_SamplingPeriodBelowMinimumUsesMinimum) {
+  for (const uint64_t periodNs : {1ull, 999'999ull, 4'999'999ull, 5'000'000ull}) {
+    SCOPED_TRACE(periodNs);
+    Configuration config;
+    auto cfg = MakeProfilerConfig();
+    cfg.noEnvVars = true;
+    cfg.cpuWallTimeSamplingPeriodNs = periodNs;
+    ASSERT_TRUE(InitializeConfiguration(&config, &cfg, ProfileDeliveryMode::Callback));
+    EXPECT_EQ(config.CpuWallTimeSamplingPeriod(), std::chrono::milliseconds(5));
+  }
+}
+
+TEST_F(ConfigurationTest, InitConfig_ZeroSamplingPeriodUsesDefault) {
+  Configuration config;
+  auto cfg = MakeProfilerConfig();
+  cfg.noEnvVars = true;
+  cfg.cpuWallTimeSamplingPeriodNs = 0;
+  ASSERT_TRUE(InitializeConfiguration(&config, &cfg, ProfileDeliveryMode::Callback));
+  EXPECT_EQ(config.CpuWallTimeSamplingPeriod(), std::chrono::milliseconds(20));
+}
+
+// ===========================================================================
 // InitializeConfiguration -- noEnvVars=false: env vars are preserved
 // ===========================================================================
 
