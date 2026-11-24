@@ -1781,17 +1781,20 @@ ProfileExporter::HttpSendResult ProfileExporter::ExportProfile(
   // Success - reset error counter
   _consecutiveErrors = 0;
 
-  uint16_t responseCode = sendResult.ok.code;
-  Log::Info(
-      "Successfully sent profile, HTTP ",
-      responseCode,
-      " (size: ",
-      profileSize,
-      " bytes)"
-  );
-  LogExportResponse(responseCode);
-
+  const uint16_t responseCode = sendResult.ok.code;
   const bool accepted = responseCode >= 200 && responseCode < 300;
+  // The send outcome is decided: a logging failure must not turn it into an error.
+  try {
+    Log::Info(
+        "Successfully sent profile, HTTP ",
+        responseCode,
+        " (size: ",
+        profileSize,
+        " bytes)"
+    );
+    LogExportResponse(responseCode);
+  } catch (...) {
+  }
   return accepted ? HttpSendResult::Accepted : HttpSendResult::Rejected;
 }
 
