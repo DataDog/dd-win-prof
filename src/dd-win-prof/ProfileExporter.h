@@ -127,8 +127,7 @@ class ProfileExporter {
   enum class HttpSendResult { Accepted, Rejected, TransportError, PreSendFailed };
   struct HttpSendOutcome {
     HttpSendResult result = HttpSendResult::PreSendFailed;
-    // Periodic policy result, which tolerates some transport and HTTP errors.
-    bool periodicSuccess = false;
+    uint16_t responseCode = 0;  // set for Accepted and Rejected
   };
   HttpSendOutcome ExportProfile(
       const ddog_prof_EncodedProfile* encodedProfile,

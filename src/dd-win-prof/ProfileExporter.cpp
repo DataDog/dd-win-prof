@@ -491,19 +491,32 @@ ProfileExporter::ExportOutcome ProfileExporter::ExportCurrentProfile(
     const auto sent = ExportProfile(
         profile.get(), _currentExportId, rumRecordsJson, rumSessionIds, rumViewIds
     );
-    if (!sent.periodicSuccess) {
-      Log::Error("Failed to export profile to backend");
-    }
+    // Periodic exports tolerate some HTTP errors and a few consecutive transport
+    // errors; the final export only counts an accepted profile as delivered.
+    bool periodicSuccess = false;
+    auto status = FinalExportStatus::NetworkFailed;
     switch (sent.result) {
       case HttpSendResult::Accepted:
-        markDelivered();
+        periodicSuccess = CheckExportResponse(sent.responseCode);
+        status = FinalExportStatus::Delivered;
+        break;
+      case HttpSendResult::Rejected:
+        periodicSuccess = CheckExportResponse(sent.responseCode);
+        break;
+      case HttpSendResult::TransportError:
+        periodicSuccess = _consecutiveErrors < MAX_CONSECUTIVE_ERRORS;
         break;
       case HttpSendResult::PreSendFailed:
-        return {FinalExportStatus::ProfileBuildFailed, sent.periodicSuccess};
-      case HttpSendResult::Rejected:
-      case HttpSendResult::TransportError:
-        return {FinalExportStatus::NetworkFailed, sent.periodicSuccess};
+        status = FinalExportStatus::ProfileBuildFailed;
+        break;
     }
+    if (!periodicSuccess) {
+      Log::Error("Failed to export profile to backend");
+    }
+    if (status != FinalExportStatus::Delivered) {
+      return {status, periodicSuccess};
+    }
+    markDelivered();
   } else {
     // No primary sink: the debug pprof file, if enabled, is the only output.
     return {
@@ -1722,7 +1735,7 @@ ProfileExporter::HttpSendOutcome ProfileExporter::ExportProfile(
     const std::vector<std::string>& rumSessionIds,
     const std::vector<std::string>& rumViewIds
 ) {
-  const HttpSendOutcome preSendFailed{HttpSendResult::PreSendFailed, false};
+  const HttpSendOutcome preSendFailed{HttpSendResult::PreSendFailed};
   if (!encodedProfile) {
     Log::Error("Invalid profile");
     return preSendFailed;
@@ -1793,19 +1806,13 @@ ProfileExporter::HttpSendOutcome ProfileExporter::ExportProfile(
         ")"
     );
 
-    // Don't fail completely unless we have too many consecutive errors
-    return {
-        HttpSendResult::TransportError, _consecutiveErrors < MAX_CONSECUTIVE_ERRORS
-    };
+    return {HttpSendResult::TransportError};
   }
 
   // Success - reset error counter
   _consecutiveErrors = 0;
 
-  // Check HTTP response code
   uint16_t responseCode = sendResult.ok.code;
-  bool responseOk = CheckExportResponse(responseCode);
-
   Log::Info(
       "Successfully sent profile, HTTP ",
       responseCode,
@@ -1815,7 +1822,7 @@ ProfileExporter::HttpSendOutcome ProfileExporter::ExportProfile(
   );
 
   const bool accepted = responseCode >= 200 && responseCode < 300;
-  return {accepted ? HttpSendResult::Accepted : HttpSendResult::Rejected, responseOk};
+  return {accepted ? HttpSendResult::Accepted : HttpSendResult::Rejected, responseCode};
 }
 
 bool ProfileExporter::PrepareAdditionalTags(
