@@ -49,7 +49,7 @@ std::optional<FinalExportStatus> SamplesCollector::Stop(bool shutdownOngoing) {
     // libdatadog asks for a thread to be created, and the OS says NO.
     return std::nullopt;
   }
-  // Normal shutdown - collect samples and export
+  // Normal stop - collect samples and export
   CollectSamples(_samplesProviders);
   return ExportFinal();
 }
