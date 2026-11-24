@@ -57,7 +57,8 @@ typedef struct _RumViewValues {
 // a null context. (NULL, NULL) unregisters and restores HTTP delivery; (NULL, non-NULL)
 // is rejected without changing the current registration.
 // Registration survives setup and stop/start. Failure preserves the previous callback.
-// Register before setup to omit HTTP credentials in noEnvVars mode.
+// Register before setup to omit HTTP credentials in noEnvVars mode; StartProfiler()
+// rejects such a setup if the callback is unregistered before it starts.
 // Callback mode discards RUM records; per-sample labels remain in pprof.
 // The profiler never owns user_data. Safe teardown is StopProfiler(), unregister, then
 // destroy user_data. Retaining callers must copy pprof_bytes before returning.

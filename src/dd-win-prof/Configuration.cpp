@@ -33,9 +33,15 @@ void Configuration::SetEnvironmentName(const char* environmentName) {
 
 void Configuration::SetVersion(const char* version) { _upload.version = version; }
 
-void Configuration::SetEndpoint(const char* url) { _upload.site = url; }
+void Configuration::SetEndpoint(const char* url) {
+  _upload.site = url;
+  _upload.hasExplicitEndpoint = true;
+}
 
-void Configuration::SetApiKey(const char* apiKey) { _upload.apiKey = apiKey; }
+void Configuration::SetApiKey(const char* apiKey) {
+  _upload.apiKey = apiKey;
+  _upload.hasExplicitApiKey = true;
+}
 
 void Configuration::InitDefaults() {
   _debugLogEnabled = false;
@@ -61,6 +67,9 @@ void Configuration::InitDefaults() {
   _upload.agentHost = DefaultAgentHost;
   _upload.agentPort = DefaultAgentPort;
   _upload.site = DefaultProdSite;
+  _upload.requiresExplicitSettings = false;
+  _upload.hasExplicitEndpoint = false;
+  _upload.hasExplicitApiKey = false;
   _namedPipeName = DefaultEmptyString;
   _areCallstacksSymbolized = false;
 }
@@ -344,6 +353,16 @@ bool Configuration::ValidateTransportConfig(ProfileDeliveryMode mode) const {
   if (mode == ProfileDeliveryMode::Callback) {
     return true;
   }
+  if (_upload.requiresExplicitSettings) {
+    if (!_upload.hasExplicitEndpoint) {
+      Log::Error("Url endpoint must be set.");
+      return false;
+    }
+    if (!_upload.hasExplicitApiKey) {
+      Log::Error("Datadog API Key must be set.");
+      return false;
+    }
+  }
   bool hasAgentSettings = !_upload.agentUrl.empty() ||
                           _upload.agentHost != DefaultAgentHost ||
                           _upload.agentPort != DefaultAgentPort;
@@ -504,19 +523,13 @@ std::optional<Configuration> Configuration::Create(
 ) {
   auto candidate =
       pSettings->noEnvVars ? Configuration(DefaultsOnly{}) : Configuration();
+  candidate._upload.requiresExplicitSettings = pSettings->noEnvVars;
 
   if (pSettings->url != nullptr) {
     candidate.SetEndpoint(pSettings->url);
-  } else if (pSettings->noEnvVars && mode == ProfileDeliveryMode::Http) {
-    Log::Error("Url endpoint must be set.");
-    return std::nullopt;
   }
-
   if (pSettings->apiKey != nullptr) {
     candidate.SetApiKey(pSettings->apiKey);
-  } else if (pSettings->noEnvVars && mode == ProfileDeliveryMode::Http) {
-    Log::Error("Datadog API Key must be set.");
-    return std::nullopt;
   }
 
   if (pSettings->serviceEnvironment != nullptr) {

@@ -490,6 +490,26 @@ TEST_F(ProfilingDataCallbackTests, UnregisterRestoresHttpRequirements) {
   EXPECT_TRUE(Profiler::GetConfiguration()->IsExportEnabled());
 }
 
+TEST_F(ProfilingDataCallbackTests, UnregisterAfterCallbackOnlySetupRejectsStart) {
+  int calls = 0;
+  ASSERT_TRUE(SetupProfilingDataCallback(CountCallback, &calls));
+  ProfilerConfig config{};
+  config.size = sizeof(config);
+  config.noEnvVars = true;
+  config.uploadIntervalSeconds = 3600;
+  ASSERT_TRUE(SetupProfiler(&config));
+
+  ASSERT_TRUE(SetupProfilingDataCallback(nullptr, nullptr));
+  EXPECT_FALSE(StartProfiler());
+  EXPECT_FALSE(profiler->IsStarted());
+
+  ASSERT_TRUE(SetupProfilingDataCallback(CountCallback, &calls));
+  ASSERT_TRUE(StartProfiler());
+  StopProfiler();
+  EXPECT_EQ(calls, 1);
+  EXPECT_TRUE(SetupProfilingDataCallback(nullptr, nullptr));
+}
+
 TEST_F(
     ProfilingDataCallbackTests,
     StopDeliversFinalProfileAndRegistrationIsFrozenWhileRunning

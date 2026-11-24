@@ -805,6 +805,26 @@ TEST_F(ConfigurationTest, InitConfig_CallbackNoEnvVarsDoesNotRequireHttpFields) 
   EXPECT_EQ(config.GetSite(), "datadoghq.com");
 }
 
+TEST_F(ConfigurationTest, CallbackNoEnvVarsConfigurationIsInvalidForHttp) {
+  auto cfg = MakeProfilerConfig();
+  cfg.noEnvVars = true;
+
+  auto callbackOnly = Configuration::Create(&cfg, ProfileDeliveryMode::Callback);
+  ASSERT_TRUE(callbackOnly.has_value());
+  EXPECT_TRUE(callbackOnly->ValidateTransportConfig(ProfileDeliveryMode::Callback));
+  EXPECT_FALSE(callbackOnly->ValidateTransportConfig(ProfileDeliveryMode::Http));
+
+  cfg.url = "http://intake.datadoghq.com";
+  auto missingApiKey = Configuration::Create(&cfg, ProfileDeliveryMode::Callback);
+  ASSERT_TRUE(missingApiKey.has_value());
+  EXPECT_FALSE(missingApiKey->ValidateTransportConfig(ProfileDeliveryMode::Http));
+
+  cfg.apiKey = "my-api-key";
+  auto complete = Configuration::Create(&cfg, ProfileDeliveryMode::Callback);
+  ASSERT_TRUE(complete.has_value());
+  EXPECT_TRUE(complete->ValidateTransportConfig(ProfileDeliveryMode::Http));
+}
+
 // ===========================================================================
 // Agentless mode: derived from DD_API_KEY presence
 // ===========================================================================

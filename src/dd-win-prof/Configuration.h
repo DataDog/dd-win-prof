@@ -144,6 +144,10 @@ class Configuration {
     std::string hostname;
     std::string site;
     tags userTags;
+    // noEnvVars setups must provide the endpoint and API key explicitly.
+    bool requiresExplicitSettings;
+    bool hasExplicitEndpoint;
+    bool hasExplicitApiKey;
   };
   UploadConfiguration _upload;
   std::chrono::seconds _uploadPeriod;

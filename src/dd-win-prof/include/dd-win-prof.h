@@ -35,7 +35,8 @@ typedef struct _ProfilerConfig {
   const char* serviceVersion;
 
   // Required for built-in HTTP upload when noEnvVars is true; otherwise they can
-  // come from environment variables. Not required with an SDK-private callback.
+  // come from environment variables. Not required with an SDK-private callback, but
+  // StartProfiler() checks them again if the callback is unregistered after setup.
   const char* url;
   const char* apiKey;
 
