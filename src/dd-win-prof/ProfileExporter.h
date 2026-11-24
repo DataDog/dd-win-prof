@@ -40,8 +40,8 @@ enum class FinalExportStatus {
 
 const char* ToString(FinalExportStatus status) noexcept;
 // True when no configured primary sink failed: Delivered, LocalWriteFailed or
-// NotExported.
-bool IsFinalExportSuccessful(FinalExportStatus status) noexcept;
+// NotExported. Applies to periodic and final exports.
+bool IsExportSuccessful(FinalExportStatus status) noexcept;
 
 // Lifecycle: Initialize (retryable until it succeeds) -> Add/Export ->
 // ExportFinal (at most one attempt) -> Cleanup/destruction (never exports).
@@ -74,9 +74,10 @@ class ProfileExporter {
   // so the exporter can be retried or destroyed.
   bool Initialize();
   bool Add(std::shared_ptr<Sample> const& sample);
-  // Periodic export. Export(true) is equivalent to
-  // IsFinalExportSuccessful(ExportFinal()).
-  bool Export(bool lastCall = false);
+  // Periodic export: returns false when the profile could not be built or delivered.
+  // The profile is reset either way, so the next export can recover.
+  bool Export();
+  // The only final export path.
   FinalExportStatus ExportFinal() noexcept;
   void Cleanup(
       bool skipExporterCleanup = false
@@ -125,11 +126,7 @@ class ProfileExporter {
   bool CreateExporterEndpoint(ddog_prof_Endpoint& endpoint);
   bool BuildExportUrl();
   enum class HttpSendResult { Accepted, Rejected, TransportError, PreSendFailed };
-  struct HttpSendOutcome {
-    HttpSendResult result = HttpSendResult::PreSendFailed;
-    uint16_t responseCode = 0;  // set for Accepted and Rejected
-  };
-  HttpSendOutcome ExportProfile(
+  HttpSendResult ExportProfile(
       const ddog_prof_EncodedProfile* encodedProfile,
       uint32_t profileSeq,
       const std::string& rumRecordsJson = {},
@@ -149,7 +146,7 @@ class ProfileExporter {
       const std::vector<std::string>& sessionIds,
       const std::vector<std::string>& viewIds = {}
   );
-  bool CheckExportResponse(uint16_t responseCode);
+  void LogExportResponse(uint16_t responseCode);
   void CleanupExporter();
 
  private:
@@ -161,12 +158,6 @@ class ProfileExporter {
 
   enum class State { Created, Ready, Finalized, Released };
 
-  struct ExportOutcome {
-    FinalExportStatus status = FinalExportStatus::Delivered;
-    // Periodic exports tolerate transient network failures and debug file errors.
-    bool periodicSuccess = true;
-  };
-
   // Lets ExportFinal tell, after an exception, whether the profile already reached
   // its sink and whether the callback already received an is_last notification.
   struct FinalProgress {
@@ -175,7 +166,7 @@ class ProfileExporter {
   };
 
   void ReleaseResources(bool skipExporterCleanup) noexcept;
-  ExportOutcome ExportCurrentProfile(
+  FinalExportStatus ExportCurrentProfile(
       bool lastCall,
       int64_t startUnixTimeMs,
       int64_t endUnixTimeMs,
@@ -307,9 +298,8 @@ class ProfileExporter {
   ddog_prof_ProfileExporter _exporter;  // Value type, not pointer
   std::string _exportUrl;
   std::string _apiKey;
-  bool _agentMode;  // true for agent, false for agentless
-  uint32_t _consecutiveErrors;
-  static constexpr uint32_t MAX_CONSECUTIVE_ERRORS = 3;
+  bool _agentMode;              // true for agent, false for agentless
+  uint32_t _consecutiveErrors;  // consecutive transport errors, for logs
   static constexpr int EXPORT_TIMEOUT_MS = 10000;
 
   // libdatadog components

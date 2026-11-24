@@ -508,7 +508,7 @@ TEST_F(
   });
   periodic.join();
   ASSERT_TRUE(exp.Add(CreateTestSample()));
-  EXPECT_TRUE(exp.Export(true));
+  EXPECT_EQ(exp.ExportFinal(), FinalExportStatus::Delivered);
   exp.Cleanup();
 
   EXPECT_TRUE(server.Error().empty()) << server.Error();
@@ -577,7 +577,7 @@ TEST_F(ProfileExporterExportTests, HttpEmitsAllRumTagsWithoutACapOrStaleIds) {
   ASSERT_TRUE(exp.Add(CreateTestSample()));
   EXPECT_TRUE(exp.Export());
   ASSERT_TRUE(exp.Add(CreateTestSample()));
-  EXPECT_TRUE(exp.Export(true));
+  EXPECT_EQ(exp.ExportFinal(), FinalExportStatus::Delivered);
   exp.Cleanup();
 
   EXPECT_TRUE(server.Error().empty()) << server.Error();
@@ -608,14 +608,13 @@ TEST_F(ProfileExporterExportTests, HttpResponsePolicyAcrossFinalThreadTransition
     auto httpConfig = HttpConfiguration(server);
     ProfileExporter exp(&httpConfig, sampleTypes);
     ASSERT_TRUE(exp.Initialize());
-    const bool expected = status != 403 && status != 404;
+    // Periodic and final exports only report delivery for a 2xx response.
     std::thread periodic([&] {
       EXPECT_TRUE(exp.Add(CreateTestSample()));
-      EXPECT_EQ(exp.Export(), expected);
+      EXPECT_EQ(exp.Export(), status < 300);
     });
     periodic.join();
     ASSERT_TRUE(exp.Add(CreateTestSample()));
-    // The final export only reports delivery for a 2xx response.
     EXPECT_EQ(
         exp.ExportFinal(),
         status < 300 ? FinalExportStatus::Delivered : FinalExportStatus::NetworkFailed
@@ -628,33 +627,30 @@ TEST_F(ProfileExporterExportTests, HttpResponsePolicyAcrossFinalThreadTransition
   }
 }
 
-TEST_F(
-    ProfileExporterExportTests,
-    HttpTransportErrorCountSurvivesThreadChangeAndResetsOnResponse
-) {
-  // Any HTTP response, including 500, clears the consecutive transport error count.
-  LocalHttpServer server({0, 0, 0, 500, 0, 0, 0});
+TEST_F(ProfileExporterExportTests, HttpPeriodicFailuresRecoverAcrossThreadChange) {
+  // A failed periodic export still resets the profile, so the next one sends the
+  // next sequence number.
+  LocalHttpServer server({0, 500, 0, 202, 0});
   auto httpConfig = HttpConfiguration(server);
   ProfileExporter exp(&httpConfig, sampleTypes);
   ASSERT_TRUE(exp.Initialize());
-  auto send = [&](bool last, bool expected) {
+  auto send = [&](bool expected) {
     ASSERT_TRUE(exp.Add(CreateTestSample()));
-    EXPECT_EQ(exp.Export(last), expected);
+    EXPECT_EQ(exp.Export(), expected);
   };
   std::thread periodic([&] {
-    send(false, true);
-    send(false, true);
+    send(false);
+    send(false);
   });
   periodic.join();
-  send(false, false);
-  send(false, true);
-  send(false, true);
-  send(false, true);
-  send(true, false);
+  send(false);
+  send(true);
+  ASSERT_TRUE(exp.Add(CreateTestSample()));
+  EXPECT_EQ(exp.ExportFinal(), FinalExportStatus::NetworkFailed);
   exp.Cleanup();
   EXPECT_TRUE(server.Error().empty()) << server.Error();
   const auto requests = server.Requests();
-  ASSERT_EQ(requests.size(), 7u);
+  ASSERT_EQ(requests.size(), 5u);
   for (size_t i = 0; i < requests.size(); ++i) {
     EXPECT_EQ(Tag(requests[i].body, "profile_seq"), std::to_string(i));
   }
@@ -667,13 +663,13 @@ TEST_F(ProfileExporterExportTests, HttpTimeoutIsBoundedAndRecoverableTransportEr
   ASSERT_TRUE(exp.Initialize());
   ASSERT_TRUE(exp.Add(CreateTestSample()));
   const auto start = std::chrono::steady_clock::now();
-  EXPECT_TRUE(exp.Export());
+  EXPECT_FALSE(exp.Export());
   const auto elapsed = std::chrono::steady_clock::now() - start;
   EXPECT_GE(elapsed, std::chrono::seconds(8));
   EXPECT_LT(elapsed, std::chrono::seconds(15));
   EXPECT_TRUE(server.Error().empty()) << server.Error();
   EXPECT_TRUE(exp.Add(CreateTestSample()));
-  EXPECT_TRUE(exp.Export(true));
+  EXPECT_EQ(exp.ExportFinal(), FinalExportStatus::Delivered);
   exp.Cleanup();
   EXPECT_EQ(server.Requests().size(), 2u);
 }
@@ -839,7 +835,6 @@ TEST_F(ProfileExporterExportTests, FinalCallbackFailureIsReportedOnceAndSealsExp
     EXPECT_EQ(exp.ExportFinal(), FinalExportStatus::CallbackFailed);
     EXPECT_TRUE(exp.IsFinalized());
     EXPECT_EQ(exp.ExportFinal(), FinalExportStatus::AlreadyFinalized);
-    EXPECT_FALSE(exp.Export(true));
     ExpectRejectsUse(exp);
     exp.Cleanup();
     EXPECT_EQ(exp.ExportFinal(), FinalExportStatus::NotInitialized);
@@ -885,7 +880,7 @@ TEST_F(ProfileExporterExportTests, FinalInternalErrorNotifiesCallbackOnce) {
   ASSERT_TRUE(exp.Add(CreateTestSample()));
   EXPECT_EQ(exp.ExportFinal(), FinalExportStatus::InternalError);
   EXPECT_EQ(exp.ExportFinal(), FinalExportStatus::AlreadyFinalized);
-  EXPECT_FALSE(exp.Export(true));
+  ExpectRejectsUse(exp);
   exp.Cleanup();
   EXPECT_EQ(serializeCalls, 1);
   ASSERT_EQ(state.calls, 1);
@@ -896,7 +891,7 @@ TEST_F(ProfileExporterExportTests, FinalInternalErrorNotifiesCallbackOnce) {
 }
 
 TEST_F(ProfileExporterExportTests, FinalNetworkFailureIsReportedOnceAndNotRetried) {
-  // 403 is a rejected response; 0 is a transport error that periodic exports tolerate.
+  // 403 is a rejected response; 0 is a transport error.
   for (const auto status : {403, 0}) {
     SCOPED_TRACE(status);
     LocalHttpServer server({status});
@@ -925,20 +920,13 @@ TEST_F(ProfileExporterExportTests, FinalLocalWriteFailureIsReported) {
   exporter->SetDebugPprofFileWritingEnabled(true);
   ASSERT_TRUE(exporter->Initialize());
   ASSERT_TRUE(exporter->Add(CreateTestSample()));
-  // Debug files never fail periodic exports.
+  // Debug file failures never fail an export.
   EXPECT_TRUE(exporter->Export());
-  EXPECT_EQ(exporter->ExportFinal(), FinalExportStatus::LocalWriteFailed);
+  ASSERT_TRUE(exporter->Add(CreateTestSample()));
+  const auto status = exporter->ExportFinal();
+  EXPECT_EQ(status, FinalExportStatus::LocalWriteFailed);
+  EXPECT_TRUE(IsExportSuccessful(status));
   EXPECT_EQ(exporter->ExportFinal(), FinalExportStatus::AlreadyFinalized);
-
-  // A debug file failure does not make the final export fail. DbgHelp allows one
-  // initialized exporter per process, so release the first one.
-  exporter->Cleanup();
-  ProfileExporter other(config.get(), sampleTypes);
-  other.SetDebugPprofPrefix((missing / "profile_").string());
-  other.SetDebugPprofFileWritingEnabled(true);
-  ASSERT_TRUE(other.Initialize());
-  ASSERT_TRUE(other.Add(CreateTestSample()));
-  EXPECT_TRUE(other.Export(true));
   EXPECT_FALSE(fs::exists(missing));
 }
 
@@ -946,15 +934,12 @@ TEST_F(ProfileExporterExportTests, FinalExportWithoutSinkIsNotExported) {
   ASSERT_FALSE(exporter->IsDebugPprofFileWritingEnabled());
   ASSERT_TRUE(exporter->Initialize());
   ASSERT_TRUE(exporter->Add(CreateTestSample()));
-  EXPECT_EQ(exporter->ExportFinal(), FinalExportStatus::NotExported);
+  EXPECT_TRUE(exporter->Export());
+  ASSERT_TRUE(exporter->Add(CreateTestSample()));
+  const auto status = exporter->ExportFinal();
+  EXPECT_EQ(status, FinalExportStatus::NotExported);
+  EXPECT_TRUE(IsExportSuccessful(status));
   EXPECT_EQ(exporter->ExportFinal(), FinalExportStatus::AlreadyFinalized);
-
-  // DbgHelp allows one initialized exporter per process.
-  exporter->Cleanup();
-  ProfileExporter other(config.get(), sampleTypes);
-  ASSERT_TRUE(other.Initialize());
-  ASSERT_TRUE(other.Add(CreateTestSample()));
-  EXPECT_TRUE(other.Export(true));
 }
 
 TEST_F(ProfileExporterExportTests, FinalNetworkAndLocalFailureReportsNetwork) {

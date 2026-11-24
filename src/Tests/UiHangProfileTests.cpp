@@ -172,10 +172,10 @@ TEST_F(UiHangProfileTest, CallbackKeepsWaitAndHangCustomSlotsAcrossTwoFlushes) {
       &config, registry.GetValueTypes(), nullptr, CaptureProfile, &profiles
   );
   ASSERT_TRUE(exporter.Initialize());
-  for (int cycle = 1; cycle <= 2; ++cycle) {
-    AddCycle(exporter, cycle);
-    ASSERT_TRUE(exporter.Export(cycle == 2));
-  }
+  AddCycle(exporter, 1);
+  ASSERT_TRUE(exporter.Export());
+  AddCycle(exporter, 2);
+  ASSERT_EQ(exporter.ExportFinal(), FinalExportStatus::Delivered);
   exporter.Cleanup();
   ASSERT_EQ(profiles.size(), 2u);
   for (size_t i = 0; i < profiles.size(); ++i) {
@@ -203,11 +203,11 @@ TEST_F(UiHangProfileTest, PartialEndpointsAcrossFlushesDoNotInventDurations) {
   );
   ASSERT_TRUE(exporter.Initialize());
   ASSERT_TRUE(exporter.Add(Endpoint(1, true)));
-  ASSERT_TRUE(exporter.Export(false));
+  ASSERT_TRUE(exporter.Export());
   ASSERT_TRUE(exporter.Add(Ordinary(1, false)));
-  ASSERT_TRUE(exporter.Export(false));
+  ASSERT_TRUE(exporter.Export());
   ASSERT_TRUE(exporter.Add(Endpoint(1, false)));
-  ASSERT_TRUE(exporter.Export(true));
+  ASSERT_EQ(exporter.ExportFinal(), FinalExportStatus::Delivered);
   exporter.Cleanup();
   ASSERT_EQ(profiles.size(), 3u);
   for (size_t i = 0; i < profiles.size(); ++i) {
@@ -229,13 +229,13 @@ TEST_F(UiHangProfileTest, HttpKeepsWaitAndHangCustomSlotsAcrossTwoFlushes) {
   config.SetServiceName("ui-hang-profile-test");
   ProfileExporter exporter(&config, registry.GetValueTypes());
   ASSERT_TRUE(exporter.Initialize());
-  auto send = [&](int cycle) {
-    AddCycle(exporter, cycle);
-    ASSERT_TRUE(exporter.Export(cycle == 2));
-  };
-  std::thread periodic([&] { send(1); });
+  std::thread periodic([&] {
+    AddCycle(exporter, 1);
+    ASSERT_TRUE(exporter.Export());
+  });
   periodic.join();
-  send(2);
+  AddCycle(exporter, 2);
+  ASSERT_EQ(exporter.ExportFinal(), FinalExportStatus::Delivered);
   exporter.Cleanup();
   EXPECT_TRUE(server.Error().empty()) << server.Error();
   const auto requests = server.Requests();

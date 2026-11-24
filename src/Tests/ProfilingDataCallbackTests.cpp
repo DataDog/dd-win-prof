@@ -359,7 +359,11 @@ TEST_F(ProfilingDataCallbackTests, CallbackDiscardsRumRecordsWithoutMetadataFile
     ASSERT_TRUE(SetRumSession(&session));
     ASSERT_TRUE(SetRumView(&view));
     ASSERT_TRUE(SetRumSession(nullptr));
-    ASSERT_TRUE(exporter.Export(cycle == 1));
+    if (cycle == 0) {
+      ASSERT_TRUE(exporter.Export());
+    } else {
+      ASSERT_EQ(exporter.ExportFinal(), FinalExportStatus::Delivered);
+    }
     std::vector<RumViewRecord> remainingViews;
     std::vector<RumSessionRecord> remainingSessions;
     profiler->ConsumeViewRecords(remainingViews);
@@ -437,7 +441,7 @@ TEST_F(ProfilingDataCallbackTests, EncodingErrorsReturnCodesAndNextExportRecover
     EXPECT_TRUE(context.results.back().reservedBytesAreZero);
     encodingFailure.serialize = code == ProfilingErrorCode::SerializationFailed;
     encodingFailure.bytes = code == ProfilingErrorCode::ProfileBytesUnavailable;
-    EXPECT_FALSE(exporter.Export(true));
+    EXPECT_EQ(exporter.ExportFinal(), FinalExportStatus::ProfileBuildFailed);
     ASSERT_EQ(context.results.size(), 3u);
     EXPECT_EQ(context.results.back().result, ToResult(code));
     EXPECT_TRUE(context.results.back().pprof.empty());
@@ -466,7 +470,7 @@ TEST_F(ProfilingDataCallbackTests, InternalExportUsesBooleanResults) {
   EXPECT_FALSE(exporter.Export());
   EXPECT_EQ(encodingFailure.bytesCalls, 0);
   EXPECT_EQ(encodingFailure.resetCalls, 1);
-  EXPECT_TRUE(exporter.Export(true));
+  EXPECT_TRUE(IsExportSuccessful(exporter.ExportFinal()));
   exporter.Cleanup();
 }
 
@@ -582,7 +586,7 @@ TEST(ProfilingDataExportTests, CallbackBorrowsBytesAndCallerCopySurvives) {
     ASSERT_TRUE(exporter.Export());
     ASSERT_EQ(context.results.size(), 1u);
     retained = context.results.front().pprof;
-    ASSERT_TRUE(exporter.Export(true));
+    ASSERT_EQ(exporter.ExportFinal(), FinalExportStatus::Delivered);
     exporter.Cleanup();
   }
   ASSERT_EQ(context.results.size(), 2u);
@@ -661,7 +665,7 @@ TEST(ProfilingDataExportTests, ResetErrorIsDeliveredAndNextExportRecovers) {
   // The final export seals the exporter instead of resetting the profile, so a
   // reset failure cannot follow the last profile.
   encodingFailure.reset = true;
-  EXPECT_TRUE(exporter.Export(true));
+  EXPECT_EQ(exporter.ExportFinal(), FinalExportStatus::Delivered);
   EXPECT_EQ(encodingFailure.resetCalls, 1);
   ASSERT_EQ(context.results.size(), 3u);
   EXPECT_EQ(context.results.back().result, 0u);
