@@ -771,6 +771,30 @@ TEST_F(
   EXPECT_EQ(config.GetVersion(), "env-version");
 }
 
+TEST_F(ConfigurationTest, Create_NoEnvVarsDoesNotReadEnvironment) {
+  SetTestEnvVar(EnvironmentVariables::Version, "env-version");
+  UnsetAgentTransportEnvVars();
+  auto cfg = MakeFullyOverriddenProfilerConfig(true);
+
+  const auto readsBefore = Configuration::GetEnvironmentReadCount();
+  auto candidate = Configuration::Create(&cfg);
+  EXPECT_EQ(Configuration::GetEnvironmentReadCount(), readsBefore);
+  ASSERT_TRUE(candidate.has_value());
+  EXPECT_EQ(candidate->GetVersion(), "1.2.3");
+
+  cfg.noEnvVars = false;
+  Configuration::Create(&cfg);
+  EXPECT_GT(Configuration::GetEnvironmentReadCount(), readsBefore);
+}
+
+TEST_F(ConfigurationTest, EnvironmentValueLongerThan4095CharactersIsReadWhole) {
+  const std::string version(5000, 'v');
+  SetTestEnvVar(EnvironmentVariables::Version, version.c_str());
+
+  Configuration config;
+  EXPECT_EQ(config.GetVersion(), version);
+}
+
 TEST_F(ConfigurationTest, InitConfig_CallbackNoEnvVarsDoesNotRequireHttpFields) {
   Configuration config;
   auto cfg = MakeProfilerConfig();

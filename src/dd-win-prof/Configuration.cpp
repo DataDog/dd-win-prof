@@ -4,6 +4,8 @@
 
 #include "Configuration.h"
 
+#include <atomic>
+
 #include "EnvironmentVariables.h"
 #include "Log.h"
 #include "OpSysTools.h"
@@ -65,6 +67,8 @@ void Configuration::InitDefaults() {
 
 void Configuration::ResetToDefaults() { InitDefaults(); }
 
+Configuration::Configuration(DefaultsOnly) { InitDefaults(); }
+
 Configuration::Configuration() {
   InitDefaults();
 
@@ -115,7 +119,12 @@ Configuration::Configuration() {
       GetEnvironmentValue<bool>(EnvironmentVariables::SymbolizeCallstacks, false);
 }
 
+static std::atomic<uint64_t> s_environmentReadCount{0};
+
+uint64_t Configuration::GetEnvironmentReadCount() { return s_environmentReadCount; }
+
 bool EnvironmentExist(const char* name) {
+  ++s_environmentReadCount;
   auto len = ::GetEnvironmentVariableA(name, nullptr, 0);
   if (len > 0) {
     return true;
@@ -125,11 +134,17 @@ bool EnvironmentExist(const char* name) {
 }
 
 std::string GetEnvironmentValue(const char* name) {
-  const size_t max_buf_size = 4096;
-  char buffer[max_buf_size] = {0};
-  auto len = ::GetEnvironmentVariableA(name, buffer, max_buf_size);
-
-  return std::string(buffer, len);
+  ++s_environmentReadCount;
+  std::string value;
+  // A buffer too small for the value returns the required size, terminator included.
+  DWORD len = ::GetEnvironmentVariableA(name, nullptr, 0);
+  while (len > value.size()) {
+    value.resize(len);
+    len =
+        ::GetEnvironmentVariableA(name, value.data(), static_cast<DWORD>(value.size()));
+  }
+  value.resize(len);
+  return value;
 }
 
 bool TryParseBooleanEnvironmentValue(const char* valueToParse, bool& parsedValue) {
@@ -487,10 +502,8 @@ bool InitializeConfiguration(
 std::optional<Configuration> Configuration::Create(
     const ProfilerConfig* pSettings, ProfileDeliveryMode mode
 ) {
-  Configuration candidate;
-  if (pSettings->noEnvVars) {
-    candidate.ResetToDefaults();
-  }
+  auto candidate =
+      pSettings->noEnvVars ? Configuration(DefaultsOnly{}) : Configuration();
 
   if (pSettings->url != nullptr) {
     candidate.SetEndpoint(pSettings->url);
