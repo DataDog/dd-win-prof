@@ -14,10 +14,12 @@
 #include <vector>
 
 #include "../dd-win-prof/Configuration.h"
+#include "../dd-win-prof/ISamplesProvider.h"
 #include "../dd-win-prof/LibDatadogHelper.h"
 #include "../dd-win-prof/ProfileExporter.h"
 #include "../dd-win-prof/Sample.h"
 #include "../dd-win-prof/SampleValueType.h"
+#include "../dd-win-prof/SamplesCollector.h"
 #include "../dd-win-prof/TagsHelper.h"
 #include "../dd-win-prof/ThreadInfo.h"
 #include "LocalHttpServer.h"
@@ -719,6 +721,13 @@ dd_win_prof::ProfileEncodingApi FailingSerializeApi(int failures) {
   return api;
 }
 
+ddog_prof_Profile_SerializeResult SerializeThrows(
+    ddog_prof_Profile*, const ddog_Timespec*, const ddog_Timespec*
+) {
+  ++serializeCalls;
+  throw std::runtime_error("serialize failure");
+}
+
 struct FinalCallbackState {
   int calls = 0;
   std::vector<uint32_t> results;
@@ -864,6 +873,28 @@ TEST_F(ProfileExporterExportTests, FinalBuildFailureReportsOneLastErrorToCallbac
   EXPECT_TRUE(state.isLast.front());
 }
 
+TEST_F(ProfileExporterExportTests, FinalInternalErrorNotifiesCallbackOnce) {
+  FinalCallbackState state;
+  serializeCalls = 0;
+  dd_win_prof::ProfileEncodingApi api;
+  api.serialize = SerializeThrows;
+  ProfileExporter exp(
+      config.get(), sampleTypes, nullptr, RecordFinalCallback, &state, api
+  );
+  ASSERT_TRUE(exp.Initialize());
+  ASSERT_TRUE(exp.Add(CreateTestSample()));
+  EXPECT_EQ(exp.ExportFinal(), FinalExportStatus::InternalError);
+  EXPECT_EQ(exp.ExportFinal(), FinalExportStatus::AlreadyFinalized);
+  EXPECT_FALSE(exp.Export(true));
+  exp.Cleanup();
+  EXPECT_EQ(serializeCalls, 1);
+  ASSERT_EQ(state.calls, 1);
+  EXPECT_EQ(
+      state.results.front(), static_cast<uint32_t>(ProfilingErrorCode::InternalError)
+  );
+  EXPECT_TRUE(state.isLast.front());
+}
+
 TEST_F(ProfileExporterExportTests, FinalNetworkFailureIsReportedOnceAndNotRetried) {
   // 403 is a rejected response; 0 is a transport error that periodic exports tolerate.
   for (const auto status : {403, 0}) {
@@ -898,7 +929,78 @@ TEST_F(ProfileExporterExportTests, FinalLocalWriteFailureIsReported) {
   EXPECT_TRUE(exporter->Export());
   EXPECT_EQ(exporter->ExportFinal(), FinalExportStatus::LocalWriteFailed);
   EXPECT_EQ(exporter->ExportFinal(), FinalExportStatus::AlreadyFinalized);
+
+  // A debug file failure does not make the final export fail. DbgHelp allows one
+  // initialized exporter per process, so release the first one.
+  exporter->Cleanup();
+  ProfileExporter other(config.get(), sampleTypes);
+  other.SetDebugPprofPrefix((missing / "profile_").string());
+  other.SetDebugPprofFileWritingEnabled(true);
+  ASSERT_TRUE(other.Initialize());
+  ASSERT_TRUE(other.Add(CreateTestSample()));
+  EXPECT_TRUE(other.Export(true));
   EXPECT_FALSE(fs::exists(missing));
+}
+
+TEST_F(ProfileExporterExportTests, FinalExportWithoutSinkIsNotExported) {
+  ASSERT_FALSE(exporter->IsDebugPprofFileWritingEnabled());
+  ASSERT_TRUE(exporter->Initialize());
+  ASSERT_TRUE(exporter->Add(CreateTestSample()));
+  EXPECT_EQ(exporter->ExportFinal(), FinalExportStatus::NotExported);
+  EXPECT_EQ(exporter->ExportFinal(), FinalExportStatus::AlreadyFinalized);
+
+  // DbgHelp allows one initialized exporter per process.
+  exporter->Cleanup();
+  ProfileExporter other(config.get(), sampleTypes);
+  ASSERT_TRUE(other.Initialize());
+  ASSERT_TRUE(other.Add(CreateTestSample()));
+  EXPECT_TRUE(other.Export(true));
+}
+
+TEST_F(ProfileExporterExportTests, FinalNetworkAndLocalFailureReportsNetwork) {
+  const auto missing =
+      fs::temp_directory_path() /
+      ("dd-win-prof-missing-" + std::to_string(::GetCurrentProcessId()) + "-" +
+       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  ASSERT_FALSE(fs::exists(missing));
+  LocalHttpServer server({403});
+  auto httpConfig = HttpConfiguration(server);
+  ProfileExporter exp(&httpConfig, sampleTypes);
+  exp.SetDebugPprofPrefix((missing / "profile_").string());
+  exp.SetDebugPprofFileWritingEnabled(true);
+  ASSERT_TRUE(exp.Initialize());
+  ASSERT_TRUE(exp.Add(CreateTestSample()));
+  EXPECT_EQ(exp.ExportFinal(), FinalExportStatus::NetworkFailed);
+  exp.Cleanup();
+  EXPECT_TRUE(server.Error().empty()) << server.Error();
+  EXPECT_EQ(server.Requests().size(), 1u);
+  EXPECT_FALSE(fs::exists(missing));
+}
+
+TEST_F(ProfileExporterExportTests, PreSendFailureIsReportedAsBuildFailure) {
+  LocalHttpServer server;
+  auto httpConfig = HttpConfiguration(server);
+  ProfileExporter exp(&httpConfig, sampleTypes);
+  ASSERT_TRUE(exp.Initialize());
+  // libdatadog rejects a tag that ends with a colon, so the per-export tags cannot be
+  // prepared and nothing is sent.
+  exp.SetRumApplicationId("app:");
+  ASSERT_TRUE(exp.Add(CreateTestSample()));
+  EXPECT_FALSE(exp.Export());
+  ASSERT_TRUE(exp.Add(CreateTestSample()));
+  EXPECT_EQ(exp.ExportFinal(), FinalExportStatus::ProfileBuildFailed);
+  exp.Cleanup();
+  EXPECT_TRUE(server.Error().empty()) << server.Error();
+  EXPECT_TRUE(server.Requests().empty());
+}
+
+TEST_F(ProfileExporterExportTests, InitializeRejectedAfterCleanup) {
+  ASSERT_TRUE(exporter->Initialize());
+  exporter->Cleanup();
+  EXPECT_FALSE(exporter->IsInitialized());
+  EXPECT_FALSE(exporter->Initialize());
+  EXPECT_FALSE(exporter->IsInitialized());
+  EXPECT_EQ(exporter->ExportFinal(), FinalExportStatus::NotInitialized);
 }
 
 TEST_F(ProfileExporterExportTests, CleanupAndDestructionNeverSendTheFinalProfile) {
@@ -971,4 +1073,51 @@ TEST_F(ProfileExporterExportTests, FailedFinalDeliveryDoesNotLeakIntoNextSession
     EXPECT_EQ(Tag(requests[0].body, "rum.view_id"), "fresh-view");
     EXPECT_EQ(requests[0].body.find("stale-"), std::string::npos);
   }
+}
+
+namespace {
+class OneSampleProvider : public ISamplesProvider {
+ public:
+  size_t MoveSamples(std::vector<Sample>& destination) override {
+    if (_moved) {
+      return 0;
+    }
+    _moved = true;
+    destination.push_back(std::move(*CreateTestSample()));
+    return 1;
+  }
+  const char* GetName() override { return "one-sample"; }
+
+ private:
+  bool _moved = false;
+};
+}  // namespace
+
+TEST_F(ProfileExporterExportTests, SamplesCollectorStopReturnsFinalStatus) {
+  FinalCallbackState state;
+  ProfileExporter exp(config.get(), sampleTypes, nullptr, RecordFinalCallback, &state);
+  ASSERT_TRUE(exp.Initialize());
+  OneSampleProvider provider;
+  SamplesCollector collector(config.get(), &exp);
+  collector.Register(&provider);
+  collector.Start();
+  EXPECT_EQ(collector.Stop(false), FinalExportStatus::Delivered);
+  EXPECT_TRUE(exp.IsFinalized());
+  exp.Cleanup();
+  ASSERT_EQ(state.calls, 1);
+  EXPECT_TRUE(state.isLast.front());
+}
+
+TEST_F(ProfileExporterExportTests, SamplesCollectorStopSkipsFinalExportOnShutdown) {
+  FinalCallbackState state;
+  ProfileExporter exp(config.get(), sampleTypes, nullptr, RecordFinalCallback, &state);
+  ASSERT_TRUE(exp.Initialize());
+  OneSampleProvider provider;
+  SamplesCollector collector(config.get(), &exp);
+  collector.Register(&provider);
+  collector.Start();
+  EXPECT_EQ(collector.Stop(true), std::nullopt);
+  EXPECT_FALSE(exp.IsFinalized());
+  exp.Cleanup(true);
+  EXPECT_EQ(state.calls, 0);
 }

@@ -21,8 +21,9 @@
 #include "internal/dd-win-rum-private.h"
 #include "pch.h"
 
-// Outcome of the single final export attempt. When several sinks fail, the primary
-// delivery failure (build, callback, network) wins over a debug pprof file failure.
+// Outcome of the single final export attempt. Precedence when several apply: a
+// primary delivery failure (build, callback, network), then LocalWriteFailed, then
+// NotExported, then Delivered.
 enum class FinalExportStatus {
   Delivered,
   NotInitialized,    // never initialized, or released without a final export
@@ -30,11 +31,17 @@ enum class FinalExportStatus {
   ProfileBuildFailed,
   CallbackFailed,
   NetworkFailed,  // transport error or non-2xx response
+  // The debug pprof file could not be written, but the primary sink delivered the
+  // profile or no primary sink is configured.
   LocalWriteFailed,
+  NotExported,  // no callback and HTTP export disabled: nothing to deliver to
   InternalError,
 };
 
 const char* ToString(FinalExportStatus status) noexcept;
+// True when no configured primary sink failed: Delivered, LocalWriteFailed or
+// NotExported.
+bool IsFinalExportSuccessful(FinalExportStatus status) noexcept;
 
 // Lifecycle: Initialize (retryable until it succeeds) -> Add/Export ->
 // ExportFinal (at most one attempt) -> Cleanup/destruction (never exports).
@@ -42,7 +49,13 @@ const char* ToString(FinalExportStatus status) noexcept;
 // Buffer rule: the final attempt consumes the samples aggregated so far and the RUM
 // records it read, whatever its outcome. After it, Add and Export are rejected, so a
 // failed final profile is dropped rather than retried, and nothing it held can reach
-// another exporter. Each profiling session owns a separate exporter.
+// another exporter. Each profiling session owns a separate exporter. A transient
+// network error on the final attempt therefore drops the final profile; this is
+// intended so that the final profile is sent at most once.
+//
+// Not thread-safe: callers must serialize Initialize, Add, Export, ExportFinal and
+// Cleanup. SamplesCollector does so with its export lock, and Profiler calls Cleanup
+// only after the collector threads are joined.
 class ProfileExporter {
  public:
   ProfileExporter(
@@ -61,7 +74,8 @@ class ProfileExporter {
   // so the exporter can be retried or destroyed.
   bool Initialize();
   bool Add(std::shared_ptr<Sample> const& sample);
-  // Periodic export. Export(true) is equivalent to ExportFinal() == Delivered.
+  // Periodic export. Export(true) is equivalent to
+  // IsFinalExportSuccessful(ExportFinal()).
   bool Export(bool lastCall = false);
   FinalExportStatus ExportFinal() noexcept;
   void Cleanup(
@@ -110,15 +124,18 @@ class ProfileExporter {
   bool InitializeExporter();
   bool CreateExporterEndpoint(ddog_prof_Endpoint& endpoint);
   bool BuildExportUrl();
-  // Returns the periodic policy result, which tolerates some failures. `accepted`
-  // reports whether the intake actually answered with a 2xx status.
-  bool ExportProfile(
+  enum class HttpSendResult { Accepted, Rejected, TransportError, PreSendFailed };
+  struct HttpSendOutcome {
+    HttpSendResult result = HttpSendResult::PreSendFailed;
+    // Periodic policy result, which tolerates some transport and HTTP errors.
+    bool periodicSuccess = false;
+  };
+  HttpSendOutcome ExportProfile(
       const ddog_prof_EncodedProfile* encodedProfile,
       uint32_t profileSeq,
       const std::string& rumRecordsJson = {},
       const std::vector<std::string>& rumSessionIds = {},
-      const std::vector<std::string>& rumViewIds = {},
-      bool* accepted = nullptr
+      const std::vector<std::string>& rumViewIds = {}
   );
   bool PrepareAdditionalTags(
       ddog_Vec_Tag& tags,
@@ -151,9 +168,19 @@ class ProfileExporter {
     bool periodicSuccess = true;
   };
 
+  // Lets ExportFinal tell, after an exception, whether the profile already reached
+  // its sink and whether the callback already received an is_last notification.
+  struct FinalProgress {
+    bool delivered = false;
+    bool callbackNotified = false;
+  };
+
   void ReleaseResources(bool skipExporterCleanup) noexcept;
   ExportOutcome ExportCurrentProfile(
-      bool lastCall, int64_t startUnixTimeMs, int64_t endUnixTimeMs
+      bool lastCall,
+      int64_t startUnixTimeMs,
+      int64_t endUnixTimeMs,
+      FinalProgress* progress = nullptr
   );
   std::string CollectRumRecordsJson(
       std::vector<std::string>& sessionIds, std::vector<std::string>& viewIds
@@ -312,6 +339,7 @@ class ProfileExporter {
 
   // Export tracking
   uint32_t _currentExportId;
+  uint64_t _samplesSinceExport = 0;
   std::chrono::time_point<std::chrono::system_clock> _profileStartTime;
 
   // number of sent profiles before cleaning up caches

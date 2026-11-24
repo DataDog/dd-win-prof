@@ -12,4 +12,5 @@ enum class ProfilingErrorCode : uint32_t {
   ProfileBytesUnavailable = 2,
   ProfileResetFailed = 3,
   SampleLabelsUnavailable = 4,
+  InternalError = 5,
 };

@@ -73,7 +73,7 @@ void SamplesCollector::ExportWork() {
   }
 }
 
-void SamplesCollector::Export(bool lastCall) {
+void SamplesCollector::Export() {
   bool success = false;
 
   try {
@@ -86,7 +86,7 @@ void SamplesCollector::Export(bool lastCall) {
       samplesProvider.second = 0;
     }
 
-    success = _exporter->Export(lastCall);
+    success = _exporter->Export();
   } catch (std::exception const& ex) {
     Log::Error("An exception occurred during export: ", ex.what());
   }

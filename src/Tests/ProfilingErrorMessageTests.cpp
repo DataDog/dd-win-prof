@@ -10,7 +10,7 @@
 #include "pch.h"
 
 TEST(ProfilingErrorMessageTests, KnownCallbackCodesHaveStaticMessages) {
-  for (const uint32_t code : {0u, 1u, 2u, 3u, 4u}) {
+  for (const uint32_t code : {0u, 1u, 2u, 3u, 4u, 5u}) {
     SCOPED_TRACE(code);
     const char* message = GetProfilingErrorMessage(code);
     ASSERT_NE(message, nullptr);
@@ -21,7 +21,7 @@ TEST(ProfilingErrorMessageTests, KnownCallbackCodesHaveStaticMessages) {
 }
 
 TEST(ProfilingErrorMessageTests, UnknownCodesHaveFallbackMessage) {
-  EXPECT_STREQ(GetProfilingErrorMessage(5), "Unknown profiling error");
+  EXPECT_STREQ(GetProfilingErrorMessage(6), "Unknown profiling error");
   EXPECT_STREQ(GetProfilingErrorMessage(UINT32_MAX), "Unknown profiling error");
 }
 

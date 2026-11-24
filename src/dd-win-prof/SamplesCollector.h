@@ -23,7 +23,7 @@ class SamplesCollector {
   // Returns the final export status, or nullopt when shutdown skips the final export.
   std::optional<FinalExportStatus> Stop(bool shutdownOngoing = false);
   void Register(ISamplesProvider* samplesProvider);
-  void Export(bool lastCall = false);
+  void Export();
   FinalExportStatus ExportFinal();
   static bool IsShutdownReceived();
   static void SignalShutdown();
