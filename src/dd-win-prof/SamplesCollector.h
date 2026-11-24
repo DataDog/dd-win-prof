@@ -31,9 +31,10 @@ class SamplesCollector {
 
   // One instance runs at most once: each profiling session creates its own collector.
   // Start() starts both workers or none: if the second one cannot be created, the
-  // first one is stopped and joined before the error is rethrown. Start() is ignored
-  // after a first call or any Stop(). Stop() may be called any number of times; only
-  // the first Stop() after a successful Start() does the final export.
+  // first one is stopped and joined before the error is rethrown; under the loader
+  // lock (DllMain), that join hangs. Start() is ignored after a first call or any
+  // Stop(). Stop() may be called any number of times; only the first Stop() after a
+  // successful Start() does the final export.
   void Start();
   // Returns the final export status, or nullopt when no final export is attempted.
   std::optional<FinalExportStatus> Stop(bool shutdownOngoing = false);

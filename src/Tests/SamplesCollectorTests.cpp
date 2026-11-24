@@ -10,6 +10,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "../dd-win-prof/Configuration.h"
@@ -69,6 +70,8 @@ class SamplesCollectorTests : public ::testing::Test {
     return collector._workerThread.joinable() || collector._exporterThread.joinable();
   }
 
+  static constexpr auto CollectingPeriod = SamplesCollector::CollectingPeriod;
+
   size_t _previousValuesCount = 0;
   Configuration _configuration;
   std::vector<SampleValueType> _sampleTypes{{"samples", "count"}};
@@ -88,6 +91,8 @@ TEST_F(SamplesCollectorTests, SecondWorkerFailureRollsBackFirstWorker) {
   std::promise<void> firstWorkerStarted;
   SamplesCollector::ThreadFactory threadFactory = [&](std::function<void()> routine) {
     if (++createCalls == 2) {
+      // without the startup gate, the running worker would collect meanwhile
+      std::this_thread::sleep_for(3 * CollectingPeriod);
       record("create exporter: failed");
       throw std::runtime_error("injected exporter thread creation failure");
     }

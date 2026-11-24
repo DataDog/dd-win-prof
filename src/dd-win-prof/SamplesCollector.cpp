@@ -45,6 +45,8 @@ void SamplesCollector::Start() {
   }
   _hasStarted = true;
 
+  // workers block in their first WaitForStop() until both are created
+  std::unique_lock startupLock(_stopMutex);
   try {
     _workerThread = _threadFactory([this] {
       OpSysTools::SetNativeThreadName(WorkerThreadName);
@@ -56,6 +58,8 @@ void SamplesCollector::Start() {
     });
   } catch (...) {
     // roll back without collecting or exporting
+    _stopRequested = true;
+    startupLock.unlock();
     StopWorkers();
     throw;
   }
