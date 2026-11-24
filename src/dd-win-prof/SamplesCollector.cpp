@@ -4,44 +4,79 @@
 
 #include "SamplesCollector.h"
 
-#include <atomic>
+#include <utility>
 
 #include "Configuration.h"
 #include "Log.h"
 #include "OpSysTools.h"
 #include "pch.h"
 
-// Global flag to track shutdown signal for this collector
-static std::atomic<bool> g_shutdownReceived{false};
-
 SamplesCollector::SamplesCollector(
-    Configuration* pConfiguration, ProfileExporter* exporter
+    Configuration* pConfiguration,
+    ProfileExporter* exporter,
+    ThreadFactory threadFactory
 )
-    : _uploadInterval(pConfiguration->GetUploadInterval()), _exporter(exporter) {}
+    : _uploadInterval(pConfiguration->GetUploadInterval()),
+      _threadFactory(std::move(threadFactory)),
+      _exporter(exporter) {
+  if (_threadFactory == nullptr) {
+    _threadFactory = [](std::function<void()> routine) {
+      return std::thread(std::move(routine));
+    };
+  }
+}
+
+// no final export: Stop() is responsible for it
+SamplesCollector::~SamplesCollector() {
+  std::lock_guard lock(_lifecycleMutex);
+  StopWorkers();
+}
 
 void SamplesCollector::Register(ISamplesProvider* samplesProvider) {
   _samplesProviders.push_front(std::make_pair(samplesProvider, 0));
 }
 
 void SamplesCollector::Start() {
-  _workerThread = std::thread([this] {
-    OpSysTools::SetNativeThreadName(WorkerThreadName);
-    SamplesWork();
-  });
-  _exporterThread = std::thread([this] {
-    OpSysTools::SetNativeThreadName(ExporterThreadName);
-    ExportWork();
-  });
+  std::lock_guard lock(_lifecycleMutex);
+
+  if (_hasStarted || IsStopRequested()) {
+    Log::Warn("SamplesCollector cannot be restarted: create a new instance.");
+    return;
+  }
+  _hasStarted = true;
+
+  try {
+    _workerThread = _threadFactory([this] {
+      OpSysTools::SetNativeThreadName(WorkerThreadName);
+      SamplesWork();
+    });
+    _exporterThread = _threadFactory([this] {
+      OpSysTools::SetNativeThreadName(ExporterThreadName);
+      ExportWork();
+    });
+  } catch (...) {
+    // roll back without collecting or exporting
+    StopWorkers();
+    throw;
+  }
+  _isRunning = true;
 }
 
 std::optional<FinalExportStatus> SamplesCollector::Stop(bool shutdownOngoing) {
-  _workerThreadPromise.set_value();
-  _workerThread.join();
-
-  _exporterThreadPromise.set_value();
-  _exporterThread.join();
+  std::lock_guard lock(_lifecycleMutex);
 
   if (shutdownOngoing) {
+    SignalShutdown();
+  }
+
+  // producer first, then consumer
+  StopWorkers();
+
+  if (!std::exchange(_isRunning, false)) {
+    return std::nullopt;
+  }
+
+  if (IsShutdownReceived()) {
     Log::Info("SamplesCollector::Stop() - Skipping final export due to shutdown");
     // Still collect samples for potential debug output, but don't export via HTTP
     CollectSamples(_samplesProviders);
@@ -54,21 +89,44 @@ std::optional<FinalExportStatus> SamplesCollector::Stop(bool shutdownOngoing) {
   return ExportFinal();
 }
 
-void SamplesCollector::SamplesWork() {
-  const auto future = _workerThreadPromise.get_future();
+void SamplesCollector::StopWorkers() {
+  {
+    std::lock_guard lock(_stopMutex);
+    _stopRequested = true;
+  }
+  _stopCondition.notify_all();
 
-  while (future.wait_for(CollectingPeriod) == std::future_status::timeout) {
+  for (auto* pThread : {&_workerThread, &_exporterThread}) {
+    if (pThread->joinable()) {
+      try {
+        pThread->join();
+      } catch (const std::exception& e) {
+        Log::Error("Failed to join a SamplesCollector thread: ", e.what());
+      }
+    }
+  }
+}
+
+bool SamplesCollector::WaitForStop(std::chrono::nanoseconds timeout) {
+  std::unique_lock lock(_stopMutex);
+  return _stopCondition.wait_for(lock, timeout, [this] { return _stopRequested; });
+}
+
+bool SamplesCollector::IsStopRequested() {
+  std::lock_guard lock(_stopMutex);
+  return _stopRequested;
+}
+
+void SamplesCollector::SamplesWork() {
+  while (!WaitForStop(CollectingPeriod)) {
     CollectSamples(_samplesProviders);
   }
 }
 
 void SamplesCollector::ExportWork() {
-  const auto future = _exporterThreadPromise.get_future();
-
   // Althouth export is not called explicitly on shutdown,
   // we check it in case the periodic thread calls us at the same time as the shutdown.
-  while (!IsShutdownReceived() &&
-         future.wait_for(_uploadInterval) == std::future_status::timeout) {
+  while (!WaitForStop(_uploadInterval) && !IsShutdownReceived()) {
     Export();
   }
 }
@@ -97,8 +155,8 @@ FinalExportStatus SamplesCollector::ExportFinal() {
   return _exporter->ExportFinal();
 }
 
-bool SamplesCollector::IsShutdownReceived() {
-  return g_shutdownReceived.load(std::memory_order_acquire);
+bool SamplesCollector::IsShutdownReceived() const {
+  return _shutdownReceived.load(std::memory_order_acquire);
 }
 
 void SamplesCollector::CollectSamples(
@@ -124,5 +182,5 @@ void SamplesCollector::CollectSamples(
 }
 
 void SamplesCollector::SignalShutdown() {
-  g_shutdownReceived.store(true, std::memory_order_release);
+  _shutdownReceived.store(true, std::memory_order_release);
 }

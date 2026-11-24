@@ -195,8 +195,8 @@ void Profiler::StopProfiling(bool shutdownOngoing) {
   _isStarted = false;
 
   // Signal SamplesCollector if we're in shutdown mode to stop exports immediately
-  if (shutdownOngoing) {
-    SamplesCollector::SignalShutdown();
+  if (shutdownOngoing && _pSamplesCollector != nullptr) {
+    _pSamplesCollector->SignalShutdown();
   }
 
   // Stop the UI hang detector first
