@@ -36,6 +36,7 @@ build\src\Tests\Debug\Tests.exe
 | `SymbolicationTests.cpp` | Call stack symbolization and function name resolution |
 | `DynamicModuleTests.cpp` | Dynamically loaded module handling |
 | `UuidTests.cpp` | UUID generation and formatting |
+| `StackSamplerLoopTests.cpp` | `StackSamplerLoop` one-shot runs, fresh loop per session, immediate wake-up on `Stop`, repeated `Stop`, no sample after a stop request, and destruction |
 | `RumContextTests.cpp` | RUM context structs, `Profiler` RUM state management, `Sample` view context, `ProfileExporter` RUM tags/labels |
 | `UiHangDetectorLifetimeTests.cpp` | `UiHangDetector` activation rollback and retry for each stage, active-instance lifetime, teardown order, and hook callback or probe post racing `Stop`/destruction, driven through a fake runtime |
 

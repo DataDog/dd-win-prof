@@ -4,10 +4,14 @@
 
 #pragma once
 
+#include <atomic>
+#include <mutex>
+
 #include "Configuration.h"
 #include "CpuTimeProvider.h"
 #include "ProfilingConstants.h"
 #include "RumContext.h"
+#include "ScopedHandle.h"
 #include "StackFrameCollector.h"
 #include "ThreadList.h"
 #include "WalltimeProvider.h"
@@ -29,10 +33,16 @@ class StackSamplerLoop {
   );
   ~StackSamplerLoop();
 
+  // One instance runs at most once: each profiling session creates its own loop.
+  // Start() is ignored while running and after Stop(). Stop() may be called any
+  // number of times, before Start(), while running, and from the destructor.
   void Start();
   void Stop();
 
  private:
+  friend class StackSamplerLoopTests;
+
+  bool IsStopRequested() const;
   void MainLoop();
   void MainLoopIteration();
   void CpuProfilingIteration();
@@ -52,8 +62,16 @@ class StackSamplerLoop {
  private:
   static const int MaxFrameCount = dd_win_prof::kMaxStackDepth;
 
-  volatile bool _shutdownRequested;
+  // serializes Start() and Stop()
+  std::mutex _lifecycleMutex;
   std::unique_ptr<std::thread> _pLoopThread;
+  bool _hasStarted = false;
+
+  // Manual-reset and never reset: once Stop() sets it, every wait returns
+  // immediately, so a stop cannot be missed whatever the loop is doing.
+  ScopedHandle _stopEvent;
+  // lets an ongoing iteration give up without a system call
+  std::atomic<bool> _stopRequested;
 
   // configuration
   std::chrono::nanoseconds _samplingPeriod;
