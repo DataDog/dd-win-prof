@@ -31,6 +31,7 @@ build\src\Tests\Debug\Tests.exe
 | File | Description |
 |------|-------------|
 | `ConfigurationTests.cpp` | `Configuration` class defaults, env var handling, `ResetToDefaults`, `InitializeConfiguration`, `noEnvVars` mode, `ProfilerConfig` zero-init defaults |
+| `ProfilingDataCallbackTests.cpp` | SDK callback registration and delivery, atomic setup commit, lifecycle serialization, lifecycle and registration calls rejected from the callback, encoding errors |
 | `ProfileExporterTests.cpp` | `ProfileExporter` initialization (including failure, rollback and retry), tag preparation, defaults-only and API-overridden configs, HTTP delivery, exactly-once final export and its statuses, `SamplesCollector::Stop` final status |
 | `PprofAggregatorTests.cpp` | libdatadog pprof aggregation, sample types, profile serialization |
 | `SymbolicationTests.cpp` | Call stack symbolization and function name resolution |

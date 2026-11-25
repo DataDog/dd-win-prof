@@ -92,13 +92,7 @@ class Profiler : public IRumViewContextProvider,
   // protect the lifecycle of the profiler (setup/registration/start/stop/monitor) and
   // the resources below
   mutable std::mutex _lifecycleMutex;
-  // True from the start of collection until StopProfiling has delivered the final
-  // profile, so it covers every callback invocation.
   std::atomic<bool> _isStarted;
-
-  // Returns an unowned lock while a run is active. The unlocked check lets a callback
-  // fail fast instead of waiting for the lock held by StopProfiling.
-  std::unique_lock<std::mutex> LockWhileStopped();
 
   std::unique_ptr<ThreadList> _pThreadList;
   std::unique_ptr<StackSamplerLoop> _pStackSamplerLoop;

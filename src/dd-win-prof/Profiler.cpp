@@ -28,22 +28,27 @@ Profiler::~Profiler() {
   _isStarted = false;
 }
 
-std::unique_lock<std::mutex> Profiler::LockWhileStopped() {
-  if (IsStarted()) {
-    return {};
+namespace {
+// StopProfiling holds _lifecycleMutex while it runs the final export on its own thread
+// and while it waits for the exporter thread to finish a periodic export. A call from
+// the callback must therefore fail before taking the lock instead of deadlocking.
+bool IsCalledFromProfilingCallback(const char* api) {
+  if (!ProfileExporter::IsInsideProfilingCallback()) {
+    return false;
   }
-
-  std::unique_lock<std::mutex> lock(_lifecycleMutex);
-  if (IsStarted()) {
-    lock.unlock();
-  }
-  return lock;
+  Log::Error(api, " cannot be called from the profiling callback.");
+  return true;
 }
+}  // namespace
 
 bool Profiler::Setup(const ProfilerConfig* pSettings) {
-  auto lock = LockWhileStopped();
-  if (!lock.owns_lock()) {
-    Log::Warn("SetupProfiler() must be called before StartProfiler().");
+  if (IsCalledFromProfilingCallback("SetupProfiler()")) {
+    return false;
+  }
+
+  std::lock_guard<std::mutex> lock(_lifecycleMutex);
+  if (_isStarted.load(std::memory_order_relaxed)) {
+    Log::Warn("SetupProfiler() cannot be called while the profiler is running.");
     return false;
   }
 
@@ -67,8 +72,12 @@ bool Profiler::SetProfilingDataCallback(
     return false;
   }
 
-  auto lock = LockWhileStopped();
-  if (!lock.owns_lock()) {
+  if (IsCalledFromProfilingCallback("SetupProfilingDataCallback()")) {
+    return false;
+  }
+
+  std::lock_guard<std::mutex> lock(_lifecycleMutex);
+  if (_isStarted.load(std::memory_order_relaxed)) {
     Log::Error("Cannot change the profiling callback while the profiler is running");
     return false;
   }
@@ -93,6 +102,10 @@ ProfileDeliveryMode Profiler::GetDeliveryMode() const {
 }
 
 bool Profiler::StartProfiling(bool underLoaderLock) {
+  if (IsCalledFromProfilingCallback("StartProfiler()")) {
+    return false;
+  }
+
   std::lock_guard<std::mutex> lock(_lifecycleMutex);
 
   if (_isStarted.load(std::memory_order_relaxed)) {
@@ -100,8 +113,8 @@ bool Profiler::StartProfiling(bool underLoaderLock) {
     return false;
   }
 
-  // Setup and registration are rejected until StopProfiling completes, so this run
-  // keeps the configuration and registration it sees here.
+  // Setup and registration wait for this lock and are rejected while the run is
+  // started, so this run keeps the configuration and registration it sees here.
   Configuration* const configuration = _pConfiguration.get();
   const auto callbackRegistration = _callbackRegistration;
 
@@ -189,9 +202,6 @@ bool Profiler::StartProfiling(bool underLoaderLock) {
   // no configuration needed because enabled only when starting to monitor hang
   _pSamplesCollector->Register(_pUiHangProvider.get());
 
-  // set before any worker can invoke the callback
-  _isStarted = true;
-
   // start processing
   if (!_pSamplesCollector->Start(underLoaderLock)) {
     RollBackStart(underLoaderLock);
@@ -205,6 +215,7 @@ bool Profiler::StartProfiling(bool underLoaderLock) {
     return false;
   }
 
+  _isStarted = true;
   return true;
 }
 
@@ -221,10 +232,13 @@ void Profiler::RollBackStart(bool underLoaderLock) {
   _pUiHangProvider.reset();
   _pCpuWallTimeProvider.reset();
   _pCpuTimeProvider.reset();
-  _isStarted = false;
 }
 
 bool Profiler::MonitorWindowHangs(HWND hWnd) {
+  if (IsCalledFromProfilingCallback("MonitorWindowHangs()")) {
+    return false;
+  }
+
   std::lock_guard<std::mutex> lock(_lifecycleMutex);
 
   if (!_isStarted.load(std::memory_order_relaxed)) {
@@ -256,6 +270,10 @@ bool Profiler::MonitorWindowHangs(HWND hWnd) {
 }
 
 void Profiler::StopProfiling(bool shutdownOngoing) {
+  if (IsCalledFromProfilingCallback("StopProfiler()")) {
+    return;
+  }
+
   std::lock_guard<std::mutex> lock(_lifecycleMutex);
 
   // avoid being stopped multiple times
@@ -265,6 +283,8 @@ void Profiler::StopProfiling(bool shutdownOngoing) {
   }
 
   Log::Info("Stopping profiler...");
+
+  _isStarted = false;
 
   // Signal SamplesCollector if we're in shutdown mode to stop exports immediately
   if (shutdownOngoing && _pSamplesCollector != nullptr) {
@@ -314,9 +334,6 @@ void Profiler::StopProfiling(bool shutdownOngoing) {
   _pUiHangProvider.reset();
   _pCpuWallTimeProvider.reset();
   _pCpuTimeProvider.reset();
-
-  // cleared last: the final export above can still invoke the callback
-  _isStarted = false;
 
   Log::Info("Profiler stopped...");
 }

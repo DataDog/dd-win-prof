@@ -77,7 +77,7 @@ DD_WIN_PROF_API bool MonitorWindowHangs(HWND hWnd);
 // Omitted values use environment variables (unless noEnvVars is set) or defaults.
 // Settings are committed only after validation: a failure keeps the previous
 // configuration. Does not clear SDK-private callback registration.
-// Rejected while the profiler runs; serialized with start and stop.
+// Rejected while the profiler runs; waits for an in-progress start or stop.
 DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig* pSettings);
 
 // Start profiling manually (returns false if already started or explicitly disabled).
@@ -89,7 +89,8 @@ DD_WIN_PROF_API bool StartProfiler();
 // Blocks until callbacks finish, not until SDK work they queued finishes. No overall
 // timeout is imposed. No-op if already stopped.
 // After return, no callbacks run until the next start; setup/registration may run
-// again. Do not overlap lifecycle calls or call them from an SDK callback.
+// again. Concurrent lifecycle calls are serialized. Lifecycle and registration calls
+// made from an SDK callback fail without effect; this one returns without stopping.
 DD_WIN_PROF_API void StopProfiler();
 
 // Enter a named view. Generates a unique view_id internally.
