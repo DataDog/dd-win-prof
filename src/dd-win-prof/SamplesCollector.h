@@ -8,6 +8,7 @@
 #include <condition_variable>
 #include <forward_list>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <thread>
@@ -31,11 +32,16 @@ class SamplesCollector {
 
   // One instance runs at most once: each profiling session creates its own collector.
   // Start() starts both workers or none: if the second one cannot be created, the
-  // first one is stopped and joined before the error is rethrown; under the loader
-  // lock (DllMain), that join hangs. Start() is ignored after a first call or any
-  // Stop(). Stop() may be called any number of times; only the first Stop() after a
-  // successful Start() does the final export.
-  void Start();
+  // first one is stopped and Start() returns false. Start() is ignored after a first
+  // call, Abort() or Stop(). Stop() may be called any number of times; only the first
+  // Stop() after a successful Start() collects the remaining samples.
+  //
+  // underLoaderLock: Start() and Abort() are called from DllMain. Workers created in
+  // this DllMain call cannot run before it returns, so they are detached instead of
+  // joined; they exit on their first wait without touching this instance.
+  bool Start(bool underLoaderLock = false);
+  // stops the workers without collecting or exporting
+  void Abort(bool underLoaderLock = false);
   // Returns the final export status, or nullopt when no final export is attempted.
   std::optional<FinalExportStatus> Stop(bool shutdownOngoing = false);
   void Register(ISamplesProvider* samplesProvider);
@@ -47,19 +53,26 @@ class SamplesCollector {
  private:
   friend class SamplesCollectorTests;
 
-  void SamplesWork();
-  void ExportWork();
-  bool WaitForStop(std::chrono::nanoseconds timeout);
+  // Owned by the workers too: a detached worker only uses this state until it sees
+  // the stop request, so it may outlive the collector. Never reset.
+  struct StopState {
+    std::mutex mutex;
+    std::condition_variable condition;
+    bool isRequested = false;
+  };
+
+  static bool WaitForStop(StopState& stopState, std::chrono::nanoseconds timeout);
   bool IsStopRequested();
-  void StopWorkers();
+  void StopWorkers(bool underLoaderLock = false);
+  static void ReleaseWorker(std::thread& thread, bool underLoaderLock);
   void CollectSamples(
       std::forward_list<std::pair<ISamplesProvider*, uint64_t>>& samplesProviders
   );
 
  private:
   // configuration
-  const WCHAR* WorkerThreadName = L"DD_worker";
-  const WCHAR* ExporterThreadName = L"DD_exporter";
+  inline static constexpr const WCHAR* WorkerThreadName = L"DD_worker";
+  inline static constexpr const WCHAR* ExporterThreadName = L"DD_exporter";
   inline static constexpr std::chrono::nanoseconds CollectingPeriod = 60ms;
 
   std::chrono::seconds _uploadInterval;
@@ -67,7 +80,7 @@ class SamplesCollector {
 
   // processing management
   ThreadFactory _threadFactory;
-  // serializes Start() and Stop()
+  // serializes Start(), Abort() and Stop()
   std::mutex _lifecycleMutex;
   bool _hasStarted = false;
   bool _isRunning = false;
@@ -75,10 +88,7 @@ class SamplesCollector {
   std::thread _exporterThread;
   std::recursive_mutex _exportLock;
 
-  // never reset: once set, every worker wait returns immediately
-  std::mutex _stopMutex;
-  std::condition_variable _stopCondition;
-  bool _stopRequested = false;
+  std::shared_ptr<StopState> _stopState = std::make_shared<StopState>();
   std::atomic<bool> _shutdownReceived{false};
 
   std::forward_list<std::pair<ISamplesProvider*, uint64_t>> _samplesProviders;

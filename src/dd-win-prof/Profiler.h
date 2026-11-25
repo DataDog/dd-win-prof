@@ -24,7 +24,8 @@ class Profiler : public IRumViewContextProvider,
   Profiler();
   virtual ~Profiler();
 
-  bool StartProfiling();
+  // underLoaderLock: called from DllMain, where a failed start must not join threads
+  bool StartProfiling(bool underLoaderLock = false);
   bool MonitorWindowHangs(HWND hWnd);
   void StopProfiling(bool shutdownOngoing = false);
 
@@ -113,6 +114,8 @@ class Profiler : public IRumViewContextProvider,
 
   // samples collector
   std::unique_ptr<SamplesCollector> _pSamplesCollector = nullptr;
+
+  void RollBackStart(bool underLoaderLock);
 
   // UI Hang detection
   bool InitializeWindowHangs();
