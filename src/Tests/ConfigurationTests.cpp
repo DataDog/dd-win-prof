@@ -771,20 +771,51 @@ TEST_F(
   EXPECT_EQ(config.GetVersion(), "env-version");
 }
 
-TEST_F(ConfigurationTest, Create_NoEnvVarsDoesNotReadEnvironment) {
+TEST_F(ConfigurationTest, Create_NoEnvVarsIgnoresEnvironment) {
+  SetTestEnvVar(EnvironmentVariables::ProfilerEnabled, "false");
   SetTestEnvVar(EnvironmentVariables::Version, "env-version");
-  UnsetAgentTransportEnvVars();
-  auto cfg = MakeFullyOverriddenProfilerConfig(true);
+  SetTestEnvVar(EnvironmentVariables::Environment, "env-environment");
+  SetTestEnvVar(EnvironmentVariables::ServiceName, "env-service");
+  SetTestEnvVar(EnvironmentVariables::AgentUrl, "http://env-agent:8126");
+  SetTestEnvVar(EnvironmentVariables::AgentHost, "env-agent");
+  SetTestEnvVar(EnvironmentVariables::AgentPort, "9999");
+  SetTestEnvVar(EnvironmentVariables::NamedPipeName, "env-pipe");
+  SetTestEnvVar(EnvironmentVariables::CpuWallTimeSamplingPeriod, "50");
+  SetTestEnvVar(EnvironmentVariables::WalltimeThreadsThreshold, "20");
+  SetTestEnvVar(EnvironmentVariables::CpuTimeThreadsThreshold, "100");
+  SetTestEnvVar(EnvironmentVariables::UploadInterval, "5");
+  SetTestEnvVar(EnvironmentVariables::Tags, "team:env");
+  SetTestEnvVar(EnvironmentVariables::ProfilesOutputDir, "C:\\temp\\env");
+  SetTestEnvVar(EnvironmentVariables::SymbolizeCallstacks, "true");
+  auto cfg = MakeProfilerConfig();
+  cfg.noEnvVars = true;
+  cfg.url = "https://intake.datadoghq.com";
+  cfg.apiKey = "my-api-key";
 
-  const auto readsBefore = Configuration::GetEnvironmentReadCount();
+  // Reading DD_TRACE_AGENT_URL with an API key would also fail transport validation.
   auto candidate = Configuration::Create(&cfg);
-  EXPECT_EQ(Configuration::GetEnvironmentReadCount(), readsBefore);
   ASSERT_TRUE(candidate.has_value());
-  EXPECT_EQ(candidate->GetVersion(), "1.2.3");
-
-  cfg.noEnvVars = false;
-  Configuration::Create(&cfg);
-  EXPECT_GT(Configuration::GetEnvironmentReadCount(), readsBefore);
+  Configuration defaults;
+  defaults.ResetToDefaults();
+  EXPECT_TRUE(candidate->IsProfilerEnabled());
+  EXPECT_EQ(candidate->GetVersion(), defaults.GetVersion());
+  EXPECT_EQ(candidate->GetEnvironment(), defaults.GetEnvironment());
+  EXPECT_EQ(candidate->GetServiceName(), defaults.GetServiceName());
+  EXPECT_EQ(candidate->GetAgentUrl(), defaults.GetAgentUrl());
+  EXPECT_EQ(candidate->GetAgentHost(), defaults.GetAgentHost());
+  EXPECT_EQ(candidate->GetAgentPort(), defaults.GetAgentPort());
+  EXPECT_EQ(candidate->GetNamedPipeName(), defaults.GetNamedPipeName());
+  EXPECT_EQ(
+      candidate->CpuWallTimeSamplingPeriod(), defaults.CpuWallTimeSamplingPeriod()
+  );
+  EXPECT_EQ(candidate->WalltimeThreadsThreshold(), defaults.WalltimeThreadsThreshold());
+  EXPECT_EQ(candidate->CpuThreadsThreshold(), defaults.CpuThreadsThreshold());
+  EXPECT_EQ(candidate->GetUploadInterval(), defaults.GetUploadInterval());
+  EXPECT_TRUE(candidate->GetUserTags().empty());
+  EXPECT_EQ(
+      candidate->GetProfilesOutputDirectory(), defaults.GetProfilesOutputDirectory()
+  );
+  EXPECT_FALSE(candidate->AreCallstacksSymbolized());
 }
 
 TEST_F(ConfigurationTest, EnvironmentValueLongerThan4095CharactersIsReadWhole) {
@@ -793,6 +824,25 @@ TEST_F(ConfigurationTest, EnvironmentValueLongerThan4095CharactersIsReadWhole) {
 
   Configuration config;
   EXPECT_EQ(config.GetVersion(), version);
+}
+
+// String settings are parsed through c_str(), which would hide a trailing terminator;
+// the output directory keeps the raw value.
+TEST_F(ConfigurationTest, EnvironmentValueIsReadWithoutTerminator) {
+  SetTestEnvVar(EnvironmentVariables::ProfilesOutputDir, "C:\\temp\\env-pprof");
+
+  Configuration config;
+  EXPECT_EQ(config.GetProfilesOutputDirectory(), fs::path("C:\\temp\\env-pprof"));
+}
+
+TEST_F(ConfigurationTest, EmptyEnvironmentValueIsReadAsEmpty) {
+  SetTestEnvVar(EnvironmentVariables::Version, "");
+  SetTestEnvVar(EnvironmentVariables::ProfilesOutputDir, "");
+
+  Configuration config;
+  // An unset DD_VERSION gives the default version, so this proves the variables exist.
+  EXPECT_EQ(config.GetVersion(), "");
+  EXPECT_TRUE(config.GetProfilesOutputDirectory().empty());
 }
 
 TEST_F(ConfigurationTest, InitConfig_CallbackNoEnvVarsDoesNotRequireHttpFields) {

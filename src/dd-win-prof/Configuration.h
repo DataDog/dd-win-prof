@@ -61,9 +61,6 @@ class Configuration {
   template <typename T>
   static T GetEnvironmentValue(char const* name, T const& defaultValue);
 
-  // Lets tests check that a noEnvVars setup reads no environment variable.
-  static uint64_t GetEnvironmentReadCount();
-
   // Reset settings to defaults (no env var reads).
   // Used when noEnvVars is set in ProfilerConfig.
   void ResetToDefaults();

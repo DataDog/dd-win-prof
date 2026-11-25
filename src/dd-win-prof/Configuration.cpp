@@ -4,8 +4,6 @@
 
 #include "Configuration.h"
 
-#include <atomic>
-
 #include "EnvironmentVariables.h"
 #include "Log.h"
 #include "OpSysTools.h"
@@ -128,12 +126,7 @@ Configuration::Configuration() {
       GetEnvironmentValue<bool>(EnvironmentVariables::SymbolizeCallstacks, false);
 }
 
-static std::atomic<uint64_t> s_environmentReadCount{0};
-
-uint64_t Configuration::GetEnvironmentReadCount() { return s_environmentReadCount; }
-
 bool EnvironmentExist(const char* name) {
-  ++s_environmentReadCount;
   auto len = ::GetEnvironmentVariableA(name, nullptr, 0);
   if (len > 0) {
     return true;
@@ -143,14 +136,19 @@ bool EnvironmentExist(const char* name) {
 }
 
 std::string GetEnvironmentValue(const char* name) {
-  ++s_environmentReadCount;
-  std::string value;
-  // A buffer too small for the value returns the required size, terminator included.
-  DWORD len = ::GetEnvironmentVariableA(name, nullptr, 0);
-  while (len > value.size()) {
-    value.resize(len);
-    len =
-        ::GetEnvironmentVariableA(name, value.data(), static_cast<DWORD>(value.size()));
+  // With a null buffer, the call returns the size needed, terminator included.
+  const DWORD size = ::GetEnvironmentVariableA(name, nullptr, 0);
+  if (size == 0) {
+    return {};
+  }
+
+  std::string value(size, '\0');
+  const DWORD len = ::GetEnvironmentVariableA(name, value.data(), size);
+  // On success, the call returns the copied length without the terminator, so it is
+  // smaller than size. A larger result means another thread lengthened the value since
+  // the size query: nothing was copied and the buffer must not be read.
+  if (len >= size) {
+    return {};
   }
   value.resize(len);
   return value;
