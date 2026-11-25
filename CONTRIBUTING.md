@@ -179,7 +179,7 @@ Instructions live beside the tests:
 - [Unit tests](src/Tests/README.md)
 - [Runner build and CLI examples](src/Runner/README.md)
 - [RUM and UI-hang integration tests](src/integration-tests/README.md)
-  (Python 3.9+ and the listed dependencies; the UI-hang test requires PowerShell 7.0+)
+  (Python 3.9+ and the listed dependencies; Windows PowerShell 5.1 or PowerShell 7)
 - [Runner profile/symbol checks, consumer checks, and Vulkan tests](e2e-tests/README.md)
 
 [`.github/workflows/test.yml`](.github/workflows/test.yml) is the primary CI

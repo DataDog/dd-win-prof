@@ -8,7 +8,7 @@ Unlike the unit tests in `src/Tests/` (C++ / Google Test), these tests exercise 
 
 - **Runner.exe** built (Debug or Release) -- see [`src/Runner/README.md`](../Runner/README.md)
 - **UIApp.exe** built (only for the UI-hang test) -- `cmake --build build --config Debug --target UIApp`
-- **PowerShell 7.0+** (`pwsh`, only for the UI-hang test); Windows PowerShell 5.1 is not supported by that test
+- **Windows PowerShell 5.1** or **PowerShell 7** (`pwsh`)
 - **Python 3.9+** with pip, accessible via `python` or `py -3` (Windows launcher)
 
 ### Python dependencies
@@ -117,7 +117,7 @@ URL, and a real API key.
 |--------|----------|-------------------|
 | `test_rum_scenario.ps1` | Runner scenario 5 (local) | Log messages; pprof samples carry expected `rum.view_id` / `trace endpoint` labels; samples without RUM labels exist during "no active view" gaps; `.rum-views.json` files contain view and session records with valid timestamps and durations |
 | `test_rum_scenario_send.ps1` | Runner scenario 5 (with send) | Everything above **plus** successful profile upload to the backend (HTTP 2xx, no send errors) |
-| `test_ui_hangs.ps1` | UIApp Sleep / Wait / CPU hangs and profiler restart (local) | Per kind: UIApp exits cleanly, final export logged, and `UIHang=true/false` pairs on `UIApp_Main` have the expected reason stack, `ui-hang-time > 0`, zero CPU/wall/wait values, ordered timestamps, no ordinary wait overlapping a detected hang, and (CPU) positive `cpu-time` during the hang. The lifecycle case verifies invalid API calls and one hang pair in each of two session-specific RUM views. |
+| `test_ui_hangs.ps1` | UIApp Sleep / Wait / CPU hangs and profiler restart (local) | Per kind: UIApp exits cleanly, final export logged, and `UIHang=true/false` pairs on `UIApp_Main` have the expected reason stack, positive combined `ui-hang-time`, zero CPU/wall/wait values on hang endpoints, ordered timestamps, no ordinary wait overlapping a detected hang, and (CPU) positive `cpu-time` during the hang. The lifecycle case verifies invalid API calls and one hang pair in each of two session-specific RUM views. |
 
 ## Regular regression tests
 

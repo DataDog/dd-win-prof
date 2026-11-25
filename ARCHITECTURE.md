@@ -95,13 +95,24 @@ This is a Windows native profiler that samples CPU and wall time and exports pro
 
 **`CpuTimeProvider.cpp/.h`** - CPU sampling collector
 - Inherits from `CollectorBase`
-- Defines sample types: "cpu" (nanoseconds) and "cpu-samples" (count)
+- Defines sample types: "cpu-time" (nanoseconds) and "cpu-samples" (count)
 - Stores samples collected by `StackSamplerLoop`
 
 **`WallTimeProvider.cpp/.h`** - Walltime sampling collector
 - Inherits from `CollectorBase`
 - Defines sample types: "wall-time" and "wait-time" (nanoseconds)
 - Stores samples collected by `StackSamplerLoop`
+
+**`UiHangDetector.cpp/.h`** - Window responsiveness monitoring
+- Posts probe messages from a watchdog and observes their processing through a hook on the window thread
+- Publishes the active detector only after activation succeeds; failures roll back resources so activation can be retried
+- Stops the watchdog and removes the hook before clearing the active detector, waiting for an in-flight hook notification before teardown completes
+- Each profiling session uses a new detector; monitoring must be registered again after a restart
+
+**`UiHangProvider.cpp/.h`** - UI-hang duration samples
+- Defines "ui-hang-time" (nanoseconds), separate from CPU, wall-time, and wait-time
+- Detection and recovery samples carry disjoint portions of the hang duration; ordinary samples carry zero hang duration
+- Preserves the RUM view context for each hang phase
 
 **`SampleValueTypeProvider.cpp/.h`** - Sample type registry
 - Manages registration and deduplication of sample types values

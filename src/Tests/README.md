@@ -26,7 +26,13 @@ Replace `Debug` with `Release` for a Release run. CMake copies its required
 |------|-------------|
 | `ConfigurationTests.cpp` | `Configuration` class defaults, env var handling, `ResetToDefaults`, `InitializeConfiguration`, `noEnvVars` mode, `ProfilerConfig` zero-init defaults |
 | `ProfileExporterTests.cpp` | `ProfileExporter` initialization (including failure, rollback and retry), tag preparation, defaults-only and API-overridden configs, HTTP delivery, exactly-once final export and its statuses, `SamplesCollector::Stop` final status |
-| `PprofAggregatorTests.cpp` | libdatadog pprof aggregation, sample types, profile serialization |
+| `PprofAggregatorTests.cpp` | libdatadog pprof aggregation, custom sample types, reset behavior, periods, and profile serialization |
+| `CpuOverlapTests.cpp` | CPU interval overlap calculations and sub-millisecond precision |
+| `UiHangProfileTests.cpp` | UI-hang duration values, phase context, callback/HTTP serialization, and isolation across flushes |
+| `ProfilerShutdownTests.cpp` | Process termination skips cleanup even when the profiler lock is held |
+| `ProfilingDataCallbackTests.cpp` | C callback registration and caller-owned context, borrowed profile bytes, error recovery, and final delivery |
+| `ProfilingErrorMessageTests.cpp` | Static error descriptions and unknown-code fallback |
+| `ThreadListTests.cpp` | Thread registration, iteration, removal, and sampling-state reset |
 | `SymbolicationTests.cpp` | Call stack symbolization and function name resolution |
 | `DynamicModuleTests.cpp` | Dynamically loaded module handling |
 | `UuidTests.cpp` | UUID generation and formatting |
