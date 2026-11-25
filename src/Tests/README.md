@@ -4,27 +4,21 @@ Unit tests for dd-win-prof, built with [Google Test](https://github.com/google/g
 
 ## Prerequisites
 
-- **NuGet CLI** to restore test dependencies (Google Test package)
+[Configure CMake](../../CONTRIBUTING.md#development-setup) with
+`DD_WIN_PROF_BUILD_TESTS=ON` (the top-level default). GoogleTest is fetched by CMake;
+NuGet is not used.
 
 ## Building and Running
 
-```cmd
-# Restore test dependencies
-nuget restore src\Tests\packages.config -PackagesDirectory src\packages
+From the repository root:
 
-# Build tests
-msbuild src\Tests\Tests.vcxproj /p:Configuration=Release /p:Platform=x64
-
-# Run tests
-src\Tests\x64\Release\Tests.exe
-```
-
-Or with CMake:
-
-```cmd
+```powershell
 cmake --build build --target Tests --config Debug
-build\src\Tests\Debug\Tests.exe
+.\build\src\Tests\Debug\Tests.exe
 ```
+
+Replace `Debug` with `Release` for a Release run. CMake copies its required
+`datadog_profiling_ffi.dll` beside `Tests.exe`.
 
 ## Test Files
 
@@ -32,7 +26,13 @@ build\src\Tests\Debug\Tests.exe
 |------|-------------|
 | `ConfigurationTests.cpp` | `Configuration` class defaults, env var handling, `ResetToDefaults`, `InitializeConfiguration`, `noEnvVars` mode, `ProfilerConfig` zero-init defaults |
 | `ProfileExporterTests.cpp` | `ProfileExporter` initialization (including failure, rollback and retry), tag preparation, defaults-only and API-overridden configs, HTTP delivery, exactly-once final export and its statuses, `SamplesCollector::Stop` final status |
-| `PprofAggregatorTests.cpp` | libdatadog pprof aggregation, sample types, profile serialization |
+| `PprofAggregatorTests.cpp` | libdatadog pprof aggregation, custom sample types, reset behavior, periods, and profile serialization |
+| `CpuOverlapTests.cpp` | CPU interval overlap calculations and sub-millisecond precision |
+| `UiHangProfileTests.cpp` | UI-hang duration values, phase context, callback/HTTP serialization, and isolation across flushes |
+| `ProfilerShutdownTests.cpp` | Process termination skips cleanup even when the profiler lock is held |
+| `ProfilingDataCallbackTests.cpp` | C callback registration and caller-owned context, borrowed profile bytes, error recovery, and final delivery |
+| `ProfilingErrorMessageTests.cpp` | Static error descriptions and unknown-code fallback |
+| `ThreadListTests.cpp` | Thread registration, iteration, removal, and sampling-state reset |
 | `SymbolicationTests.cpp` | Call stack symbolization and function name resolution |
 | `DynamicModuleTests.cpp` | Dynamically loaded module handling |
 | `UuidTests.cpp` | UUID generation and formatting |
