@@ -21,6 +21,41 @@
 #include "internal/dd-win-rum-private.h"
 #include "pch.h"
 
+// Outcome of the single final export attempt. Precedence when several apply: a
+// primary delivery failure (build, callback, network), then LocalWriteFailed, then
+// NotExported, then Delivered.
+enum class FinalExportStatus {
+  Delivered,
+  NotInitialized,    // never initialized, or released without a final export
+  AlreadyFinalized,  // the final export was already attempted; nothing was sent
+  ProfileBuildFailed,
+  CallbackFailed,
+  NetworkFailed,  // transport error or non-2xx response
+  // The debug pprof file could not be written, but the primary sink delivered the
+  // profile or no primary sink is configured.
+  LocalWriteFailed,
+  NotExported,  // no callback and HTTP export disabled: nothing to deliver to
+  InternalError,
+};
+
+const char* ToString(FinalExportStatus status) noexcept;
+// True when no configured primary sink failed: Delivered, LocalWriteFailed or
+// NotExported. Applies to periodic and final exports.
+bool IsExportSuccessful(FinalExportStatus status) noexcept;
+
+// Lifecycle: Initialize (retryable until it succeeds) -> Add/Export ->
+// ExportFinal (at most one attempt) -> Cleanup/destruction (never exports).
+//
+// Buffer rule: the final attempt consumes the samples aggregated so far and the RUM
+// records it read, whatever its outcome. After it, Add and Export are rejected, so a
+// failed final profile is dropped rather than retried, and nothing it held can reach
+// another exporter. Each profiling session owns a separate exporter. A transient
+// network error on the final attempt therefore drops the final profile; this is
+// intended so that the final profile is sent at most once.
+//
+// Not thread-safe: callers must serialize Initialize, Add, Export, ExportFinal and
+// Cleanup. SamplesCollector does so with its export lock, and Profiler calls Cleanup
+// only after the collector threads are joined.
 class ProfileExporter {
  public:
   ProfileExporter(
@@ -31,16 +66,28 @@ class ProfileExporter {
       void* callbackUserData = nullptr,
       dd_win_prof::ProfileEncodingApi encodingApi = {}
   );
-  ~ProfileExporter();
+  ~ProfileExporter() noexcept;
+  ProfileExporter(const ProfileExporter&) = delete;
+  ProfileExporter& operator=(const ProfileExporter&) = delete;
+
+  // Commits state only when every step succeeds. A failure releases partial state,
+  // so the exporter can be retried or destroyed.
   bool Initialize();
   bool Add(std::shared_ptr<Sample> const& sample);
-  bool Export(bool lastCall = false);
+  // Periodic export: returns false when the profile could not be built or delivered.
+  // The profile is reset either way, so the next export can recover.
+  bool Export();
+  // The only final export path.
+  FinalExportStatus ExportFinal() noexcept;
   void Cleanup(
       bool skipExporterCleanup = false
   );  // Explicit cleanup with option to skip exporter cleanup
 
-  // Check if properly initialized
-  bool IsInitialized() const { return _initialized; }
+  // True between a successful Initialize and Cleanup, including after ExportFinal
+  bool IsInitialized() const {
+    return _state == State::Ready || _state == State::Finalized;
+  }
+  bool IsFinalized() const { return _state == State::Finalized; }
 
   // RUM application ID tag (set once by Profiler, emitted per-export)
   void SetRumApplicationId(const std::string& applicationId);
@@ -78,7 +125,8 @@ class ProfileExporter {
   bool InitializeExporter();
   bool CreateExporterEndpoint(ddog_prof_Endpoint& endpoint);
   bool BuildExportUrl();
-  bool ExportProfile(
+  enum class HttpSendResult { Accepted, Rejected, TransportError, PreSendFailed };
+  HttpSendResult ExportProfile(
       const ddog_prof_EncodedProfile* encodedProfile,
       uint32_t profileSeq,
       const std::string& rumRecordsJson = {},
@@ -98,7 +146,7 @@ class ProfileExporter {
       const std::vector<std::string>& sessionIds,
       const std::vector<std::string>& viewIds = {}
   );
-  bool CheckExportResponse(uint16_t responseCode);
+  void LogExportResponse(uint16_t responseCode);
   void CleanupExporter();
 
  private:
@@ -108,14 +156,27 @@ class ProfileExporter {
   using EncodedProfilePtr =
       std::unique_ptr<ddog_prof_EncodedProfile, EncodedProfileDeleter>;
 
-  bool ExportCurrentProfile(
-      bool lastCall, int64_t startUnixTimeMs, int64_t endUnixTimeMs
+  enum class State { Created, Ready, Finalized, Released };
+
+  // Lets ExportFinal tell, after an exception, whether the profile already reached
+  // its sink and whether the callback already received an is_last notification.
+  struct FinalProgress {
+    bool delivered = false;
+    bool callbackNotified = false;
+  };
+
+  void ReleaseResources(bool skipExporterCleanup) noexcept;
+  FinalExportStatus ExportCurrentProfile(
+      bool lastCall,
+      int64_t startUnixTimeMs,
+      int64_t endUnixTimeMs,
+      FinalProgress* progress = nullptr
   );
   std::string CollectRumRecordsJson(
       std::vector<std::string>& sessionIds, std::vector<std::string>& viewIds
   );
   void DiscardRumRecords();
-  void WriteDebugFiles(
+  bool WriteDebugFiles(
       const ddog_prof_EncodedProfile* profile,
       const std::string& rumRecordsJson,
       int64_t endUnixTimeMs
@@ -224,7 +285,7 @@ class ProfileExporter {
   std::vector<SampleValueType> _sampleTypeDefinitions;
   std::string _runtimeId;
   uint32_t _processId;
-  bool _initialized;
+  State _state;
 
   // Debug pprof file writing configuration
   bool _debugPprofFileWritingEnabled;
@@ -237,14 +298,14 @@ class ProfileExporter {
   ddog_prof_ProfileExporter _exporter;  // Value type, not pointer
   std::string _exportUrl;
   std::string _apiKey;
-  bool _agentMode;  // true for agent, false for agentless
-  uint32_t _consecutiveErrors;
-  static constexpr uint32_t MAX_CONSECUTIVE_ERRORS = 3;
+  bool _agentMode;              // true for agent, false for agentless
+  uint32_t _consecutiveErrors;  // consecutive transport errors, for logs
   static constexpr int EXPORT_TIMEOUT_MS = 10000;
 
   // libdatadog components
   dd_win_prof::ProfileEncodingApi _encodingApi;
-  ddog_prof_ManagedStringStorage _stringStorage;
+  ddog_prof_ManagedStringStorage _stringStorage{};
+  bool _hasStringStorage = false;
   std::unique_ptr<Symbolication> _symbolication;
   std::unique_ptr<dd_win_prof::PprofAggregator> _aggregator;
 
@@ -267,6 +328,7 @@ class ProfileExporter {
 
   // Export tracking
   uint32_t _currentExportId;
+  uint64_t _samplesSinceExport = 0;
   std::chrono::time_point<std::chrono::system_clock> _profileStartTime;
 
   // number of sent profiles before cleaning up caches

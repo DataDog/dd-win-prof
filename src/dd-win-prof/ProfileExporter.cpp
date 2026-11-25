@@ -33,7 +33,54 @@ int64_t ToUnixTimeMs(std::chrono::system_clock::time_point time) {
   return std::chrono::duration_cast<std::chrono::milliseconds>(time.time_since_epoch())
       .count();
 }
+
+// Called from a catch block; logging must not throw out of ExportFinal.
+void LogFinalExportException() noexcept {
+  try {
+    throw;
+  } catch (const std::exception& ex) {
+    try {
+      Log::Error("Exception during final export: ", ex.what());
+    } catch (...) {
+    }
+  } catch (...) {
+    try {
+      Log::Error("Non-standard exception during final export");
+    } catch (...) {
+    }
+  }
+}
 }  // namespace
+
+const char* ToString(FinalExportStatus status) noexcept {
+  switch (status) {
+    case FinalExportStatus::Delivered:
+      return "delivered";
+    case FinalExportStatus::NotInitialized:
+      return "exporter not initialized";
+    case FinalExportStatus::AlreadyFinalized:
+      return "final export already attempted";
+    case FinalExportStatus::ProfileBuildFailed:
+      return "profile build failed";
+    case FinalExportStatus::CallbackFailed:
+      return "profiling data callback failed";
+    case FinalExportStatus::NetworkFailed:
+      return "network delivery failed";
+    case FinalExportStatus::LocalWriteFailed:
+      return "local pprof write failed";
+    case FinalExportStatus::NotExported:
+      return "no delivery sink configured";
+    case FinalExportStatus::InternalError:
+      return "internal error";
+  }
+  return "unknown";
+}
+
+bool IsExportSuccessful(FinalExportStatus status) noexcept {
+  return status == FinalExportStatus::Delivered ||
+         status == FinalExportStatus::LocalWriteFailed ||
+         status == FinalExportStatus::NotExported;
+}
 
 ProfileExporter::ProfileExporter(
     Configuration* pConfiguration,
@@ -47,7 +94,7 @@ ProfileExporter::ProfileExporter(
       _sampleTypeDefinitions{
           sampleTypeDefinitions.begin(), sampleTypeDefinitions.end()
       },
-      _initialized(false),
+      _state(State::Created),
       _processId{0},
       _currentExportId(0),
       _debugPprofFileWritingEnabled(false),
@@ -95,43 +142,80 @@ ProfileExporter::ProfileExporter(
   }
 }
 
-ProfileExporter::~ProfileExporter() {
-  // Just call cleanup - by this point, explicit cleanup should have been called
-  // If not, we'll do basic cleanup but may skip exporter cleanup to avoid deadlocks
-  if (_initialized) {
-    Cleanup(true);  // Skip exporter cleanup in destructor to avoid deadlocks
+ProfileExporter::~ProfileExporter() noexcept {
+  // Never exports: only ExportFinal() delivers the final profile. Skip the
+  // libdatadog exporter drop to avoid deadlocks when Cleanup was not called.
+  try {
+    Cleanup(true);
+  } catch (...) {
+    ReleaseResources(true);
   }
 }
 
 void ProfileExporter::Cleanup(bool skipExporterCleanup) {
-  if (!_initialized) {
-    return;  // Already cleaned up
+  if (!IsInitialized()) {
+    return;  // Never initialized or already cleaned up
   }
 
   Log::Debug("Starting exporter cleanup, skipExporterCleanup=", skipExporterCleanup);
-
-  // Clean up exporter first if not skipping
-  if (!skipExporterCleanup) {
-    CleanupExporter();
-  } else {
-    Log::Debug("Skipping exporter cleanup to avoid potential deadlocks");
-    // Just clear the pointer without calling the Rust destructor
-    if (_exporter.inner) {
-      _exporter.inner = nullptr;
+  if (_state == State::Ready) {
+    if (skipExporterCleanup) {
+      Log::Info(
+          "Final export skipped; ", _samplesSinceExport, " buffered samples dropped"
+      );
+    } else if (_samplesSinceExport > 0) {
+      Log::Warn(
+          "Exporter released without a final export; ",
+          _samplesSinceExport,
+          " buffered samples dropped"
+      );
     }
   }
+  if (skipExporterCleanup) {
+    Log::Debug("Skipping exporter cleanup to avoid potential deadlocks");
+  }
 
-  // Clean up libdatadog's managed string storage
-  ddog_prof_ManagedStringStorage_drop(_stringStorage);
-
+  ReleaseResources(skipExporterCleanup);
   _profilingDataCallback = nullptr;
   _profilingDataCallbackUserData = nullptr;
-  _initialized = false;
+  _state = State::Released;
   Log::Debug("Exporter cleanup completed");
 }
 
+void ProfileExporter::ReleaseResources(bool skipExporterCleanup) noexcept {
+  if (skipExporterCleanup) {
+    // Leak the handle rather than run the Rust destructor, which may deadlock.
+    _exporter.inner = nullptr;
+  } else {
+    CleanupExporter();
+  }
+  // The aggregator and symbol caches reference the string storage: release them first.
+  _aggregator.reset();
+  _symbolication.reset();
+  _currentExportLocationCache.clear();
+  _currentExportMappingCache.clear();
+  _persistentSymbolCache.clear();
+  _sampleLabels = {};
+  _samplesSinceExport = 0;
+  if (_hasStringStorage) {
+    ddog_prof_ManagedStringStorage_drop(_stringStorage);
+    _stringStorage = {};
+    _hasStringStorage = false;
+  }
+}
+
 bool ProfileExporter::Initialize() {
-  try {
+  if (_state != State::Created) {
+    Log::Error(
+        "ProfileExporter::Initialize() called when the exporter is not in the Created "
+        "state"
+    );
+    return false;
+  }
+
+  // Every step writes members that later steps depend on; any failure rolls all of
+  // them back so the exporter never looks partially usable.
+  const auto initialize = [this] {
     _processId = GetCurrentProcessId();
 
     // Initialize libdatadog's managed string storage
@@ -141,6 +225,7 @@ bool ProfileExporter::Initialize() {
       return false;
     }
     _stringStorage = storageResult.ok;
+    _hasStringStorage = true;
 
     // Initialize symbolication engine
     _symbolication = std::make_unique<Symbolication>();
@@ -158,20 +243,13 @@ bool ProfileExporter::Initialize() {
     );
 
     if (!_aggregator->IsInitialized()) {
+      Log::Error("Failed to initialize the profile aggregator");
       return false;
     }
 
     // Intern sample labels that will be reused across samples
     if (!InternSampleLabels(_sampleLabels)) {
       return false;
-    }
-
-    // Set the profile start time
-    _profileStartTime = std::chrono::system_clock::now();
-
-    // Log debug output configuration
-    if (_debugPprofFileWritingEnabled) {
-      Log::Info("Debug pprof file writing enabled, prefix: ", _debugPprofPrefix);
     }
 
     // Initialize exporter if export is enabled
@@ -189,17 +267,34 @@ bool ProfileExporter::Initialize() {
       Log::Info("Profiles export disabled");
     }
 
-    _initialized = true;
+    // Log debug output configuration
+    if (_debugPprofFileWritingEnabled) {
+      Log::Info("Debug pprof file writing enabled, prefix: ", _debugPprofPrefix);
+    }
     return true;
+  };
+
+  bool initialized = false;
+  try {
+    initialized = initialize();
   } catch (const std::exception& ex) {
     Log::Error("Exception during initialization: ", ex.what());
+  } catch (...) {
+    Log::Error("Non-standard exception during initialization");
+  }
+  if (!initialized) {
+    ReleaseResources(false);
     return false;
   }
+
+  _profileStartTime = std::chrono::system_clock::now();
+  _state = State::Ready;
+  return true;
 }
 
 bool ProfileExporter::Add(std::shared_ptr<Sample> const& sample) {
-  if (!_initialized) {
-    LogOnce(Error, "Trying to add sample but exporter is not initialized");
+  if (_state != State::Ready) {
+    LogOnce(Error, "Trying to add sample but exporter is not ready");
     return false;
   }
 
@@ -245,23 +340,63 @@ bool ProfileExporter::Add(std::shared_ptr<Sample> const& sample) {
       CreateLabelSet(_sampleLabels, threadInfo, rumView, uiHangKind);
 
   // Add sample to aggregator with labels
-  return _aggregator->AddSample(locationIds, sampleValues, timestampNs, labelsetId);
+  if (!_aggregator->AddSample(locationIds, sampleValues, timestampNs, labelsetId)) {
+    return false;
+  }
+  ++_samplesSinceExport;
+  return true;
 }
 
-bool ProfileExporter::Export(bool lastCall) {
-  if (!_initialized) {
-    Log::Error("ProfileExporter::Export() called but not initialized");
+bool ProfileExporter::Export() {
+  if (_state != State::Ready) {
+    Log::Error("ProfileExporter::Export() called but exporter is not ready");
     return false;
   }
 
   OnExportStart();
   const auto end = std::chrono::system_clock::now();
-  const bool exported = ExportCurrentProfile(
-      lastCall, ToUnixTimeMs(_profileStartTime), ToUnixTimeMs(end)
-  );
+  const auto status =
+      ExportCurrentProfile(false, ToUnixTimeMs(_profileStartTime), ToUnixTimeMs(end));
   // Reset even after failed delivery so the next export can recover.
-  const bool prepared = FinishExport(end, lastCall);
-  return exported && prepared;
+  const bool prepared = FinishExport(end, false);
+  return IsExportSuccessful(status) && prepared;
+}
+
+FinalExportStatus ProfileExporter::ExportFinal() noexcept {
+  if (_state == State::Finalized) {
+    return FinalExportStatus::AlreadyFinalized;
+  }
+  if (_state != State::Ready) {
+    return FinalExportStatus::NotInitialized;
+  }
+
+  // Seal before attempting so that no failure, including an exception, can lead to
+  // a second final delivery.
+  _state = State::Finalized;
+  auto status = FinalExportStatus::InternalError;
+  FinalProgress progress;
+  try {
+    OnExportStart();
+    const auto end = std::chrono::system_clock::now();
+    status = ExportCurrentProfile(
+        true, ToUnixTimeMs(_profileStartTime), ToUnixTimeMs(end), &progress
+    );
+  } catch (...) {
+    LogFinalExportException();
+    if (progress.delivered) {
+      status = FinalExportStatus::Delivered;
+    } else if (_profilingDataCallback && !progress.callbackNotified) {
+      try {
+        ReportError(ProfilingErrorCode::InternalError, true);
+      } catch (...) {
+      }
+    }
+  }
+  // The profile is not reset: nothing can be added or exported after this point,
+  // and its storage is released by Cleanup or destruction.
+  _currentExportId++;
+  _samplesSinceExport = 0;
+  return status;
 }
 
 void ProfileExporter::EncodedProfileDeleter::operator()(
@@ -276,23 +411,54 @@ void ProfileExporter::EncodedProfileDeleter::operator()(
   delete profile;
 }
 
-bool ProfileExporter::ExportCurrentProfile(
-    bool lastCall, int64_t startUnixTimeMs, int64_t endUnixTimeMs
+FinalExportStatus ProfileExporter::ExportCurrentProfile(
+    bool lastCall,
+    int64_t startUnixTimeMs,
+    int64_t endUnixTimeMs,
+    FinalProgress* progress
 ) {
-  if (_profilingDataCallback) {
-    DiscardRumRecords();
-  }
-  EncodedProfilePtr profile(_aggregator->Serialize(startUnixTimeMs, endUnixTimeMs));
-  if (!profile) {
-    return ReportError(ProfilingErrorCode::SerializationFailed, lastCall);
-  }
-
+  // Marked before the call: the callback must not get a second is_last notification
+  // if something throws after it was invoked.
+  const auto markCallbackNotified = [&] {
+    if (progress != nullptr && _profilingDataCallback) {
+      progress->callbackNotified = true;
+    }
+  };
+  const auto reportError = [&](ProfilingErrorCode code) {
+    markCallbackNotified();
+    ReportError(code, lastCall);
+  };
+  const auto markDelivered = [&] {
+    if (progress != nullptr) {
+      progress->delivered = true;
+    }
+  };
   std::vector<std::string> rumSessionIds;
   std::vector<std::string> rumViewIds;
-  auto rumRecordsJson = _profilingDataCallback
-                            ? std::string{}
-                            : CollectRumRecordsJson(rumSessionIds, rumViewIds);
-  WriteDebugFiles(profile.get(), rumRecordsJson, endUnixTimeMs);
+  std::string rumRecordsJson;
+  const auto takeRumRecords = [&] {
+    if (_profilingDataCallback) {
+      DiscardRumRecords();
+    } else {
+      rumRecordsJson = CollectRumRecordsJson(rumSessionIds, rumViewIds);
+    }
+  };
+  // The final attempt owns the RUM records completed so far even if the profile
+  // cannot be built; otherwise they would be sent by the next session.
+  if (lastCall || _profilingDataCallback) {
+    takeRumRecords();
+  }
+
+  EncodedProfilePtr profile(_aggregator->Serialize(startUnixTimeMs, endUnixTimeMs));
+  if (!profile) {
+    reportError(ProfilingErrorCode::SerializationFailed);
+    return FinalExportStatus::ProfileBuildFailed;
+  }
+  if (!lastCall && !_profilingDataCallback) {
+    takeRumRecords();
+  }
+  const bool localWritten =
+      WriteDebugFiles(profile.get(), rumRecordsJson, endUnixTimeMs);
 
   // HTTP export consumes the profile, so read its bytes first.
   auto bytes = _encodingApi.bytes(profile.get());
@@ -303,23 +469,39 @@ bool ProfileExporter::ExportCurrentProfile(
     );
     ddog_Error_drop(&bytes.err);
     Log::Error(message);
-    return ReportError(ProfilingErrorCode::ProfileBytesUnavailable, lastCall);
+    reportError(ProfilingErrorCode::ProfileBytesUnavailable);
+    return FinalExportStatus::ProfileBuildFailed;
   }
 
   LogExport(lastCall, endUnixTimeMs - startUnixTimeMs, bytes.ok.len);
   if (_profilingDataCallback) {
-    return DeliverProfileToCallback(bytes.ok, startUnixTimeMs, endUnixTimeMs, lastCall);
-  }
-  if (_exportEnabled) {
-    const bool success = ExportProfile(
-        profile.get(), _currentExportId, rumRecordsJson, rumSessionIds, rumViewIds
-    );
-    if (!success) {
-      Log::Error("Failed to export profile to backend");
+    markCallbackNotified();
+    if (!DeliverProfileToCallback(bytes.ok, startUnixTimeMs, endUnixTimeMs, lastCall)) {
+      return FinalExportStatus::CallbackFailed;
     }
-    return success;
+    markDelivered();
+  } else if (_exportEnabled) {
+    switch (ExportProfile(
+        profile.get(), _currentExportId, rumRecordsJson, rumSessionIds, rumViewIds
+    )) {
+      case HttpSendResult::Accepted:
+        markDelivered();
+        break;
+      case HttpSendResult::PreSendFailed:
+        Log::Error("Failed to export profile to backend");
+        return FinalExportStatus::ProfileBuildFailed;
+      case HttpSendResult::Rejected:
+      case HttpSendResult::TransportError:
+        Log::Error("Failed to export profile to backend");
+        return FinalExportStatus::NetworkFailed;
+    }
+  } else {
+    // No primary sink: the debug pprof file, if enabled, is the only output.
+    return localWritten ? FinalExportStatus::NotExported
+                        : FinalExportStatus::LocalWriteFailed;
   }
-  return true;
+  return localWritten ? FinalExportStatus::Delivered
+                      : FinalExportStatus::LocalWriteFailed;
 }
 
 std::string ProfileExporter::CollectRumRecordsJson(
@@ -359,23 +541,27 @@ void ProfileExporter::DiscardRumRecords() {
   _sessionRecordsBuffer.clear();
 }
 
-void ProfileExporter::WriteDebugFiles(
+bool ProfileExporter::WriteDebugFiles(
     const ddog_prof_EncodedProfile* profile,
     const std::string& rumRecordsJson,
     int64_t endUnixTimeMs
 ) {
   if (!_debugPprofFileWritingEnabled || _debugPprofPrefix.empty()) {
-    return;
+    return true;
   }
+  bool success = true;
   if (!WritePprofFile(profile)) {
     Log::Warn("Failed to write debug pprof file (continuing with export)");
+    success = false;
   }
   if (!rumRecordsJson.empty()) {
     ddog_Timespec time = {endUnixTimeMs / 1000, 0};
     if (!WriteRumRecordsFile(rumRecordsJson, time)) {
       Log::Warn("Failed to write RUM records file (continuing with export)");
+      success = false;
     }
   }
+  return success;
 }
 
 bool ProfileExporter::DeliverProfileToCallback(
@@ -451,6 +637,7 @@ bool ProfileExporter::FinishExport(
 
   // Reset the profile start time for the next collection cycle
   _profileStartTime = end;
+  _samplesSinceExport = 0;
 
   // Increment export ID for next export
   _currentExportId++;
@@ -1513,7 +1700,7 @@ bool ProfileExporter::CreateExporterEndpoint(ddog_prof_Endpoint& endpoint) {
   return true;
 }
 
-bool ProfileExporter::ExportProfile(
+ProfileExporter::HttpSendResult ProfileExporter::ExportProfile(
     const ddog_prof_EncodedProfile* encodedProfile,
     uint32_t profileSeq,
     const std::string& rumRecordsJson,
@@ -1522,18 +1709,18 @@ bool ProfileExporter::ExportProfile(
 ) {
   if (!encodedProfile) {
     Log::Error("Invalid profile");
-    return false;
+    return HttpSendResult::PreSendFailed;
   }
 
   if (!_exporter.inner && !InitializeExporter()) {
-    return false;
+    return HttpSendResult::PreSendFailed;
   }
 
   // Prepare additional tags (per-export metadata)
   ddog_Vec_Tag additionalTags = ddog_Vec_Tag_new();
   if (!PrepareAdditionalTags(additionalTags, profileSeq, rumSessionIds, rumViewIds)) {
     ddog_Vec_Tag_drop(additionalTags);
-    return false;
+    return HttpSendResult::PreSendFailed;
   }
 
   // Get profile bytes for file creation
@@ -1544,7 +1731,7 @@ bool ProfileExporter::ExportProfile(
     Log::Error("Failed to get profile bytes");
     ddog_Error_drop(&bytesResult.err);
     ddog_Vec_Tag_drop(additionalTags);
-    return false;
+    return HttpSendResult::PreSendFailed;
   }
 
   // libdatadog embeds RUM records in the event.json `internal` field.
@@ -1583,33 +1770,32 @@ bool ProfileExporter::ExportProfile(
         errorMessage,
         " (consecutive errors: ",
         _consecutiveErrors,
-        "/",
-        MAX_CONSECUTIVE_ERRORS,
         ", URL: ",
         _exportUrl,
         ")"
     );
 
-    // Don't fail completely unless we have too many consecutive errors
-    return _consecutiveErrors < MAX_CONSECUTIVE_ERRORS;
+    return HttpSendResult::TransportError;
   }
 
   // Success - reset error counter
   _consecutiveErrors = 0;
 
-  // Check HTTP response code
-  uint16_t responseCode = sendResult.ok.code;
-  bool responseOk = CheckExportResponse(responseCode);
-
-  Log::Info(
-      "Successfully sent profile, HTTP ",
-      responseCode,
-      " (size: ",
-      profileSize,
-      " bytes)"
-  );
-
-  return responseOk;
+  const uint16_t responseCode = sendResult.ok.code;
+  const bool accepted = responseCode >= 200 && responseCode < 300;
+  // The send outcome is decided: a logging failure must not turn it into an error.
+  try {
+    Log::Info(
+        "Successfully sent profile, HTTP ",
+        responseCode,
+        " (size: ",
+        profileSize,
+        " bytes)"
+    );
+    LogExportResponse(responseCode);
+  } catch (...) {
+  }
+  return accepted ? HttpSendResult::Accepted : HttpSendResult::Rejected;
 }
 
 bool ProfileExporter::PrepareAdditionalTags(
@@ -1659,7 +1845,7 @@ std::vector<std::pair<std::string, std::string>> ProfileExporter::BuildRumTags(
   return result;
 }
 
-bool ProfileExporter::CheckExportResponse(uint16_t responseCode) {
+void ProfileExporter::LogExportResponse(uint16_t responseCode) {
   constexpr uint16_t HTTP_OK = 200;
   constexpr uint16_t HTTP_ACCEPTED = 202;
   constexpr uint16_t HTTP_MULTIPLE_CHOICES = 300;
@@ -1668,33 +1854,26 @@ bool ProfileExporter::CheckExportResponse(uint16_t responseCode) {
   constexpr uint16_t HTTP_GATEWAY_TIMEOUT = 504;
 
   if (responseCode >= HTTP_OK && responseCode < HTTP_MULTIPLE_CHOICES) {
-    // Success range
-    if (responseCode == HTTP_ACCEPTED) {
-      // HTTP 202 Accepted is normal for profile uploads
-      return true;
-    } else if (responseCode != HTTP_OK) {
+    // HTTP 202 Accepted is normal for profile uploads
+    if (responseCode != HTTP_OK && responseCode != HTTP_ACCEPTED) {
       Log::Warn("Unexpected success code: ", responseCode);
     }
-    return true;
+    return;
   }
 
-  // Handle specific error codes
   switch (responseCode) {
     case HTTP_GATEWAY_TIMEOUT:
       Log::Warn("Timeout (504), dropping profile");
-      return true;  // Don't treat as failure, just drop this profile
-
+      break;
     case HTTP_FORBIDDEN:
       Log::Error("Forbidden (403), check API key");
-      return false;  // This is a configuration error
-
+      break;
     case HTTP_NOT_FOUND:
       Log::Error("Not found (404), profiles not accepted");
-      return false;  // This is a configuration error
-
+      break;
     default:
-      Log::Warn("HTTP error ", responseCode, " (continuing)");
-      return true;  // Continue profiling despite HTTP error
+      Log::Warn("HTTP error ", responseCode, ", dropping profile");
+      break;
   }
 }
 

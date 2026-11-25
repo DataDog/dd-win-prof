@@ -34,7 +34,7 @@ void SamplesCollector::Start() {
   });
 }
 
-void SamplesCollector::Stop(bool shutdownOngoing) {
+std::optional<FinalExportStatus> SamplesCollector::Stop(bool shutdownOngoing) {
   _workerThreadPromise.set_value();
   _workerThread.join();
 
@@ -47,11 +47,11 @@ void SamplesCollector::Stop(bool shutdownOngoing) {
     CollectSamples(_samplesProviders);
     // exporting at this point will PANIC.
     // libdatadog asks for a thread to be created, and the OS says NO.
-  } else {
-    // Normal shutdown - collect samples and export
-    CollectSamples(_samplesProviders);
-    Export(true);
+    return std::nullopt;
   }
+  // Normal stop - collect samples and export
+  CollectSamples(_samplesProviders);
+  return ExportFinal();
 }
 
 void SamplesCollector::SamplesWork() {
@@ -73,7 +73,7 @@ void SamplesCollector::ExportWork() {
   }
 }
 
-void SamplesCollector::Export(bool lastCall) {
+void SamplesCollector::Export() {
   bool success = false;
 
   try {
@@ -86,10 +86,15 @@ void SamplesCollector::Export(bool lastCall) {
       samplesProvider.second = 0;
     }
 
-    success = _exporter->Export(lastCall);
+    success = _exporter->Export();
   } catch (std::exception const& ex) {
     Log::Error("An exception occurred during export: ", ex.what());
   }
+}
+
+FinalExportStatus SamplesCollector::ExportFinal() {
+  std::lock_guard lock(_exportLock);
+  return _exporter->ExportFinal();
 }
 
 bool SamplesCollector::IsShutdownReceived() {

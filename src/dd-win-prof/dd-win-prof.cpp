@@ -57,6 +57,8 @@ DD_WIN_PROF_API const char* GetProfilingErrorMessage(uint32_t result) noexcept {
       return "Profile reset failed";
     case ProfilingErrorCode::SampleLabelsUnavailable:
       return "Sample labels are unavailable";
+    case ProfilingErrorCode::InternalError:
+      return "Internal profiler error";
     default:
       return "Unknown profiling error";
   }

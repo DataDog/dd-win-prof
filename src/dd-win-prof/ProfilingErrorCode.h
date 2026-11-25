@@ -12,4 +12,7 @@ enum class ProfilingErrorCode : uint32_t {
   ProfileBytesUnavailable = 2,
   ProfileResetFailed = 3,
   SampleLabelsUnavailable = 4,
+  // Final export aborted by an unexpected exception before the callback ran. Keeps
+  // the exactly-one is_last callback per session that SDK consumers rely on.
+  InternalError = 5,
 };

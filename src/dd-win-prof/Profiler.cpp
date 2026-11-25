@@ -211,7 +211,24 @@ void Profiler::StopProfiling(bool shutdownOngoing) {
   }
 
   if (_pSamplesCollector != nullptr) {
-    _pSamplesCollector->Stop(shutdownOngoing);
+    const auto finalStatus = _pSamplesCollector->Stop(shutdownOngoing);
+    if (finalStatus) {
+      switch (*finalStatus) {
+        case FinalExportStatus::Delivered:
+          break;
+        case FinalExportStatus::LocalWriteFailed:
+          Log::Warn(
+              "Final profile delivered, but the debug pprof file could not be written"
+          );
+          break;
+        case FinalExportStatus::NotExported:
+          Log::Info("Final profile not exported: ", ToString(*finalStatus));
+          break;
+        default:
+          Log::Warn("Final profile was not delivered: ", ToString(*finalStatus));
+          break;
+      }
+    }
     _pSamplesCollector.reset();
   }
 
