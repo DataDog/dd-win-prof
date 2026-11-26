@@ -178,14 +178,6 @@ bool Profiler::StartProfiling(bool underLoaderLock) {
   // hang detection from working (i.e. MonitorWindowHangs() will fail)
   InitializeWindowHangs();
 
-  // Flush buffered RUM application ID to the exporter
-  {
-    std::shared_lock lock(_rumContextMutex);
-    if (!_rumApplicationId.empty()) {
-      _pProfileExporter->SetRumApplicationId(_rumApplicationId);
-    }
-  }
-
   // create the samples collector and pass it the exporter
   _pSamplesCollector =
       std::make_unique<SamplesCollector>(configuration, _pProfileExporter.get());
@@ -431,17 +423,13 @@ bool Profiler::SetRumSession(const RumSessionContext* pContext) {
 
   std::unique_lock lock(_rumContextMutex);
 
-  // Application ID: write-once, buffered until exporter exists
+  // Application ID: write-once, read by each exporter at export time
   if (!_rumApplicationId.empty() && _rumApplicationId != pContext->application_id) {
     return false;
   }
 
   if (_rumApplicationId.empty()) {
     _rumApplicationId = pContext->application_id;
-
-    if (_pProfileExporter != nullptr) {
-      _pProfileExporter->SetRumApplicationId(_rumApplicationId);
-    }
   }
 
   // Session tracking: complete previous session on change, start new one
@@ -537,6 +525,11 @@ bool Profiler::GetCurrentViewContext(RumViewContext& context) const {
   }
   context = _currentRumView;
   return true;
+}
+
+std::string Profiler::GetApplicationId() const {
+  std::shared_lock lock(_rumContextMutex);
+  return _rumApplicationId;
 }
 
 void Profiler::ConsumeViewRecords(std::vector<RumViewRecord>& records) {

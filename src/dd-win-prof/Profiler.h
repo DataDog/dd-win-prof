@@ -56,6 +56,7 @@ class Profiler : public IRumViewContextProvider,
   bool GetCurrentViewContext(RumViewContext& context) const override;
 
   // IRumRecordProvider implementation
+  std::string GetApplicationId() const override;
   void ConsumeViewRecords(std::vector<RumViewRecord>& records) override;
   void ConsumeSessionRecords(std::vector<RumSessionRecord>& records) override;
   std::string GetCurrentSessionId() const override;
@@ -88,6 +89,35 @@ class Profiler : public IRumViewContextProvider,
 
   // configuration
   static std::unique_ptr<Configuration> _pConfiguration;
+
+  // Process-scoped RUM state. Declared before the run-owned objects so that it is
+  // destroyed after them: exporters and the sampler read it until they are gone.
+  // _rumContextMutex is a leaf lock: while holding it, code touches only the RUM
+  // state, never a run-owned object or another lock. Exporters take it through
+  // IRumRecordProvider under the collector's export lock.
+  mutable std::shared_mutex _rumContextMutex;
+  RumViewContext _currentRumView;
+
+  void CompleteCurrentView();     // caller must hold _rumContextMutex exclusive
+  void CompleteCurrentSession();  // caller must hold _rumContextMutex exclusive
+
+  // RUM view timeline recording (protected by _rumContextMutex)
+  std::vector<RumViewRecord> _completedViewRecords;
+  int64_t _pendingViewStartMs{0};
+
+  // Per-view vitals accumulators indexed by ViewVitalKind.
+  // Written lock-free from the sampler thread (fetch_add with relaxed ordering),
+  // read and reset under _rumContextMutex exclusive lock on view completion.
+  std::array<std::atomic<int64_t>, MaxViewVitalKind> _pendingVitalsNs{};
+
+  // RUM session tracking (protected by _rumContextMutex)
+  std::string _currentSessionId;
+  int64_t _sessionStartMs{0};
+  std::vector<RumSessionRecord> _completedSessionRecords;
+
+  // RUM app-level ID (write-once, read by exporters at export time; protected by
+  // _rumContextMutex)
+  std::string _rumApplicationId;
 
   // protect the lifecycle of the profiler (setup/registration/start/stop/monitor) and
   // the resources below
@@ -123,29 +153,4 @@ class Profiler : public IRumViewContextProvider,
   bool InitializeWindowHangs();
   UINT _hangProbeMessageId = 0;
   std::unique_ptr<UiHangDetector> _pUiHangDetector = nullptr;
-
-  // RUM view + session context (dynamic, protected by reader/writer lock)
-  mutable std::shared_mutex _rumContextMutex;
-  RumViewContext _currentRumView;
-
-  void CompleteCurrentView();     // caller must hold _rumContextMutex exclusive
-  void CompleteCurrentSession();  // caller must hold _rumContextMutex exclusive
-
-  // RUM view timeline recording (protected by _rumContextMutex)
-  std::vector<RumViewRecord> _completedViewRecords;
-  int64_t _pendingViewStartMs{0};
-
-  // Per-view vitals accumulators indexed by ViewVitalKind.
-  // Written lock-free from the sampler thread (fetch_add with relaxed ordering),
-  // read and reset under _rumContextMutex exclusive lock on view completion.
-  std::array<std::atomic<int64_t>, MaxViewVitalKind> _pendingVitalsNs{};
-
-  // RUM session tracking (protected by _rumContextMutex)
-  std::string _currentSessionId;
-  int64_t _sessionStartMs{0};
-  std::vector<RumSessionRecord> _completedSessionRecords;
-
-  // RUM app-level ID (write-once, buffered until exporter exists; protected by
-  // _rumContextMutex)
-  std::string _rumApplicationId;
 };

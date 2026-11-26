@@ -5,8 +5,10 @@
 #include <Windows.h>
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <filesystem>
 #include <memory>
+#include <set>
 #include <stdexcept>
 #include <thread>
 #include <type_traits>
@@ -17,6 +19,7 @@
 #include "../dd-win-prof/ISamplesProvider.h"
 #include "../dd-win-prof/LibDatadogHelper.h"
 #include "../dd-win-prof/ProfileExporter.h"
+#include "../dd-win-prof/Profiler.h"
 #include "../dd-win-prof/Sample.h"
 #include "../dd-win-prof/SampleValueType.h"
 #include "../dd-win-prof/SamplesCollector.h"
@@ -483,6 +486,7 @@ std::string Tag(const std::string& body, const std::string& name) {
 
 class ExportRumRecords : public IRumRecordProvider {
  public:
+  std::string GetApplicationId() const override { return "test-application"; }
   void ConsumeViewRecords(std::vector<RumViewRecord>& records) override {
     records = {{1700000000000, 1000, "test-view", "Test view", {1000000, 3000000}}};
   }
@@ -500,7 +504,6 @@ TEST_F(
   auto httpConfig = HttpConfiguration(server);
   ExportRumRecords records;
   ProfileExporter exp(&httpConfig, sampleTypes, &records);
-  exp.SetRumApplicationId("test-application");
   ASSERT_TRUE(exp.Initialize());
   std::thread periodic([&] {
     ASSERT_TRUE(exp.Add(CreateTestSample()));
@@ -553,6 +556,7 @@ TEST_F(ProfileExporterExportTests, HttpEmitsAllRumTagsWithoutACapOrStaleIds) {
     std::vector<RumViewRecord> views;
     std::vector<RumSessionRecord> sessions;
 
+    std::string GetApplicationId() const override { return "test-application"; }
     void ConsumeViewRecords(std::vector<RumViewRecord>& records) override {
       views.swap(records);
     }
@@ -572,7 +576,6 @@ TEST_F(ProfileExporterExportTests, HttpEmitsAllRumTagsWithoutACapOrStaleIds) {
   LocalHttpServer server;
   auto httpConfig = HttpConfiguration(server);
   ProfileExporter exp(&httpConfig, sampleTypes, &records);
-  exp.SetRumApplicationId("test-application");
   ASSERT_TRUE(exp.Initialize());
   ASSERT_TRUE(exp.Add(CreateTestSample()));
   EXPECT_TRUE(exp.Export());
@@ -743,9 +746,11 @@ void DD_WIN_PROF_CALL RecordFinalCallback(const ProfilingData* data, void* userD
 
 class BufferedRumRecords : public IRumRecordProvider {
  public:
+  std::string applicationId;
   std::vector<RumViewRecord> views;
   std::vector<RumSessionRecord> sessions;
 
+  std::string GetApplicationId() const override { return applicationId; }
   void ConsumeViewRecords(std::vector<RumViewRecord>& records) override {
     views.swap(records);
   }
@@ -965,11 +970,12 @@ TEST_F(ProfileExporterExportTests, FinalNetworkAndLocalFailureReportsNetwork) {
 TEST_F(ProfileExporterExportTests, PreSendFailureIsReportedAsBuildFailure) {
   LocalHttpServer server;
   auto httpConfig = HttpConfiguration(server);
-  ProfileExporter exp(&httpConfig, sampleTypes);
-  ASSERT_TRUE(exp.Initialize());
   // libdatadog rejects a tag that ends with a colon, so the per-export tags cannot be
   // prepared and nothing is sent.
-  exp.SetRumApplicationId("app:");
+  BufferedRumRecords records;
+  records.applicationId = "app:";
+  ProfileExporter exp(&httpConfig, sampleTypes, &records);
+  ASSERT_TRUE(exp.Initialize());
   ASSERT_TRUE(exp.Add(CreateTestSample()));
   EXPECT_FALSE(exp.Export());
   ASSERT_TRUE(exp.Add(CreateTestSample()));
@@ -1105,4 +1111,156 @@ TEST_F(ProfileExporterExportTests, SamplesCollectorStopSkipsFinalExportOnShutdow
   EXPECT_FALSE(exp.IsFinalized());
   exp.Cleanup(true);
   EXPECT_EQ(state.calls, 0);
+}
+
+// ===========================================================================
+// Process-scoped RUM state read by successive exporters
+// ===========================================================================
+
+namespace {
+class RumContextTests : public ProfileExporterExportTests {
+ protected:
+  void TearDown() override {
+    *Profiler::GetConfiguration() = Configuration();
+    ProfileExporterExportTests::TearDown();
+  }
+};
+
+std::vector<std::string> Tags(const std::string& body, const std::string& name) {
+  std::vector<std::string> values;
+  const auto prefix = name + ":";
+  for (auto start = body.find(prefix); start != std::string::npos;
+       start = body.find(prefix, start)) {
+    start += prefix.size();
+    values.push_back(body.substr(start, body.find_first_of(",\"", start) - start));
+  }
+  return values;
+}
+}  // namespace
+
+TEST_F(RumContextTests, AppIdSetBeforeStartReachesTheRunExporter) {
+  LocalHttpServer server;
+  *Profiler::GetConfiguration() = HttpConfiguration(server);
+  Profiler profiler;
+  RumSessionContext session{"app-1", "session-1"};
+  ASSERT_TRUE(profiler.SetRumSession(&session));
+  ASSERT_TRUE(profiler.StartProfiling());
+  profiler.StopProfiling();
+
+  EXPECT_TRUE(server.Error().empty()) << server.Error();
+  const auto requests = server.Requests();
+  ASSERT_EQ(requests.size(), 1u);
+  EXPECT_EQ(Tag(requests[0].body, "rum.application_id"), "app-1");
+}
+
+TEST_F(RumContextTests, AppIdSetDuringRunReachesTheFreshExporterAfterRestart) {
+  LocalHttpServer server;
+  *Profiler::GetConfiguration() = HttpConfiguration(server);
+  Profiler profiler;
+  RumSessionContext session{"app-1", "session-1"};
+  RumViewValues firstView{"view-1", "First"};
+  RumViewValues secondView{"view-2", "Second"};
+
+  ASSERT_TRUE(profiler.StartProfiling());
+  ASSERT_TRUE(profiler.SetRumSession(&session));
+  ASSERT_TRUE(profiler.SetRumView(&firstView));
+  ASSERT_TRUE(profiler.SetRumView(nullptr));
+  profiler.StopProfiling();
+
+  // The first run's exporter is destroyed: these updates reach only the RUM state,
+  // and the second run's exporter reads it.
+  ASSERT_TRUE(profiler.SetRumView(&secondView));
+  ASSERT_TRUE(profiler.SetRumView(nullptr));
+  ASSERT_TRUE(profiler.StartProfiling());
+  profiler.StopProfiling();
+
+  EXPECT_TRUE(server.Error().empty()) << server.Error();
+  const auto requests = server.Requests();
+  ASSERT_EQ(requests.size(), 2u);
+  EXPECT_EQ(Tag(requests[0].body, "rum.application_id"), "app-1");
+  EXPECT_EQ(Tags(requests[0].body, "rum.view_id"), std::vector<std::string>{"view-1"});
+  EXPECT_EQ(Tag(requests[1].body, "rum.application_id"), "app-1");
+  EXPECT_EQ(Tags(requests[1].body, "rum.view_id"), std::vector<std::string>{"view-2"});
+}
+
+TEST_F(RumContextTests, ConcurrentRumUpdatesAreExportedExactlyOnce) {
+  LocalHttpServer server;
+  auto httpConfig = HttpConfiguration(server);
+  Profiler profiler;
+  ProfileExporter exp(&httpConfig, sampleTypes, &profiler);
+  ASSERT_TRUE(exp.Initialize());
+
+  constexpr size_t viewCount = 200;
+  std::atomic<bool> done = false;
+  std::thread writer([&] {
+    RumSessionContext session{"app-1", "session-1"};
+    EXPECT_TRUE(profiler.SetRumSession(&session));
+    for (size_t i = 0; i < viewCount; ++i) {
+      EXPECT_TRUE(profiler.EnterView("page"));
+      EXPECT_TRUE(profiler.LeaveCurrentView());
+      if (i % 20 == 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+    }
+    done = true;
+  });
+  do {
+    EXPECT_TRUE(exp.Add(CreateTestSample()));
+    EXPECT_TRUE(exp.Export());
+  } while (!done);
+  writer.join();
+  EXPECT_TRUE(exp.Add(CreateTestSample()));
+  EXPECT_EQ(exp.ExportFinal(), FinalExportStatus::Delivered);
+  exp.Cleanup();
+
+  EXPECT_TRUE(server.Error().empty()) << server.Error();
+  const auto requests = server.Requests();
+  ASSERT_GE(requests.size(), 2u);
+  std::vector<std::string> viewIds;
+  for (const auto& request : requests) {
+    for (auto& id : Tags(request.body, "rum.view_id")) viewIds.push_back(id);
+  }
+  EXPECT_EQ(viewIds.size(), viewCount);
+  EXPECT_EQ(std::set<std::string>(viewIds.begin(), viewIds.end()).size(), viewCount);
+  EXPECT_EQ(Tag(requests.back().body, "rum.application_id"), "app-1");
+}
+
+TEST_F(RumContextTests, CallbackRunDiscardsRecordsAndLaterHttpRunSendsOnlyNewOnes) {
+  LocalHttpServer server;
+  auto httpConfig = HttpConfiguration(server);
+  Profiler profiler;
+  RumSessionContext session{"app-1", "session-1"};
+  RumViewValues callbackView{"view-callback", ""};
+  RumViewValues httpView{"view-http", ""};
+  ASSERT_TRUE(profiler.SetRumSession(&session));
+  ASSERT_TRUE(profiler.SetRumView(&callbackView));
+  ASSERT_TRUE(profiler.SetRumView(nullptr));
+
+  FinalCallbackState state;
+  {
+    ProfileExporter callbackRun(
+        config.get(), sampleTypes, &profiler, RecordFinalCallback, &state
+    );
+    ASSERT_TRUE(callbackRun.Initialize());
+    EXPECT_EQ(callbackRun.ExportFinal(), FinalExportStatus::Delivered);
+    callbackRun.Cleanup();
+  }
+  ASSERT_TRUE(profiler.SetRumView(&httpView));
+  ASSERT_TRUE(profiler.SetRumView(nullptr));
+  {
+    ProfileExporter httpRun(&httpConfig, sampleTypes, &profiler);
+    ASSERT_TRUE(httpRun.Initialize());
+    EXPECT_EQ(httpRun.ExportFinal(), FinalExportStatus::Delivered);
+    httpRun.Cleanup();
+  }
+
+  EXPECT_EQ(state.calls, 1);
+  EXPECT_TRUE(server.Error().empty()) << server.Error();
+  const auto requests = server.Requests();
+  ASSERT_EQ(requests.size(), 1u);
+  EXPECT_EQ(Tag(requests[0].body, "rum.application_id"), "app-1");
+  EXPECT_EQ(
+      Tags(requests[0].body, "rum.view_id"), std::vector<std::string>{"view-http"}
+  );
+  EXPECT_EQ(requests[0].body.find("view-callback"), std::string::npos);
 }

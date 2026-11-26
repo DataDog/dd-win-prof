@@ -53,6 +53,10 @@ bool IsExportSuccessful(FinalExportStatus status) noexcept;
 // network error on the final attempt therefore drops the final profile; this is
 // intended so that the final profile is sent at most once.
 //
+// RUM: the exporter keeps no RUM state between exports. Each HTTP export reads the
+// application ID and consumes the completed records from its provider; callback exports
+// discard the records.
+//
 // Not thread-safe: callers must serialize Initialize, Add, Export, ExportFinal and
 // Cleanup. SamplesCollector does so with its export lock, and Profiler calls Cleanup
 // only after the collector threads are joined.
@@ -93,8 +97,13 @@ class ProfileExporter {
   // registration APIs check it to fail instead of waiting for the lifecycle lock.
   static bool IsInsideProfilingCallback();
 
-  // RUM application ID tag (set once by Profiler, emitted per-export)
-  void SetRumApplicationId(const std::string& applicationId);
+  // RUM data read from the record provider for one HTTP export.
+  struct RumExportData {
+    std::string applicationId;
+    std::string recordsJson;
+    std::vector<std::string> sessionIds;
+    std::vector<std::string> viewIds;
+  };
 
   // JSON serialization for RUM records.
   //
@@ -133,15 +142,10 @@ class ProfileExporter {
   HttpSendResult ExportProfile(
       const ddog_prof_EncodedProfile* encodedProfile,
       uint32_t profileSeq,
-      const std::string& rumRecordsJson = {},
-      const std::vector<std::string>& rumSessionIds = {},
-      const std::vector<std::string>& rumViewIds = {}
+      const RumExportData& rum = {}
   );
   bool PrepareAdditionalTags(
-      ddog_Vec_Tag& tags,
-      uint32_t profileSeq,
-      const std::vector<std::string>& rumSessionIds = {},
-      const std::vector<std::string>& rumViewIds = {}
+      ddog_Vec_Tag& tags, uint32_t profileSeq, const RumExportData& rum = {}
   );
 
   // Kept separate for testing because ddog_Tag is opaque.
@@ -176,9 +180,7 @@ class ProfileExporter {
       int64_t endUnixTimeMs,
       FinalProgress* progress = nullptr
   );
-  std::string CollectRumRecordsJson(
-      std::vector<std::string>& sessionIds, std::vector<std::string>& viewIds
-  );
+  RumExportData CollectRumRecords();
   void DiscardRumRecords();
   bool WriteDebugFiles(
       const ddog_prof_EncodedProfile* profile,
@@ -341,10 +343,8 @@ class ProfileExporter {
   // Interned sample labels (reused across samples)
   SampleLabels _sampleLabels;
 
-  // RUM application ID (set once, emitted as profile tag per-export)
-  std::string _rumApplicationId;
-
-  // RUM record provider and reusable swap buffers
+  // Process-scoped RUM state (not owned; outlives the exporter) and reusable swap
+  // buffers
   IRumRecordProvider* _pRumRecordProvider;
   std::vector<RumViewRecord> _viewRecordsBuffer;
   std::vector<RumSessionRecord> _sessionRecordsBuffer;
