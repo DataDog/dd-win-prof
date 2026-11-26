@@ -78,8 +78,8 @@ class StackSamplerLoopTests : public ::testing::Test {
     Sample::SetValuesCount(_registry.GetValueTypes().size());
 
     // a parked thread gives the walltime sampler something to sample
-    _releaseEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    ASSERT_NE(_releaseEvent, nullptr);
+    _releaseEvent = ScopedHandle(::CreateEventW(nullptr, TRUE, FALSE, nullptr));
+    ASSERT_TRUE(_releaseEvent.IsValid());
     _sampledThread =
         std::thread([this] { ::WaitForSingleObject(_releaseEvent, INFINITE); });
     HANDLE hThread = nullptr;
@@ -99,14 +99,11 @@ class StackSamplerLoopTests : public ::testing::Test {
   }
 
   void TearDown() override {
-    if (_releaseEvent != nullptr) {
+    if (_releaseEvent.IsValid()) {
       ::SetEvent(_releaseEvent);
     }
     if (_sampledThread.joinable()) {
       _sampledThread.join();
-    }
-    if (_releaseEvent != nullptr) {
-      ::CloseHandle(_releaseEvent);
     }
     Sample::SetValuesCount(_previousValuesCount);
     _deadline.reset();
@@ -126,6 +123,9 @@ class StackSamplerLoopTests : public ::testing::Test {
 
   // Runs one iteration on the calling thread, without any loop thread.
   static void RunIteration(StackSamplerLoop& loop) { loop.MainLoopIteration(); }
+  static void RunWalltimeIteration(StackSamplerLoop& loop) {
+    loop.WalltimeProfilingIteration();
+  }
 
   // Simulates a Stop() committed while an iteration is about to run.
   static void RequestStop(StackSamplerLoop& loop) {
@@ -134,10 +134,10 @@ class StackSamplerLoopTests : public ::testing::Test {
 
   // The returned handle stays usable after the loop object is gone, to check
   // that its thread has exited.
-  static HANDLE DuplicateLoopThreadHandle(StackSamplerLoop& loop) {
+  static ScopedHandle DuplicateLoopThreadHandle(StackSamplerLoop& loop) {
     std::lock_guard<std::mutex> lock(loop._lifecycleMutex);
     if (loop._pLoopThread == nullptr) {
-      return nullptr;
+      return ScopedHandle(nullptr);
     }
     HANDLE hThread = nullptr;
     if (!::DuplicateHandle(
@@ -149,9 +149,9 @@ class StackSamplerLoopTests : public ::testing::Test {
             FALSE,
             DUPLICATE_SAME_ACCESS
         )) {
-      return nullptr;
+      return ScopedHandle(nullptr);
     }
-    return hThread;
+    return ScopedHandle(hThread);
   }
 
   template <typename Predicate>
@@ -190,7 +190,7 @@ class StackSamplerLoopTests : public ::testing::Test {
   Configuration _configuration;
   ThreadList _threadList;
   size_t _previousValuesCount = 0;
-  HANDLE _releaseEvent = nullptr;
+  ScopedHandle _releaseEvent{nullptr};
   DWORD _sampledThreadId = 0;
   std::thread _sampledThread;
 };
@@ -239,15 +239,14 @@ TEST_F(StackSamplerLoopTests, StopWakesLoopWaitingForNextIteration) {
   auto loop = CreateLoop(kNeverElapsingPeriod);
 
   loop->Start();
-  HANDLE hLoopThread = DuplicateLoopThreadHandle(*loop);
-  ASSERT_NE(hLoopThread, nullptr);
+  ScopedHandle hLoopThread = DuplicateLoopThreadHandle(*loop);
+  ASSERT_TRUE(hLoopThread.IsValid());
   EXPECT_TRUE(WaitForLoopToWait(hLoopThread));
 
   loop->Stop();
   EXPECT_EQ(::WaitForSingleObject(hLoopThread, 0), WAIT_OBJECT_0);
   EXPECT_FALSE(IsRunning(*loop));
   EXPECT_EQ(DrainSamples(), 0u);
-  ::CloseHandle(hLoopThread);
 }
 
 TEST_F(StackSamplerLoopTests, StopIsIdempotentInEveryState) {
@@ -268,26 +267,24 @@ TEST_F(StackSamplerLoopTests, StartWhileRunningKeepsCurrentRun) {
   auto loop = CreateLoop(kNeverElapsingPeriod);
 
   loop->Start();
-  HANDLE hLoopThread = DuplicateLoopThreadHandle(*loop);
-  ASSERT_NE(hLoopThread, nullptr);
+  ScopedHandle hLoopThread = DuplicateLoopThreadHandle(*loop);
+  ASSERT_TRUE(hLoopThread.IsValid());
 
   loop->Start();
-  HANDLE hCurrentLoopThread = DuplicateLoopThreadHandle(*loop);
-  ASSERT_NE(hCurrentLoopThread, nullptr);
+  ScopedHandle hCurrentLoopThread = DuplicateLoopThreadHandle(*loop);
+  ASSERT_TRUE(hCurrentLoopThread.IsValid());
   EXPECT_EQ(::GetThreadId(hCurrentLoopThread), ::GetThreadId(hLoopThread));
 
   loop->Stop();
   EXPECT_FALSE(IsRunning(*loop));
-  ::CloseHandle(hCurrentLoopThread);
-  ::CloseHandle(hLoopThread);
 }
 
 TEST_F(StackSamplerLoopTests, DestructionStopsWaitingLoop) {
   auto loop = CreateLoop(kNeverElapsingPeriod);
 
   loop->Start();
-  HANDLE hLoopThread = DuplicateLoopThreadHandle(*loop);
-  ASSERT_NE(hLoopThread, nullptr);
+  ScopedHandle hLoopThread = DuplicateLoopThreadHandle(*loop);
+  ASSERT_TRUE(hLoopThread.IsValid());
   EXPECT_TRUE(WaitForLoopToWait(hLoopThread));
 
   loop.reset();
@@ -295,7 +292,6 @@ TEST_F(StackSamplerLoopTests, DestructionStopsWaitingLoop) {
   EXPECT_EQ(::WaitForSingleObject(hLoopThread, 0), WAIT_OBJECT_0)
       << "loop thread still running after destruction";
   EXPECT_EQ(DrainSamples(), 0u);
-  ::CloseHandle(hLoopThread);
 }
 
 TEST_F(StackSamplerLoopTests, NoSampleIsTakenAfterStopRequest) {
@@ -310,6 +306,7 @@ TEST_F(StackSamplerLoopTests, NoSampleIsTakenAfterStopRequest) {
   RequestStop(*loop);
   for (int i = 0; i < 10; i++) {
     RunIteration(*loop);
+    RunWalltimeIteration(*loop);
   }
   EXPECT_EQ(DrainSamples(), 0u);
 }
