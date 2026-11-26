@@ -207,7 +207,7 @@ TEST_F(StackSamplerLoopTests, NewLoopSamplesAfterPreviousLoopIsDestroyed) {
   EXPECT_EQ(DrainSamples(), 0u);
 
   // ThreadInfo baselines and iterators are reset before each session's loop is
-  // created, as Profiler::StartProfiling does
+  // created, as ProfilingSession::Start does
   _threadList.ResetProfilingState();
   loop = CreateLoop(kFastPeriod);
   loop->Start();

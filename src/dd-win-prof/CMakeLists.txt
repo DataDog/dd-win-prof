@@ -7,6 +7,7 @@ add_library(dd-win-prof SHARED
     OsSysTools.cpp
     Profiler.cpp
     ProfileExporter.cpp
+    ProfilingSession.cpp
     PprofAggregator.cpp
     Resource.rc
     Sample.cpp
@@ -43,6 +44,7 @@ add_library(dd-win-prof SHARED
     Profiler.h
     ProfileExporter.h
     ProfilingConstants.h
+    ProfilingSession.h
     RumContext.h
     resource.h
     Sample.h

@@ -5,18 +5,17 @@
 #pragma once
 
 #include "Configuration.h"
-#include "CpuTimeProvider.h"
-#include "ProfileExporter.h"
+#include "ProfilingSession.h"
 #include "RumContext.h"
-#include "SamplesCollector.h"
-#include "StackSamplerLoop.h"
 #include "ThreadList.h"
-#include "UiHangDetector.h"
-#include "UiHangProvider.h"
 #include "dd-win-prof.h"
 #include "internal/dd-win-rum-private.h"
 #include "pch.h"
 
+// Lives from DLL process attach to unload. Owns the process state: the lifecycle mutex
+// and started flag, the committed configuration and callback registration, ThreadList
+// and its ThreadInfo objects, the RUM state, the UI probe message ID, the session ID
+// generation, and at most one running ProfilingSession, which owns every run component.
 class Profiler : public IRumViewContextProvider,
                  public IRumRecordProvider,
                  public IViewVitalsAccumulator {
@@ -90,8 +89,8 @@ class Profiler : public IRumViewContextProvider,
   // configuration
   static std::unique_ptr<Configuration> _pConfiguration;
 
-  // Process-scoped RUM state. Declared before the run-owned objects so that it is
-  // destroyed after them: exporters and the sampler read it until they are gone.
+  // Process-scoped RUM state. Declared before the session so that it is destroyed
+  // after it: exporters and the sampler read it until they are gone.
   // _rumContextMutex is a leaf lock: while holding it, code touches only the RUM
   // state, never a run-owned object or another lock. Exporters take it through
   // IRumRecordProvider under the collector's export lock.
@@ -125,14 +124,8 @@ class Profiler : public IRumViewContextProvider,
   std::atomic<bool> _isStarted;
 
   std::unique_ptr<ThreadList> _pThreadList;
-  std::unique_ptr<StackSamplerLoop> _pStackSamplerLoop;
 
-  // providers
-  std::unique_ptr<CpuTimeProvider> _pCpuTimeProvider = nullptr;
-  std::unique_ptr<WallTimeProvider> _pCpuWallTimeProvider = nullptr;
-  std::unique_ptr<UiHangProvider> _pUiHangProvider = nullptr;
-
-  // Protected by _lifecycleMutex. StartProfiling copies it into the run's exporter.
+  // Protected by _lifecycleMutex. StartProfiling copies it into the run's session.
   struct CallbackRegistration {
     ProfilingDataCallback callback = nullptr;
     void* userData = nullptr;
@@ -142,15 +135,13 @@ class Profiler : public IRumViewContextProvider,
     }
   };
   CallbackRegistration _callbackRegistration;
-  std::unique_ptr<ProfileExporter> _pProfileExporter = nullptr;
-
-  // samples collector
-  std::unique_ptr<SamplesCollector> _pSamplesCollector = nullptr;
-
-  void RollBackStart(bool underLoaderLock);
 
   // UI Hang detection
   bool InitializeWindowHangs();
   UINT _hangProbeMessageId = 0;
-  std::unique_ptr<UiHangDetector> _pUiHangDetector = nullptr;
+
+  uint64_t _lastSessionId = 0;
+  // Set only once fully started, reset by StopProfiling. Declared last so that it is
+  // destroyed before the process state it uses.
+  std::unique_ptr<ProfilingSession> _pSession;
 };
