@@ -218,6 +218,7 @@ class ProfileExporter {
     ddog_prof_StringId traceEndpointKeyId;  // String ID for "trace endpoint" key
     ddog_prof_LabelId uiHangTrueLabelId;    // Complete "UIHang=true" label
     ddog_prof_LabelId uiHangFalseLabelId;   // Complete "UIHang=false" label
+    ddog_prof_LabelId uiHangStopLabelId;    // "end_reason=profiler_stop" label
   };
 
   bool InternSampleLabels(SampleLabels& labels);
@@ -275,6 +276,8 @@ class ProfileExporter {
   static constexpr const char* LABEL_UI_HANG = "UIHang";
   static constexpr const char* LABEL_UI_HANG_TRUE_VALUE = "true";
   static constexpr const char* LABEL_UI_HANG_FALSE_VALUE = "false";
+  static constexpr const char* LABEL_UI_HANG_END_REASON = "end_reason";
+  static constexpr const char* LABEL_UI_HANG_PROFILER_STOP_VALUE = "profiler_stop";
 
   // Cache management
   void ClearCaches();

@@ -167,7 +167,7 @@ bool ProfilingSession::MonitorWindowHangs(HWND hWnd, UINT hangProbeMessageId) {
 
   // the hook is thread-specific, so no DLL hMod
   auto pUiHangDetector = std::make_unique<UiHangDetector>(
-      hangProbeMessageId, _pUiHangProvider.get(), _services.rumViewContextProvider
+      _id, hangProbeMessageId, _pUiHangProvider.get(), _services.rumViewContextProvider
   );
   if (!pUiHangDetector->MonitorWindowHangs(hWnd, _services.threadList)) {
     return false;

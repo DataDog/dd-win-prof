@@ -115,7 +115,17 @@ class UiHangProfileTest : public ::testing::Test {
     hang.Add(
         std::move(sample),
         std::chrono::nanoseconds((detected ? 32000000 : 1410000000LL) * cycle),
-        detected
+        detected ? UiHangSampleKind::Detected : UiHangSampleKind::Recovered
+    );
+    return Drain(hang);
+  }
+
+  std::shared_ptr<Sample> ProfilerStopEndpoint() {
+    auto sample = MakeSample(kDetectionNs + 500000000, 0x2345, "detected-view");
+    hang.Add(
+        std::move(sample),
+        std::chrono::nanoseconds(500000000),
+        UiHangSampleKind::ProfilerStop
     );
     return Drain(hang);
   }
@@ -216,6 +226,27 @@ TEST_F(UiHangProfileTest, PartialEndpointsAcrossFlushesDoNotInventDurations) {
     EXPECT_FALSE(profiles[i].pprof.empty());
     WriteTestProfile("partial-" + std::to_string(i + 1) + ".pprof", profiles[i].pprof);
   }
+}
+
+TEST_F(UiHangProfileTest, HangActiveAtStopEndsWithProfilerStopReason) {
+  Configuration config;
+  config.ResetToDefaults();
+  config.SetExportEnabled(false);
+  std::vector<CapturedProfile> profiles;
+  ProfileExporter exporter(
+      &config, registry.GetValueTypes(), nullptr, CaptureProfile, &profiles
+  );
+  ASSERT_TRUE(exporter.Initialize());
+  ASSERT_TRUE(exporter.Add(Endpoint(1, true)));
+  auto stopped = ProfilerStopEndpoint();
+  ExpectValues(stopped, {0, 0, 0, 0, 500000000});
+  EXPECT_EQ(stopped->GetUiHangSampleKind(), UiHangSampleKind::ProfilerStop);
+  ASSERT_TRUE(exporter.Add(stopped));
+  ASSERT_EQ(exporter.ExportFinal(), FinalExportStatus::Delivered);
+  exporter.Cleanup();
+  ASSERT_EQ(profiles.size(), 1u);
+  EXPECT_EQ(profiles[0].result, 0u);
+  WriteTestProfile("profiler-stop.pprof", profiles[0].pprof);
 }
 
 TEST_F(UiHangProfileTest, HttpKeepsWaitAndHangCustomSlotsAcrossTwoFlushes) {
