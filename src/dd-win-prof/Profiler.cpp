@@ -43,7 +43,7 @@ bool Profiler::SetProfilingDataCallback(
   return true;
 }
 
-bool Profiler::StartProfiling() {
+bool Profiler::StartProfiling(bool underLoaderLock) {
   std::lock_guard<std::mutex> lock(_lifecycleMutex);
 
   if (_isStarted.load(std::memory_order_relaxed)) {
@@ -104,12 +104,7 @@ bool Profiler::StartProfiling() {
 
   // Initialize the ProfileExporter
   if (!_pProfileExporter->Initialize()) {
-    _pProfileExporter.reset();
-    _pStackSamplerLoop.reset();
-    _pUiHangProvider.reset();
-    _pCpuWallTimeProvider.reset();
-    _pCpuTimeProvider.reset();
-    _callbackRegistrationFrozen.store(false, std::memory_order_release);
+    RollBackStart(underLoaderLock);
     return false;
   }
 
@@ -143,11 +138,36 @@ bool Profiler::StartProfiling() {
   _pSamplesCollector->Register(_pUiHangProvider.get());
 
   // start processing
-  _pSamplesCollector->Start();
-  _pStackSamplerLoop->Start();
+  if (!_pSamplesCollector->Start(underLoaderLock)) {
+    RollBackStart(underLoaderLock);
+    return false;
+  }
+  try {
+    _pStackSamplerLoop->Start();
+  } catch (const std::exception& error) {
+    Log::Error("Failed to start the stack sampler loop: ", error.what());
+    RollBackStart(underLoaderLock);
+    return false;
+  }
 
   _isStarted = true;
   return true;
+}
+
+// Releases what a failed StartProfiling() created, producer first, without exporting.
+// The sampler loop thread never exists here, so resetting the loop does not join it,
+// which would hang under the loader lock.
+void Profiler::RollBackStart(bool underLoaderLock) {
+  _pStackSamplerLoop.reset();
+  if (_pSamplesCollector != nullptr) {
+    _pSamplesCollector->Abort(underLoaderLock);
+    _pSamplesCollector.reset();
+  }
+  _pProfileExporter.reset();
+  _pUiHangProvider.reset();
+  _pCpuWallTimeProvider.reset();
+  _pCpuTimeProvider.reset();
+  _callbackRegistrationFrozen.store(false, std::memory_order_release);
 }
 
 bool Profiler::MonitorWindowHangs(HWND hWnd) {
@@ -195,8 +215,8 @@ void Profiler::StopProfiling(bool shutdownOngoing) {
   _isStarted = false;
 
   // Signal SamplesCollector if we're in shutdown mode to stop exports immediately
-  if (shutdownOngoing) {
-    SamplesCollector::SignalShutdown();
+  if (shutdownOngoing && _pSamplesCollector != nullptr) {
+    _pSamplesCollector->SignalShutdown();
   }
 
   // Stop the UI hang detector first

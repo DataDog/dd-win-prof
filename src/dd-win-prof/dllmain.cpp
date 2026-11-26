@@ -27,7 +27,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       // Auto-start profiler if DD_PROFILING_AUTO_START is set to true
       if (profiler->IsAutoStartEnabled()) {
         Log::Info("Auto-starting profiler (DD_PROFILING_AUTO_START=true)");
-        profiler->StartProfiling();
+        profiler->StartProfiling(true);  // underLoaderLock = true
       }
     } break;
 

@@ -123,6 +123,8 @@ This is a Windows native profiler that performs CPU sampling and exports profile
 - Runs two background threads:
   - **"DD_worker"** - Periodically collects samples from providers (60ms interval)
   - **"DD_exporter"** - Periodically exports profiles (60s interval)
+- Runs once per profiling session: both threads start or none does, and the
+  first `Stop()` joins them and does the final export
 - Registers multiple `ISamplesProvider` instances
 - Thread-safe sample collection with export mutex
 - Forwards samples to `ProfileExporter`
