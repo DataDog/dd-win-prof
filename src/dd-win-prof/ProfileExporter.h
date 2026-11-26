@@ -89,6 +89,10 @@ class ProfileExporter {
   }
   bool IsFinalized() const { return _state == State::Finalized; }
 
+  // True while the calling thread runs the profiling callback. Lifecycle and
+  // registration APIs check it to fail instead of waiting for the lifecycle lock.
+  static bool IsInsideProfilingCallback();
+
   // RUM application ID tag (set once by Profiler, emitted per-export)
   void SetRumApplicationId(const std::string& applicationId);
 

@@ -75,22 +75,7 @@ DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig* pSettings) {
     return false;
   }
 
-  auto profiler = Profiler::GetInstance();
-  if (profiler == nullptr) {
-    Log::Warn(
-        "Profiler instance is not created: missing Process Attach event in DllMain."
-    );
-    return false;
-  }
-
-  if (profiler->IsStarted()) {
-    Log::Warn("SetupProfiler() must be called before StartProfiler().");
-    return false;
-  }
-
-  return InitializeConfiguration(
-      Profiler::GetConfiguration(), pSettings, profiler->GetDeliveryMode()
-  );
+  return RunLifecycle([&](Profiler& profiler) { return profiler.Setup(pSettings); });
 }
 
 DD_WIN_PROF_API bool StartProfiler() {

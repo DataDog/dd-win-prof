@@ -35,13 +35,15 @@ typedef struct _ProfilerConfig {
   const char* serviceVersion;
 
   // Required for built-in HTTP upload when noEnvVars is true; otherwise they can
-  // come from environment variables. Not required with an SDK-private callback.
+  // come from environment variables. Not required with an SDK-private callback, but
+  // StartProfiler() checks them again if the callback is unregistered after setup.
   const char* url;
   const char* apiKey;
 
   // profiling tuning parameters
   uint64_t cpuWallTimeSamplingPeriodNs;  // sampling period in nanoseconds (default:
-                                         // 20ms = 20,000,000ns)
+                                         // 20ms = 20,000,000ns, min: 5ms; smaller
+                                         // values use 5ms, 0 uses the default)
   int32_t walltimeThreadsThreshold;      // number of threads to sample for wall time
                                          // (default: 5, min: 5, max: 64)
   int32_t cpuThreadsThreshold;    // number of threads to sample for CPU time (default:
@@ -73,7 +75,9 @@ DD_WIN_PROF_API bool MonitorWindowHangs(HWND hWnd);
 // the initial setup configuration is kept even if StopProfiler is called.
 // Each call reset previous settings and only updates default with pSettings values.
 // Omitted values use environment variables (unless noEnvVars is set) or defaults.
-// Does not clear SDK-private callback registration. Serialize setup/start/stop calls.
+// Settings are committed only after validation: a failure keeps the previous
+// configuration. Does not clear SDK-private callback registration.
+// Rejected while the profiler runs; waits for an in-progress start or stop.
 DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig* pSettings);
 
 // Start profiling manually (returns false if already started or explicitly disabled).
@@ -85,7 +89,8 @@ DD_WIN_PROF_API bool StartProfiler();
 // Blocks until callbacks finish, not until SDK work they queued finishes. No overall
 // timeout is imposed. No-op if already stopped.
 // After return, no callbacks run until the next start; setup/registration may run
-// again. Do not overlap lifecycle calls or call them from an SDK callback.
+// again. Concurrent lifecycle calls are serialized. Lifecycle and registration calls
+// made from an SDK callback fail without effect; this one returns without stopping.
 DD_WIN_PROF_API void StopProfiler();
 
 // Enter a named view. Generates a unique view_id internally.

@@ -501,6 +501,31 @@ TEST_F(ConfigurationTest, InitConfig_NoEnvVars_PartialFields_DefaultsPreserved) 
 }
 
 // ===========================================================================
+// InitializeConfiguration -- sampling period minimum (5 ms) and 0 = default
+// ===========================================================================
+
+TEST_F(ConfigurationTest, InitConfig_SamplingPeriodBelowMinimumUsesMinimum) {
+  for (const uint64_t periodNs : {1ull, 999'999ull, 4'999'999ull, 5'000'000ull}) {
+    SCOPED_TRACE(periodNs);
+    Configuration config;
+    auto cfg = MakeProfilerConfig();
+    cfg.noEnvVars = true;
+    cfg.cpuWallTimeSamplingPeriodNs = periodNs;
+    ASSERT_TRUE(InitializeConfiguration(&config, &cfg, ProfileDeliveryMode::Callback));
+    EXPECT_EQ(config.CpuWallTimeSamplingPeriod(), std::chrono::milliseconds(5));
+  }
+}
+
+TEST_F(ConfigurationTest, InitConfig_ZeroSamplingPeriodUsesDefault) {
+  Configuration config;
+  auto cfg = MakeProfilerConfig();
+  cfg.noEnvVars = true;
+  cfg.cpuWallTimeSamplingPeriodNs = 0;
+  ASSERT_TRUE(InitializeConfiguration(&config, &cfg, ProfileDeliveryMode::Callback));
+  EXPECT_EQ(config.CpuWallTimeSamplingPeriod(), std::chrono::milliseconds(20));
+}
+
+// ===========================================================================
 // InitializeConfiguration -- noEnvVars=false: env vars are preserved
 // ===========================================================================
 
@@ -746,6 +771,80 @@ TEST_F(
   EXPECT_EQ(config.GetVersion(), "env-version");
 }
 
+TEST_F(ConfigurationTest, Create_NoEnvVarsIgnoresEnvironment) {
+  SetTestEnvVar(EnvironmentVariables::ProfilerEnabled, "false");
+  SetTestEnvVar(EnvironmentVariables::Version, "env-version");
+  SetTestEnvVar(EnvironmentVariables::Environment, "env-environment");
+  SetTestEnvVar(EnvironmentVariables::ServiceName, "env-service");
+  SetTestEnvVar(EnvironmentVariables::AgentUrl, "http://env-agent:8126");
+  SetTestEnvVar(EnvironmentVariables::AgentHost, "env-agent");
+  SetTestEnvVar(EnvironmentVariables::AgentPort, "9999");
+  SetTestEnvVar(EnvironmentVariables::NamedPipeName, "env-pipe");
+  SetTestEnvVar(EnvironmentVariables::CpuWallTimeSamplingPeriod, "50");
+  SetTestEnvVar(EnvironmentVariables::WalltimeThreadsThreshold, "20");
+  SetTestEnvVar(EnvironmentVariables::CpuTimeThreadsThreshold, "100");
+  SetTestEnvVar(EnvironmentVariables::UploadInterval, "5");
+  SetTestEnvVar(EnvironmentVariables::Tags, "team:env");
+  SetTestEnvVar(EnvironmentVariables::ProfilesOutputDir, "C:\\temp\\env");
+  SetTestEnvVar(EnvironmentVariables::SymbolizeCallstacks, "true");
+  auto cfg = MakeProfilerConfig();
+  cfg.noEnvVars = true;
+  cfg.url = "https://intake.datadoghq.com";
+  cfg.apiKey = "my-api-key";
+
+  // Reading DD_TRACE_AGENT_URL with an API key would also fail transport validation.
+  auto candidate = Configuration::Create(&cfg);
+  ASSERT_TRUE(candidate.has_value());
+  Configuration defaults;
+  defaults.ResetToDefaults();
+  EXPECT_TRUE(candidate->IsProfilerEnabled());
+  EXPECT_EQ(candidate->GetVersion(), defaults.GetVersion());
+  EXPECT_EQ(candidate->GetEnvironment(), defaults.GetEnvironment());
+  EXPECT_EQ(candidate->GetServiceName(), defaults.GetServiceName());
+  EXPECT_EQ(candidate->GetAgentUrl(), defaults.GetAgentUrl());
+  EXPECT_EQ(candidate->GetAgentHost(), defaults.GetAgentHost());
+  EXPECT_EQ(candidate->GetAgentPort(), defaults.GetAgentPort());
+  EXPECT_EQ(candidate->GetNamedPipeName(), defaults.GetNamedPipeName());
+  EXPECT_EQ(
+      candidate->CpuWallTimeSamplingPeriod(), defaults.CpuWallTimeSamplingPeriod()
+  );
+  EXPECT_EQ(candidate->WalltimeThreadsThreshold(), defaults.WalltimeThreadsThreshold());
+  EXPECT_EQ(candidate->CpuThreadsThreshold(), defaults.CpuThreadsThreshold());
+  EXPECT_EQ(candidate->GetUploadInterval(), defaults.GetUploadInterval());
+  EXPECT_TRUE(candidate->GetUserTags().empty());
+  EXPECT_EQ(
+      candidate->GetProfilesOutputDirectory(), defaults.GetProfilesOutputDirectory()
+  );
+  EXPECT_FALSE(candidate->AreCallstacksSymbolized());
+}
+
+TEST_F(ConfigurationTest, EnvironmentValueLongerThan4095CharactersIsReadWhole) {
+  const std::string version(5000, 'v');
+  SetTestEnvVar(EnvironmentVariables::Version, version.c_str());
+
+  Configuration config;
+  EXPECT_EQ(config.GetVersion(), version);
+}
+
+// String settings are parsed through c_str(), which would hide a trailing terminator;
+// the output directory keeps the raw value.
+TEST_F(ConfigurationTest, EnvironmentValueIsReadWithoutTerminator) {
+  SetTestEnvVar(EnvironmentVariables::ProfilesOutputDir, "C:\\temp\\env-pprof");
+
+  Configuration config;
+  EXPECT_EQ(config.GetProfilesOutputDirectory(), fs::path("C:\\temp\\env-pprof"));
+}
+
+TEST_F(ConfigurationTest, EmptyEnvironmentValueIsReadAsEmpty) {
+  SetTestEnvVar(EnvironmentVariables::Version, "");
+  SetTestEnvVar(EnvironmentVariables::ProfilesOutputDir, "");
+
+  Configuration config;
+  // An unset DD_VERSION gives the default version, so this proves the variables exist.
+  EXPECT_EQ(config.GetVersion(), "");
+  EXPECT_TRUE(config.GetProfilesOutputDirectory().empty());
+}
+
 TEST_F(ConfigurationTest, InitConfig_CallbackNoEnvVarsDoesNotRequireHttpFields) {
   Configuration config;
   auto cfg = MakeProfilerConfig();
@@ -754,6 +853,26 @@ TEST_F(ConfigurationTest, InitConfig_CallbackNoEnvVarsDoesNotRequireHttpFields) 
   EXPECT_TRUE(InitializeConfiguration(&config, &cfg, ProfileDeliveryMode::Callback));
   EXPECT_TRUE(config.GetApiKey().empty());
   EXPECT_EQ(config.GetSite(), "datadoghq.com");
+}
+
+TEST_F(ConfigurationTest, CallbackNoEnvVarsConfigurationIsInvalidForHttp) {
+  auto cfg = MakeProfilerConfig();
+  cfg.noEnvVars = true;
+
+  auto callbackOnly = Configuration::Create(&cfg, ProfileDeliveryMode::Callback);
+  ASSERT_TRUE(callbackOnly.has_value());
+  EXPECT_TRUE(callbackOnly->ValidateTransportConfig(ProfileDeliveryMode::Callback));
+  EXPECT_FALSE(callbackOnly->ValidateTransportConfig(ProfileDeliveryMode::Http));
+
+  cfg.url = "http://intake.datadoghq.com";
+  auto missingApiKey = Configuration::Create(&cfg, ProfileDeliveryMode::Callback);
+  ASSERT_TRUE(missingApiKey.has_value());
+  EXPECT_FALSE(missingApiKey->ValidateTransportConfig(ProfileDeliveryMode::Http));
+
+  cfg.apiKey = "my-api-key";
+  auto complete = Configuration::Create(&cfg, ProfileDeliveryMode::Callback);
+  ASSERT_TRUE(complete.has_value());
+  EXPECT_TRUE(complete->ValidateTransportConfig(ProfileDeliveryMode::Http));
 }
 
 // ===========================================================================

@@ -5,6 +5,7 @@
 #include "Profiler.h"
 
 #include <random>
+#include <type_traits>
 
 #include "Log.h"
 #include "SampleValueTypeProvider.h"
@@ -27,6 +28,42 @@ Profiler::~Profiler() {
   _isStarted = false;
 }
 
+namespace {
+// StopProfiling holds _lifecycleMutex while it runs the final export on its own thread
+// and while it waits for the exporter thread to finish a periodic export. A call from
+// the callback must therefore fail before taking the lock instead of deadlocking.
+bool IsCalledFromProfilingCallback(const char* api) {
+  if (!ProfileExporter::IsInsideProfilingCallback()) {
+    return false;
+  }
+  Log::Error(api, " cannot be called from the profiling callback.");
+  return true;
+}
+}  // namespace
+
+bool Profiler::Setup(const ProfilerConfig* pSettings) {
+  if (IsCalledFromProfilingCallback("SetupProfiler()")) {
+    return false;
+  }
+
+  std::lock_guard<std::mutex> lock(_lifecycleMutex);
+  if (_isStarted.load(std::memory_order_relaxed)) {
+    Log::Warn("SetupProfiler() cannot be called while the profiler is running.");
+    return false;
+  }
+
+  auto candidate =
+      Configuration::Create(pSettings, _callbackRegistration.DeliveryMode());
+  if (!candidate.has_value()) {
+    return false;
+  }
+
+  // The commit cannot fail halfway, so a failed setup keeps every committed value.
+  static_assert(std::is_nothrow_move_assignable_v<Configuration>);
+  *_pConfiguration = std::move(*candidate);
+  return true;
+}
+
 bool Profiler::SetProfilingDataCallback(
     ProfilingDataCallback callback, void* userData
 ) {
@@ -34,16 +71,41 @@ bool Profiler::SetProfilingDataCallback(
     Log::Error("A profiling callback context requires a callback");
     return false;
   }
-  if (_callbackRegistrationFrozen.load(std::memory_order_acquire) || IsStarted()) {
+
+  if (IsCalledFromProfilingCallback("SetupProfilingDataCallback()")) {
+    return false;
+  }
+
+  std::lock_guard<std::mutex> lock(_lifecycleMutex);
+  if (_isStarted.load(std::memory_order_relaxed)) {
     Log::Error("Cannot change the profiling callback while the profiler is running");
     return false;
   }
-  _profilingDataCallback = callback;
-  _profilingDataCallbackUserData = userData;
+
+  _callbackRegistration = {callback, userData};
   return true;
 }
 
+ProfilingDataCallback Profiler::GetProfilingDataCallback() const {
+  std::lock_guard<std::mutex> lock(_lifecycleMutex);
+  return _callbackRegistration.callback;
+}
+
+void* Profiler::GetProfilingDataCallbackUserData() const {
+  std::lock_guard<std::mutex> lock(_lifecycleMutex);
+  return _callbackRegistration.userData;
+}
+
+ProfileDeliveryMode Profiler::GetDeliveryMode() const {
+  std::lock_guard<std::mutex> lock(_lifecycleMutex);
+  return _callbackRegistration.DeliveryMode();
+}
+
 bool Profiler::StartProfiling(bool underLoaderLock) {
+  if (IsCalledFromProfilingCallback("StartProfiler()")) {
+    return false;
+  }
+
   std::lock_guard<std::mutex> lock(_lifecycleMutex);
 
   if (_isStarted.load(std::memory_order_relaxed)) {
@@ -51,9 +113,14 @@ bool Profiler::StartProfiling(bool underLoaderLock) {
     return false;
   }
 
+  // Setup and registration wait for this lock and are rejected while the run is
+  // started, so this run keeps the configuration and registration it sees here.
+  Configuration* const configuration = _pConfiguration.get();
+  const auto callbackRegistration = _callbackRegistration;
+
   // no needed to look at env var to enable profiler
   // --> used only as kill switch to disable it
-  if (_pConfiguration->IsProfilerExplicitlyDisabled()) {
+  if (configuration->IsProfilerExplicitlyDisabled()) {
     Log::Info(
         "Profiler is explicitly disabled: check following environment variable "
         "DD_PROFILING_ENABLED"
@@ -61,7 +128,7 @@ bool Profiler::StartProfiling(bool underLoaderLock) {
     return false;
   }
 
-  if (!_pConfiguration->ValidateTransportConfig(GetDeliveryMode())) {
+  if (!configuration->ValidateTransportConfig(callbackRegistration.DeliveryMode())) {
     return false;
   }
 
@@ -80,7 +147,7 @@ bool Profiler::StartProfiling(bool underLoaderLock) {
 
   // create the thread responsible for looping through the thread list
   _pStackSamplerLoop = std::make_unique<StackSamplerLoop>(
-      _pConfiguration.get(),
+      configuration,
       _pThreadList.get(),
       _pCpuTimeProvider.get(),
       _pCpuWallTimeProvider.get(),
@@ -94,13 +161,12 @@ bool Profiler::StartProfiling(bool underLoaderLock) {
 
   //... and pass them to the exporter
   _pProfileExporter = std::make_unique<ProfileExporter>(
-      _pConfiguration.get(),
+      configuration,
       sampleTypeDefinitions,
       this,
-      _profilingDataCallback,
-      _profilingDataCallbackUserData
+      callbackRegistration.callback,
+      callbackRegistration.userData
   );
-  _callbackRegistrationFrozen.store(true, std::memory_order_release);
 
   // Initialize the ProfileExporter
   if (!_pProfileExporter->Initialize()) {
@@ -121,16 +187,15 @@ bool Profiler::StartProfiling(bool underLoaderLock) {
   }
 
   // create the samples collector and pass it the exporter
-  _pSamplesCollector = std::make_unique<SamplesCollector>(
-      _pConfiguration.get(), _pProfileExporter.get()
-  );
+  _pSamplesCollector =
+      std::make_unique<SamplesCollector>(configuration, _pProfileExporter.get());
 
   // register the providers to the collector
-  if (_pConfiguration->IsCpuProfilingEnabled()) {
+  if (configuration->IsCpuProfilingEnabled()) {
     _pSamplesCollector->Register(_pCpuTimeProvider.get());
   }
 
-  if (_pConfiguration->IsWallTimeProfilingEnabled()) {
+  if (configuration->IsWallTimeProfilingEnabled()) {
     _pSamplesCollector->Register(_pCpuWallTimeProvider.get());
   }
 
@@ -167,10 +232,13 @@ void Profiler::RollBackStart(bool underLoaderLock) {
   _pUiHangProvider.reset();
   _pCpuWallTimeProvider.reset();
   _pCpuTimeProvider.reset();
-  _callbackRegistrationFrozen.store(false, std::memory_order_release);
 }
 
 bool Profiler::MonitorWindowHangs(HWND hWnd) {
+  if (IsCalledFromProfilingCallback("MonitorWindowHangs()")) {
+    return false;
+  }
+
   std::lock_guard<std::mutex> lock(_lifecycleMutex);
 
   if (!_isStarted.load(std::memory_order_relaxed)) {
@@ -202,6 +270,10 @@ bool Profiler::MonitorWindowHangs(HWND hWnd) {
 }
 
 void Profiler::StopProfiling(bool shutdownOngoing) {
+  if (IsCalledFromProfilingCallback("StopProfiler()")) {
+    return;
+  }
+
   std::lock_guard<std::mutex> lock(_lifecycleMutex);
 
   // avoid being stopped multiple times
@@ -258,7 +330,6 @@ void Profiler::StopProfiling(bool shutdownOngoing) {
     _pProfileExporter->Cleanup(shutdownOngoing);
     _pProfileExporter.reset();
   }
-  _callbackRegistrationFrozen.store(false, std::memory_order_release);
 
   _pUiHangProvider.reset();
   _pCpuWallTimeProvider.reset();

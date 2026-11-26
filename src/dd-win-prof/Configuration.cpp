@@ -31,9 +31,15 @@ void Configuration::SetEnvironmentName(const char* environmentName) {
 
 void Configuration::SetVersion(const char* version) { _upload.version = version; }
 
-void Configuration::SetEndpoint(const char* url) { _upload.site = url; }
+void Configuration::SetEndpoint(const char* url) {
+  _upload.site = url;
+  _upload.hasExplicitEndpoint = true;
+}
 
-void Configuration::SetApiKey(const char* apiKey) { _upload.apiKey = apiKey; }
+void Configuration::SetApiKey(const char* apiKey) {
+  _upload.apiKey = apiKey;
+  _upload.hasExplicitApiKey = true;
+}
 
 void Configuration::InitDefaults() {
   _debugLogEnabled = false;
@@ -59,11 +65,16 @@ void Configuration::InitDefaults() {
   _upload.agentHost = DefaultAgentHost;
   _upload.agentPort = DefaultAgentPort;
   _upload.site = DefaultProdSite;
+  _upload.requiresExplicitSettings = false;
+  _upload.hasExplicitEndpoint = false;
+  _upload.hasExplicitApiKey = false;
   _namedPipeName = DefaultEmptyString;
   _areCallstacksSymbolized = false;
 }
 
 void Configuration::ResetToDefaults() { InitDefaults(); }
+
+Configuration::Configuration(DefaultsOnly) { InitDefaults(); }
 
 Configuration::Configuration() {
   InitDefaults();
@@ -125,11 +136,22 @@ bool EnvironmentExist(const char* name) {
 }
 
 std::string GetEnvironmentValue(const char* name) {
-  const size_t max_buf_size = 4096;
-  char buffer[max_buf_size] = {0};
-  auto len = ::GetEnvironmentVariableA(name, buffer, max_buf_size);
+  // With a null buffer, the call returns the size needed, terminator included.
+  const DWORD size = ::GetEnvironmentVariableA(name, nullptr, 0);
+  if (size == 0) {
+    return {};
+  }
 
-  return std::string(buffer, len);
+  std::string value(size, '\0');
+  const DWORD len = ::GetEnvironmentVariableA(name, value.data(), size);
+  // On success, the call returns the copied length without the terminator, so it is
+  // smaller than size. A larger result means another thread lengthened the value since
+  // the size query: nothing was copied and the buffer must not be read.
+  if (len >= size) {
+    return {};
+  }
+  value.resize(len);
+  return value;
 }
 
 bool TryParseBooleanEnvironmentValue(const char* valueToParse, bool& parsedValue) {
@@ -329,6 +351,16 @@ bool Configuration::ValidateTransportConfig(ProfileDeliveryMode mode) const {
   if (mode == ProfileDeliveryMode::Callback) {
     return true;
   }
+  if (_upload.requiresExplicitSettings) {
+    if (!_upload.hasExplicitEndpoint) {
+      Log::Error("Url endpoint must be set.");
+      return false;
+    }
+    if (!_upload.hasExplicitApiKey) {
+      Log::Error("Datadog API Key must be set.");
+      return false;
+    }
+  }
   bool hasAgentSettings = !_upload.agentUrl.empty() ||
                           _upload.agentHost != DefaultAgentHost ||
                           _upload.agentPort != DefaultAgentPort;
@@ -475,65 +507,81 @@ T Configuration::GetEnvironmentValue(char const* name, T const& defaultValue) {
 bool InitializeConfiguration(
     Configuration* pConfig, const ProfilerConfig* pSettings, ProfileDeliveryMode mode
 ) {
-  if (pSettings->noEnvVars) {
-    pConfig->ResetToDefaults();
-  } else {
-    *pConfig = Configuration();
+  auto candidate = Configuration::Create(pSettings, mode);
+  if (!candidate.has_value()) {
+    return false;
   }
+
+  *pConfig = std::move(*candidate);
+  return true;
+}
+
+std::optional<Configuration> Configuration::Create(
+    const ProfilerConfig* pSettings, ProfileDeliveryMode mode
+) {
+  auto candidate =
+      pSettings->noEnvVars ? Configuration(DefaultsOnly{}) : Configuration();
+  candidate._upload.requiresExplicitSettings = pSettings->noEnvVars;
 
   if (pSettings->url != nullptr) {
-    pConfig->SetEndpoint(pSettings->url);
-  } else if (pSettings->noEnvVars && mode == ProfileDeliveryMode::Http) {
-    Log::Error("Url endpoint must be set.");
-    return false;
+    candidate.SetEndpoint(pSettings->url);
   }
-
   if (pSettings->apiKey != nullptr) {
-    pConfig->SetApiKey(pSettings->apiKey);
-  } else if (pSettings->noEnvVars && mode == ProfileDeliveryMode::Http) {
-    Log::Error("Datadog API Key must be set.");
-    return false;
+    candidate.SetApiKey(pSettings->apiKey);
   }
 
   if (pSettings->serviceEnvironment != nullptr) {
-    pConfig->SetEnvironmentName(pSettings->serviceEnvironment);
+    candidate.SetEnvironmentName(pSettings->serviceEnvironment);
   }
   if (pSettings->serviceName != nullptr) {
-    pConfig->SetServiceName(pSettings->serviceName);
+    candidate.SetServiceName(pSettings->serviceName);
   }
   if (pSettings->serviceVersion != nullptr) {
-    pConfig->SetVersion(pSettings->serviceVersion);
+    candidate.SetVersion(pSettings->serviceVersion);
   }
 
   if (pSettings->cpuWallTimeSamplingPeriodNs > 0) {
-    pConfig->SetCpuWallTimeSamplingPeriod(
-        std::chrono::nanoseconds(pSettings->cpuWallTimeSamplingPeriodNs)
-    );
+    constexpr auto minimumPeriod = std::chrono::milliseconds(MinimumSamplingPeriod);
+    auto period = std::chrono::nanoseconds(pSettings->cpuWallTimeSamplingPeriodNs);
+    if (period < minimumPeriod) {
+      Log::Warn(
+          "cpuWallTimeSamplingPeriodNs ",
+          pSettings->cpuWallTimeSamplingPeriodNs,
+          " is below the minimum: using ",
+          MinimumSamplingPeriod,
+          " ms."
+      );
+      period = minimumPeriod;
+    }
+    candidate.SetCpuWallTimeSamplingPeriod(period);
   }
 
   if (pSettings->walltimeThreadsThreshold > 0) {
-    pConfig->SetWalltimeThreadsThreshold(pSettings->walltimeThreadsThreshold);
+    candidate.SetWalltimeThreadsThreshold(pSettings->walltimeThreadsThreshold);
   }
 
   if (pSettings->cpuThreadsThreshold > 0) {
-    pConfig->SetCpuThreadsThreshold(pSettings->cpuThreadsThreshold);
+    candidate.SetCpuThreadsThreshold(pSettings->cpuThreadsThreshold);
   }
 
   if (pSettings->uploadIntervalSeconds > 0) {
-    pConfig->SetUploadInterval(std::chrono::seconds(pSettings->uploadIntervalSeconds));
+    candidate.SetUploadInterval(std::chrono::seconds(pSettings->uploadIntervalSeconds));
   }
 
   if (pSettings->tags != nullptr) {
-    pConfig->SetUserTags(TagsHelper::Parse(pSettings->tags));
+    candidate.SetUserTags(TagsHelper::Parse(pSettings->tags));
   }
 
   if (pSettings->pprofOutputDirectory != nullptr) {
-    pConfig->SetProfilesOutputDirectory(fs::path(pSettings->pprofOutputDirectory));
+    candidate.SetProfilesOutputDirectory(fs::path(pSettings->pprofOutputDirectory));
   }
 
   if (pSettings->symbolizeCallstacks) {
-    pConfig->EnableSymbolizedCallstacks();
+    candidate.EnableSymbolizedCallstacks();
   }
 
-  return pConfig->ValidateTransportConfig(mode);
+  if (!candidate.ValidateTransportConfig(mode)) {
+    return std::nullopt;
+  }
+  return candidate;
 }

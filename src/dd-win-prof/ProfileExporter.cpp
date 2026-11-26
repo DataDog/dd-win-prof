@@ -50,6 +50,21 @@ void LogFinalExportException() noexcept {
     }
   }
 }
+
+// Per thread: only the thread running the callback must not wait for the lifecycle
+// lock; other threads can.
+thread_local bool insideProfilingCallback = false;
+
+class ProfilingCallbackScope {
+ public:
+  ProfilingCallbackScope() {
+    assert(!insideProfilingCallback && "profiling callbacks do not nest");
+    insideProfilingCallback = true;
+  }
+  ~ProfilingCallbackScope() { insideProfilingCallback = false; }
+  ProfilingCallbackScope(const ProfilingCallbackScope&) = delete;
+  ProfilingCallbackScope& operator=(const ProfilingCallbackScope&) = delete;
+};
 }  // namespace
 
 const char* ToString(FinalExportStatus status) noexcept {
@@ -81,6 +96,8 @@ bool IsExportSuccessful(FinalExportStatus status) noexcept {
          status == FinalExportStatus::LocalWriteFailed ||
          status == FinalExportStatus::NotExported;
 }
+
+bool ProfileExporter::IsInsideProfilingCallback() { return insideProfilingCallback; }
 
 ProfileExporter::ProfileExporter(
     Configuration* pConfiguration,
@@ -602,6 +619,7 @@ void ProfileExporter::LogExport(
 }
 
 bool ProfileExporter::DeliverProfilingData(const ProfilingData& data) {
+  ProfilingCallbackScope callbackScope;
   try {
     _profilingDataCallback(&data, _profilingDataCallbackUserData);
     return true;

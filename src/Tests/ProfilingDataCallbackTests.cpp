@@ -3,9 +3,11 @@
 // (https://www.datadoghq.com/). Copyright 2025 Datadog, Inc.
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <future>
+#include <latch>
 #include <optional>
 #include <stdexcept>
 #include <thread>
@@ -150,6 +152,87 @@ void DD_WIN_PROF_CALL CountCallback(const ProfilingData*, void* userData) {
   }
 }
 
+struct CoherentCallbackContext {
+  int registrationId;
+  std::atomic<int> calls{0};
+  std::atomic<int> mismatches{0};
+};
+
+void CaptureCoherentRegistration(void* userData, int expectedRegistrationId) {
+  auto& context = *static_cast<CoherentCallbackContext*>(userData);
+  context.calls.fetch_add(1, std::memory_order_relaxed);
+  if (context.registrationId != expectedRegistrationId) {
+    context.mismatches.fetch_add(1, std::memory_order_relaxed);
+  }
+}
+
+void DD_WIN_PROF_CALL FirstCoherentCallback(const ProfilingData*, void* userData) {
+  CaptureCoherentRegistration(userData, 1);
+}
+
+void DD_WIN_PROF_CALL SecondCoherentCallback(const ProfilingData*, void* userData) {
+  CaptureCoherentRegistration(userData, 2);
+}
+
+ProfilerConfig MakeHttpConfig(const char* version) {
+  ProfilerConfig config{};
+  config.size = sizeof(config);
+  config.noEnvVars = true;
+  config.url = "datadoghq.com";
+  config.apiKey = "api-key";
+  config.serviceEnvironment = "test";
+  config.serviceName = "setup-tests";
+  config.serviceVersion = version;
+  config.cpuWallTimeSamplingPeriodNs = 11'000'000;
+  config.walltimeThreadsThreshold = 7;
+  config.cpuThreadsThreshold = 13;
+  config.uploadIntervalSeconds = 3600;
+  config.tags = "source:setup-tests";
+  config.pprofOutputDirectory = "C:\\temp\\setup-tests";
+  config.symbolizeCallstacks = true;
+  return config;
+}
+
+void ExpectSameConfiguration(
+    const Configuration& actual, const Configuration& expected
+) {
+  EXPECT_EQ(actual.GetLogDirectory(), expected.GetLogDirectory());
+  EXPECT_EQ(actual.GetProfilesOutputDirectory(), expected.GetProfilesOutputDirectory());
+  EXPECT_EQ(actual.GetUploadInterval(), expected.GetUploadInterval());
+  EXPECT_EQ(actual.GetUserTags(), expected.GetUserTags());
+  EXPECT_EQ(actual.IsDebugLogEnabled(), expected.IsDebugLogEnabled());
+  EXPECT_EQ(actual.GetVersion(), expected.GetVersion());
+  EXPECT_EQ(actual.GetEnvironment(), expected.GetEnvironment());
+  EXPECT_EQ(actual.GetHostname(), expected.GetHostname());
+  EXPECT_EQ(actual.GetAgentUrl(), expected.GetAgentUrl());
+  EXPECT_EQ(actual.GetAgentHost(), expected.GetAgentHost());
+  EXPECT_EQ(actual.GetAgentPort(), expected.GetAgentPort());
+  EXPECT_EQ(actual.IsAgentless(), expected.IsAgentless());
+  EXPECT_EQ(actual.GetSite(), expected.GetSite());
+  EXPECT_EQ(actual.GetApiKey(), expected.GetApiKey());
+  EXPECT_EQ(actual.GetServiceName(), expected.GetServiceName());
+  EXPECT_EQ(actual.GetNamedPipeName(), expected.GetNamedPipeName());
+  EXPECT_EQ(actual.IsProfilerEnabled(), expected.IsProfilerEnabled());
+  EXPECT_EQ(
+      actual.IsProfilerExplicitlyDisabled(), expected.IsProfilerExplicitlyDisabled()
+  );
+  EXPECT_EQ(actual.IsProfilerAutoStartEnabled(), expected.IsProfilerAutoStartEnabled());
+  EXPECT_EQ(actual.IsCpuProfilingEnabled(), expected.IsCpuProfilingEnabled());
+  EXPECT_EQ(actual.IsWallTimeProfilingEnabled(), expected.IsWallTimeProfilingEnabled());
+  EXPECT_EQ(
+      actual.IsExportEnabled(ProfileDeliveryMode::Http),
+      expected.IsExportEnabled(ProfileDeliveryMode::Http)
+  );
+  EXPECT_EQ(
+      actual.IsExportEnabled(ProfileDeliveryMode::Callback),
+      expected.IsExportEnabled(ProfileDeliveryMode::Callback)
+  );
+  EXPECT_EQ(actual.AreCallstacksSymbolized(), expected.AreCallstacksSymbolized());
+  EXPECT_EQ(actual.CpuWallTimeSamplingPeriod(), expected.CpuWallTimeSamplingPeriod());
+  EXPECT_EQ(actual.WalltimeThreadsThreshold(), expected.WalltimeThreadsThreshold());
+  EXPECT_EQ(actual.CpuThreadsThreshold(), expected.CpuThreadsThreshold());
+}
+
 void DD_WIN_PROF_CALL
 RejectRegistrationCallback(const ProfilingData* data, void* userData) {
   CaptureCallback(data, userData);
@@ -169,6 +252,79 @@ void DD_WIN_PROF_CALL BlockingCallback(const ProfilingData* data, void* userData
   }
 }
 
+void DD_WIN_PROF_CALL BlockingFinalCallback(const ProfilingData* data, void* userData) {
+  CaptureCallback(data, userData);
+  if (data->is_last != 0) {
+    auto& context = *static_cast<CallbackContext*>(userData);
+    context.entered->set_value();
+    context.release->wait();
+  }
+}
+
+struct ReentrantCallsContext {
+  bool insideCallback = false;
+  bool otherThreadInsideCallback = true;
+  bool setupRejected = false;
+  bool registrationRejected = false;
+  bool startRejected = false;
+  bool monitorRejected = false;
+  bool stopReturned = false;
+  std::promise<void>* periodicDone = nullptr;
+};
+
+void CallLifecycleApis(ReentrantCallsContext& context) {
+  context.insideCallback = ProfileExporter::IsInsideProfilingCallback();
+  context.otherThreadInsideCallback =
+      std::async(std::launch::async, [] {
+        return ProfileExporter::IsInsideProfilingCallback();
+      }).get();
+  ProfilerConfig config{};
+  config.size = sizeof(config);
+  config.noEnvVars = true;
+  context.setupRejected = !SetupProfiler(&config);
+  context.registrationRejected = !SetupProfilingDataCallback(nullptr, nullptr);
+  context.startRejected = !StartProfiler();
+  context.monitorRejected = !MonitorWindowHangs(nullptr);
+  StopProfiler();
+  context.stopReturned = true;
+}
+
+void ExpectLifecycleCallsRejected(const ReentrantCallsContext& context) {
+  EXPECT_TRUE(context.insideCallback);
+  EXPECT_FALSE(context.otherThreadInsideCallback);
+  EXPECT_TRUE(context.setupRejected);
+  EXPECT_TRUE(context.registrationRejected);
+  EXPECT_TRUE(context.startRejected);
+  EXPECT_TRUE(context.monitorRejected);
+  EXPECT_TRUE(context.stopReturned);
+}
+
+void DD_WIN_PROF_CALL
+ReentrantFinalCallback(const ProfilingData* data, void* userData) {
+  if (data->is_last != 0) {
+    CallLifecycleApis(*static_cast<ReentrantCallsContext*>(userData));
+  }
+}
+
+void DD_WIN_PROF_CALL
+ReentrantPeriodicCallback(const ProfilingData* data, void* userData) {
+  auto& context = *static_cast<ReentrantCallsContext*>(userData);
+  if (data->is_last == 0 && context.periodicDone != nullptr) {
+    CallLifecycleApis(context);
+    std::exchange(context.periodicDone, nullptr)->set_value();
+  }
+}
+
+struct CallbackFlagContext {
+  bool insideCallback = false;
+};
+
+void DD_WIN_PROF_CALL ThrowingCallback(const ProfilingData*, void* userData) {
+  static_cast<CallbackFlagContext*>(userData)->insideCallback =
+      ProfileExporter::IsInsideProfilingCallback();
+  throw std::runtime_error("callback failure");
+}
+
 }  // namespace
 
 class ProfilingDataCallbackTests : public ::testing::Test {
@@ -186,6 +342,12 @@ class ProfilingDataCallbackTests : public ::testing::Test {
     profiler.reset();
     *Profiler::GetConfiguration() = std::move(*previous);
   }
+
+  // Holds the lifecycle lock as an in-progress StartProfiling or StopProfiling would.
+  std::unique_lock<std::mutex> LockLifecycle() {
+    return std::unique_lock<std::mutex>(profiler->_lifecycleMutex);
+  }
+  void SetStarted(bool started) { profiler->_isStarted = started; }
 
   std::optional<Configuration> previous;
   std::unique_ptr<Profiler> profiler;
@@ -207,6 +369,117 @@ TEST_F(ProfilingDataCallbackTests, NullCallbackWithContextPreservesRegistration)
   EXPECT_FALSE(SetupProfilingDataCallback(nullptr, &calls));
   EXPECT_EQ(profiler->GetProfilingDataCallback(), CountCallback);
   EXPECT_EQ(profiler->GetProfilingDataCallbackUserData(), &calls);
+}
+
+TEST_F(
+    ProfilingDataCallbackTests, ConcurrentReplacementAndStartUseOneCoherentRegistration
+) {
+  CoherentCallbackContext first{1};
+  CoherentCallbackContext second{2};
+  ASSERT_TRUE(SetupProfilingDataCallback(FirstCoherentCallback, &first));
+  ProfilerConfig config{};
+  config.size = sizeof(config);
+  config.noEnvVars = true;
+  config.uploadIntervalSeconds = 3600;
+  ASSERT_TRUE(SetupProfiler(&config));
+
+  std::latch ready(2);
+  std::latch go(1);
+  auto replacement = std::async(std::launch::async, [&] {
+    ready.count_down();
+    go.wait();
+    return SetupProfilingDataCallback(SecondCoherentCallback, &second);
+  });
+  auto start = std::async(std::launch::async, [&] {
+    ready.count_down();
+    go.wait();
+    return StartProfiler();
+  });
+  ready.wait();
+  go.count_down();
+
+  const bool replacementSucceeded = replacement.get();
+  ASSERT_TRUE(start.get());
+  StopProfiler();
+
+  EXPECT_EQ(first.mismatches.load(std::memory_order_relaxed), 0);
+  EXPECT_EQ(second.mismatches.load(std::memory_order_relaxed), 0);
+  EXPECT_EQ(
+      first.calls.load(std::memory_order_relaxed) +
+          second.calls.load(std::memory_order_relaxed),
+      1
+  );
+  EXPECT_EQ(
+      replacementSucceeded ? second.calls.load(std::memory_order_relaxed)
+                           : first.calls.load(std::memory_order_relaxed),
+      1
+  );
+
+  EXPECT_TRUE(SetupProfilingDataCallback(SecondCoherentCallback, &second));
+  EXPECT_TRUE(SetupProfilingDataCallback(nullptr, nullptr));
+}
+
+TEST_F(ProfilingDataCallbackTests, FailedSetupPreservesConfigurationAndCanRetry) {
+  auto committedSettings = MakeHttpConfig("committed-version");
+  ASSERT_TRUE(SetupProfiler(&committedSettings));
+  const Configuration committed = *Profiler::GetConfiguration();
+
+  auto invalidSettings = MakeHttpConfig("invalid-version");
+  invalidSettings.apiKey = nullptr;
+  EXPECT_FALSE(SetupProfiler(&invalidSettings));
+  ExpectSameConfiguration(*Profiler::GetConfiguration(), committed);
+
+  auto retrySettings = MakeHttpConfig("retry-version");
+  ASSERT_TRUE(SetupProfiler(&retrySettings));
+  EXPECT_EQ(Profiler::GetConfiguration()->GetVersion(), "retry-version");
+}
+
+TEST_F(ProfilingDataCallbackTests, SetupWaitsForLifecycleAndIsRejectedOnceStarted) {
+  auto committedSettings = MakeHttpConfig("committed-version");
+  ASSERT_TRUE(SetupProfiler(&committedSettings));
+  auto replacementSettings = MakeHttpConfig("replacement-version");
+
+  auto lifecycle = LockLifecycle();
+  auto setup = std::async(std::launch::async, [&] {
+    return SetupProfiler(&replacementSettings);
+  });
+  EXPECT_EQ(
+      setup.wait_for(std::chrono::milliseconds(100)), std::future_status::timeout
+  );
+  SetStarted(true);
+  lifecycle.unlock();
+  EXPECT_FALSE(setup.get());
+  SetStarted(false);
+  EXPECT_EQ(Profiler::GetConfiguration()->GetVersion(), "committed-version");
+
+  ASSERT_TRUE(SetupProfiler(&replacementSettings));
+  EXPECT_EQ(Profiler::GetConfiguration()->GetVersion(), "replacement-version");
+}
+
+TEST_F(
+    ProfilingDataCallbackTests, RegistrationWaitsForLifecycleAndCommitsWhileStopped
+) {
+  int first = 0;
+  int second = 0;
+  ASSERT_TRUE(SetupProfilingDataCallback(CountCallback, &first));
+
+  auto lifecycle = LockLifecycle();
+  auto registration = std::async(std::launch::async, [&] {
+    return SetupProfilingDataCallback(CountCallback, &second);
+  });
+  EXPECT_EQ(
+      registration.wait_for(std::chrono::milliseconds(100)), std::future_status::timeout
+  );
+  lifecycle.unlock();
+  EXPECT_TRUE(registration.get());
+  EXPECT_EQ(profiler->GetProfilingDataCallback(), CountCallback);
+  EXPECT_EQ(profiler->GetProfilingDataCallbackUserData(), &second);
+
+  SetStarted(true);
+  EXPECT_FALSE(SetupProfilingDataCallback(nullptr, nullptr));
+  SetStarted(false);
+  EXPECT_EQ(profiler->GetProfilingDataCallbackUserData(), &second);
+  EXPECT_TRUE(SetupProfilingDataCallback(nullptr, nullptr));
 }
 
 TEST_F(ProfilingDataCallbackTests, ProfilerDestructionDoesNotDestroyCallerState) {
@@ -288,6 +561,26 @@ TEST_F(ProfilingDataCallbackTests, UnregisterRestoresHttpRequirements) {
   config.noEnvVars = true;
   EXPECT_FALSE(SetupProfiler(&config));
   EXPECT_TRUE(Profiler::GetConfiguration()->IsExportEnabled());
+}
+
+TEST_F(ProfilingDataCallbackTests, UnregisterAfterCallbackOnlySetupRejectsStart) {
+  int calls = 0;
+  ASSERT_TRUE(SetupProfilingDataCallback(CountCallback, &calls));
+  ProfilerConfig config{};
+  config.size = sizeof(config);
+  config.noEnvVars = true;
+  config.uploadIntervalSeconds = 3600;
+  ASSERT_TRUE(SetupProfiler(&config));
+
+  ASSERT_TRUE(SetupProfilingDataCallback(nullptr, nullptr));
+  EXPECT_FALSE(StartProfiler());
+  EXPECT_FALSE(profiler->IsStarted());
+
+  ASSERT_TRUE(SetupProfilingDataCallback(CountCallback, &calls));
+  ASSERT_TRUE(StartProfiler());
+  StopProfiler();
+  EXPECT_EQ(calls, 1);
+  EXPECT_TRUE(SetupProfilingDataCallback(nullptr, nullptr));
 }
 
 TEST_F(
@@ -563,6 +856,105 @@ TEST_F(
   EXPECT_TRUE(context.results.back().isLast);
 }
 
+// StopProfiler holds the lifecycle lock on the thread running the final callback: any
+// lifecycle call that took the lock from there would deadlock.
+TEST_F(ProfilingDataCallbackTests, LifecycleCallsFailFromFinalCallback) {
+  ReentrantCallsContext context;
+  ASSERT_TRUE(SetupProfilingDataCallback(ReentrantFinalCallback, &context));
+  ProfilerConfig config{};
+  config.size = sizeof(config);
+  config.noEnvVars = true;
+  config.uploadIntervalSeconds = 3600;
+  config.serviceVersion = "committed-version";
+  ASSERT_TRUE(SetupProfiler(&config));
+  ASSERT_TRUE(StartProfiler());
+
+  StopProfiler();
+
+  ExpectLifecycleCallsRejected(context);
+  EXPECT_FALSE(profiler->IsStarted());
+  EXPECT_FALSE(ProfileExporter::IsInsideProfilingCallback());
+  EXPECT_EQ(profiler->GetProfilingDataCallback(), ReentrantFinalCallback);
+  EXPECT_EQ(Profiler::GetConfiguration()->GetVersion(), "committed-version");
+  EXPECT_TRUE(SetupProfilingDataCallback(nullptr, nullptr));
+}
+
+// StopProfiler called from a periodic callback would wait for its own exporter thread.
+TEST_F(ProfilingDataCallbackTests, LifecycleCallsFailFromPeriodicCallback) {
+  std::promise<void> periodicDone;
+  auto done = periodicDone.get_future();
+  ReentrantCallsContext context;
+  context.periodicDone = &periodicDone;
+  ASSERT_TRUE(SetupProfilingDataCallback(ReentrantPeriodicCallback, &context));
+  ProfilerConfig config{};
+  config.size = sizeof(config);
+  config.noEnvVars = true;
+  config.uploadIntervalSeconds = 1;
+  ASSERT_TRUE(SetupProfiler(&config));
+  ASSERT_TRUE(StartProfiler());
+
+  const auto status = done.wait_for(std::chrono::seconds(5));
+  EXPECT_EQ(status, std::future_status::ready);
+  if (status == std::future_status::ready) {
+    ExpectLifecycleCallsRejected(context);
+    EXPECT_TRUE(profiler->IsStarted());
+  }
+
+  StopProfiler();
+  EXPECT_FALSE(profiler->IsStarted());
+  EXPECT_EQ(profiler->GetProfilingDataCallback(), ReentrantPeriodicCallback);
+  EXPECT_TRUE(SetupProfilingDataCallback(nullptr, nullptr));
+}
+
+TEST_F(ProfilingDataCallbackTests, OtherThreadsAreRejectedWhileRunningAndWaitForStop) {
+  std::promise<void> finalEntered;
+  auto entered = finalEntered.get_future();
+  std::promise<void> releaseFinal;
+  auto released = releaseFinal.get_future().share();
+  CallbackContext context;
+  context.entered = &finalEntered;
+  context.release = &released;
+  ASSERT_TRUE(SetupProfilingDataCallback(BlockingFinalCallback, &context));
+  ProfilerConfig config{};
+  config.size = sizeof(config);
+  config.noEnvVars = true;
+  config.uploadIntervalSeconds = 3600;
+  config.serviceVersion = "committed-version";
+  ASSERT_TRUE(SetupProfiler(&config));
+  ASSERT_TRUE(StartProfiler());
+
+  auto replacement = config;
+  replacement.serviceVersion = "replacement-version";
+  EXPECT_FALSE(SetupProfiler(&replacement));
+  EXPECT_FALSE(SetupProfilingDataCallback(CountCallback, nullptr));
+
+  auto stopped = std::async(std::launch::async, [] { StopProfiler(); });
+  const auto status = entered.wait_for(std::chrono::seconds(5));
+  EXPECT_EQ(status, std::future_status::ready);
+  auto setup =
+      std::async(std::launch::async, [&] { return SetupProfiler(&replacement); });
+  auto registration = std::async(std::launch::async, [] {
+    return SetupProfilingDataCallback(CountCallback, nullptr);
+  });
+  if (status == std::future_status::ready) {
+    EXPECT_EQ(
+        setup.wait_for(std::chrono::milliseconds(100)), std::future_status::timeout
+    );
+    EXPECT_EQ(
+        registration.wait_for(std::chrono::milliseconds(10)),
+        std::future_status::timeout
+    );
+  }
+  releaseFinal.set_value();
+  stopped.get();
+
+  EXPECT_TRUE(setup.get());
+  EXPECT_TRUE(registration.get());
+  EXPECT_EQ(Profiler::GetConfiguration()->GetVersion(), "replacement-version");
+  EXPECT_EQ(profiler->GetProfilingDataCallback(), CountCallback);
+  EXPECT_TRUE(SetupProfilingDataCallback(nullptr, nullptr));
+}
+
 TEST_F(ProfilingDataCallbackTests, MissingProfilerRejectsRegistration) {
   profiler.reset();
   EXPECT_FALSE(SetupProfilingDataCallback(nullptr, nullptr));
@@ -607,6 +999,26 @@ TEST(ProfilingDataExportTests, CallbackBorrowsBytesAndCallerCopySurvives) {
   }
   EXPECT_LE(first.startUnixTimeMs, first.endUnixTimeMs);
   EXPECT_EQ(first.endUnixTimeMs, second.startUnixTimeMs);
+}
+
+TEST(ProfilingDataExportTests, CallbackFlagIsSetOnlyDuringCallbackEvenWhenItThrows) {
+  Configuration config;
+  config.ResetToDefaults();
+  CallbackFlagContext context;
+  std::vector<SampleValueType> types{{"cpu-time", "nanoseconds"}};
+  ProfileExporter exporter(&config, types, nullptr, ThrowingCallback, &context);
+  ASSERT_TRUE(exporter.Initialize());
+
+  EXPECT_FALSE(ProfileExporter::IsInsideProfilingCallback());
+  EXPECT_FALSE(exporter.Export());
+  EXPECT_TRUE(context.insideCallback);
+  EXPECT_FALSE(ProfileExporter::IsInsideProfilingCallback());
+
+  context.insideCallback = false;
+  EXPECT_EQ(exporter.ExportFinal(), FinalExportStatus::CallbackFailed);
+  EXPECT_TRUE(context.insideCallback);
+  EXPECT_FALSE(ProfileExporter::IsInsideProfilingCallback());
+  exporter.Cleanup();
 }
 
 TEST(ProfilingDataExportTests, ResetErrorIsDeliveredAndNextExportRecovers) {

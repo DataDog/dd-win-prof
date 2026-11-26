@@ -35,7 +35,8 @@ typedef struct ProfilingData {
 } ProfilingData;
 
 // Periodic calls run on the exporter thread; final export runs on the stopping thread.
-// Do not block or call lifecycle/registration APIs from this callback.
+// Do not block. Lifecycle and registration APIs called from this callback fail without
+// effect, including StopProfiler, which returns without stopping.
 // Callbacks must not throw or let exceptions cross this C boundary.
 // Preparation errors can follow a delivered profile. Failed deliveries are not retried.
 // Errors do not stop profiling.
@@ -53,11 +54,13 @@ typedef struct _RumViewValues {
   const char* view_name;  // human-readable name, e.g. "HomePage"
 } RumViewValues;
 
-// Register while stopped; serialize with lifecycle calls. A non-null callback may use a
-// null context. (NULL, NULL) unregisters and restores HTTP delivery; (NULL, non-NULL)
+// Register while stopped: waits for an in-progress start or stop, and fails while the
+// profiler runs or from the profiling callback. A non-null callback may use
+// a null context. (NULL, NULL) unregisters and restores HTTP delivery; (NULL, non-NULL)
 // is rejected without changing the current registration.
 // Registration survives setup and stop/start. Failure preserves the previous callback.
-// Register before setup to omit HTTP credentials in noEnvVars mode.
+// Register before setup to omit HTTP credentials in noEnvVars mode; StartProfiler()
+// rejects such a setup if the callback is unregistered before it starts.
 // Callback mode discards RUM records; per-sample labels remain in pprof.
 // The profiler never owns user_data. Safe teardown is StopProfiler(), unregister, then
 // destroy user_data. Retaining callers must copy pprof_bytes before returning.
