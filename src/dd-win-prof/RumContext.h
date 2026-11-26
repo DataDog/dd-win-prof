@@ -56,9 +56,16 @@ class IViewVitalsAccumulator {
   virtual bool AccumulateViewVitals(ViewVitalKind kind, int64_t valueNs) = 0;
 };
 
+// Process-scoped RUM state read by each run's exporter at export time. It never holds
+// a pointer to an exporter, so exporters of successive runs read the same state.
+// Records completed while no run exports stay buffered for the next run: an HTTP run
+// sends them, a callback run discards them.
 class IRumRecordProvider {
  public:
   virtual ~IRumRecordProvider() = default;
+
+  // Returns the write-once application ID (empty until set).
+  virtual std::string GetApplicationId() const = 0;
 
   // Swaps the internal completed-view buffer into 'records'.
   // After the call, 'records' holds the accumulated entries and the internal buffer is

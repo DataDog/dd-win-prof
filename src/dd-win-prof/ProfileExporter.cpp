@@ -450,14 +450,12 @@ FinalExportStatus ProfileExporter::ExportCurrentProfile(
       progress->delivered = true;
     }
   };
-  std::vector<std::string> rumSessionIds;
-  std::vector<std::string> rumViewIds;
-  std::string rumRecordsJson;
+  RumExportData rum;
   const auto takeRumRecords = [&] {
     if (_profilingDataCallback) {
       DiscardRumRecords();
     } else {
-      rumRecordsJson = CollectRumRecordsJson(rumSessionIds, rumViewIds);
+      rum = CollectRumRecords();
     }
   };
   // The final attempt owns the RUM records completed so far even if the profile
@@ -475,7 +473,7 @@ FinalExportStatus ProfileExporter::ExportCurrentProfile(
     takeRumRecords();
   }
   const bool localWritten =
-      WriteDebugFiles(profile.get(), rumRecordsJson, endUnixTimeMs);
+      WriteDebugFiles(profile.get(), rum.recordsJson, endUnixTimeMs);
 
   // HTTP export consumes the profile, so read its bytes first.
   auto bytes = _encodingApi.bytes(profile.get());
@@ -498,9 +496,7 @@ FinalExportStatus ProfileExporter::ExportCurrentProfile(
     }
     markDelivered();
   } else if (_exportEnabled) {
-    switch (ExportProfile(
-        profile.get(), _currentExportId, rumRecordsJson, rumSessionIds, rumViewIds
-    )) {
+    switch (ExportProfile(profile.get(), _currentExportId, rum)) {
       case HttpSendResult::Accepted:
         markDelivered();
         break;
@@ -521,31 +517,33 @@ FinalExportStatus ProfileExporter::ExportCurrentProfile(
                       : FinalExportStatus::LocalWriteFailed;
 }
 
-std::string ProfileExporter::CollectRumRecordsJson(
-    std::vector<std::string>& sessionIds, std::vector<std::string>& viewIds
-) {
+ProfileExporter::RumExportData ProfileExporter::CollectRumRecords() {
+  RumExportData rum;
   if (_pRumRecordProvider == nullptr) {
-    return {};
+    return rum;
   }
   _pRumRecordProvider->ConsumeViewRecords(_viewRecordsBuffer);
   _pRumRecordProvider->ConsumeSessionRecords(_sessionRecordsBuffer);
+  // A record exists only once the write-once ID is set: read it after draining.
+  rum.applicationId = _pRumRecordProvider->GetApplicationId();
   if (_viewRecordsBuffer.empty() && _sessionRecordsBuffer.empty()) {
-    return {};
+    return rum;
   }
 
-  auto json = SerializeRumRecordsToJson(_viewRecordsBuffer, _sessionRecordsBuffer);
+  rum.recordsJson =
+      SerializeRumRecordsToJson(_viewRecordsBuffer, _sessionRecordsBuffer);
   // Preserve the IDs for tags before clearing the records used by metadata.
-  sessionIds.reserve(_sessionRecordsBuffer.size());
+  rum.sessionIds.reserve(_sessionRecordsBuffer.size());
   for (const auto& rec : _sessionRecordsBuffer) {
-    sessionIds.push_back(rec.session_id);
+    rum.sessionIds.push_back(rec.session_id);
   }
-  viewIds.reserve(_viewRecordsBuffer.size());
+  rum.viewIds.reserve(_viewRecordsBuffer.size());
   for (const auto& rec : _viewRecordsBuffer) {
-    viewIds.push_back(rec.view_id);
+    rum.viewIds.push_back(rec.view_id);
   }
   _viewRecordsBuffer.clear();
   _sessionRecordsBuffer.clear();
-  return json;
+  return rum;
 }
 
 void ProfileExporter::DiscardRumRecords() {
@@ -1339,10 +1337,6 @@ ddog_prof_LabelSetId ProfileExporter::CreateLabelSet(
   return labelsetResult.ok;
 }
 
-void ProfileExporter::SetRumApplicationId(const std::string& applicationId) {
-  _rumApplicationId = applicationId;
-}
-
 uint32_t ProfileExporter::GetCurrentProcessId() { return ::GetCurrentProcessId(); }
 
 bool ProfileExporter::WritePprofFile(const ddog_prof_EncodedProfile* encodedProfile) {
@@ -1721,9 +1715,7 @@ bool ProfileExporter::CreateExporterEndpoint(ddog_prof_Endpoint& endpoint) {
 ProfileExporter::HttpSendResult ProfileExporter::ExportProfile(
     const ddog_prof_EncodedProfile* encodedProfile,
     uint32_t profileSeq,
-    const std::string& rumRecordsJson,
-    const std::vector<std::string>& rumSessionIds,
-    const std::vector<std::string>& rumViewIds
+    const RumExportData& rum
 ) {
   if (!encodedProfile) {
     Log::Error("Invalid profile");
@@ -1736,7 +1728,7 @@ ProfileExporter::HttpSendResult ProfileExporter::ExportProfile(
 
   // Prepare additional tags (per-export metadata)
   ddog_Vec_Tag additionalTags = ddog_Vec_Tag_new();
-  if (!PrepareAdditionalTags(additionalTags, profileSeq, rumSessionIds, rumViewIds)) {
+  if (!PrepareAdditionalTags(additionalTags, profileSeq, rum)) {
     ddog_Vec_Tag_drop(additionalTags);
     return HttpSendResult::PreSendFailed;
   }
@@ -1755,8 +1747,8 @@ ProfileExporter::HttpSendResult ProfileExporter::ExportProfile(
   // libdatadog embeds RUM records in the event.json `internal` field.
   ddog_CharSlice internalMetadataSlice{};
   const ddog_CharSlice* internalMetadataPtr = nullptr;
-  if (!rumRecordsJson.empty()) {
-    internalMetadataSlice = to_CharSlice(rumRecordsJson);
+  if (!rum.recordsJson.empty()) {
+    internalMetadataSlice = to_CharSlice(rum.recordsJson);
     internalMetadataPtr = &internalMetadataSlice;
   }
 
@@ -1817,10 +1809,7 @@ ProfileExporter::HttpSendResult ProfileExporter::ExportProfile(
 }
 
 bool ProfileExporter::PrepareAdditionalTags(
-    ddog_Vec_Tag& tags,
-    uint32_t profileSeq,
-    const std::vector<std::string>& rumSessionIds,
-    const std::vector<std::string>& rumViewIds
+    ddog_Vec_Tag& tags, uint32_t profileSeq, const RumExportData& rum
 ) {
   // Add profile sequence number
   if (!AddSingleTag(tags, TAG_PROFILE_SEQ, std::to_string(profileSeq))) {
@@ -1832,7 +1821,7 @@ bool ProfileExporter::PrepareAdditionalTags(
     return false;
   }
 
-  for (const auto& kv : BuildRumTags(_rumApplicationId, rumSessionIds, rumViewIds)) {
+  for (const auto& kv : BuildRumTags(rum.applicationId, rum.sessionIds, rum.viewIds)) {
     if (!AddSingleTag(tags, kv.first, kv.second)) {
       return false;
     }

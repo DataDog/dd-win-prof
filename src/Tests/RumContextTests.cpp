@@ -354,12 +354,20 @@ class ProfileExporterRumTests : public ::testing::Test {
     sampleTypes = {{"cpu-time", "nanoseconds"}, {"cpu-samples", "count"}};
     Sample::SetValuesCount(sampleTypes.size());
 
-    exporter = std::make_unique<ProfileExporter>(config.get(), sampleTypes);
+    profiler = std::make_unique<Profiler>();
+    exporter =
+        std::make_unique<ProfileExporter>(config.get(), sampleTypes, profiler.get());
   }
 
   void TearDown() override {
     exporter.reset();
+    profiler.reset();
     config.reset();
+  }
+
+  void SetRumApplicationId(const char* applicationId) {
+    RumSessionContext session{applicationId, "session-1"};
+    ASSERT_TRUE(profiler->SetRumSession(&session));
   }
 
   std::shared_ptr<Sample> CreateTestSample(
@@ -397,13 +405,14 @@ class ProfileExporterRumTests : public ::testing::Test {
 
   std::unique_ptr<Configuration> config;
   std::vector<SampleValueType> sampleTypes;
+  std::unique_ptr<Profiler> profiler;
   std::unique_ptr<ProfileExporter> exporter;
 };
 
 TEST_F(ProfileExporterRumTests, SetRumApplicationId) {
   ASSERT_TRUE(exporter->Initialize());
 
-  exporter->SetRumApplicationId("app-id-123");
+  SetRumApplicationId("app-id-123");
 
   EXPECT_TRUE(exporter->Add(CreateTestSample()));
   EXPECT_TRUE(exporter->Export());
@@ -436,7 +445,7 @@ TEST_F(ProfileExporterRumTests, MixedSamplesWithAndWithoutRum) {
 
 TEST_F(ProfileExporterRumTests, MultipleExportsWithRumTags) {
   ASSERT_TRUE(exporter->Initialize());
-  exporter->SetRumApplicationId("app-id");
+  SetRumApplicationId("app-id");
 
   for (int i = 0; i < 3; i++) {
     std::string viewId = "view-" + std::to_string(i);
