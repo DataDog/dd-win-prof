@@ -604,6 +604,39 @@ TEST_F(ProfileExporterExportTests, HttpEmitsAllRumTagsWithoutACapOrStaleIds) {
   EXPECT_TRUE(Tag(requests[1].body, "rum.view_id").empty());
 }
 
+TEST_F(ProfileExporterExportTests, HttpReadsApplicationIdSetWhileRecordsAreConsumed) {
+  // The first SetRumSession and its records land between the exporter's reads.
+  class LateApplicationId : public IRumRecordProvider {
+   public:
+    std::string applicationId;
+
+    std::string GetApplicationId() const override { return applicationId; }
+    void ConsumeViewRecords(std::vector<RumViewRecord>& records) override {
+      applicationId = "late-application";
+      records = {{0, 1, "late-view", "", {}}};
+    }
+    void ConsumeSessionRecords(std::vector<RumSessionRecord>& records) override {
+      records = {{0, 1, "late-session"}};
+    }
+    std::string GetCurrentSessionId() const override { return {}; }
+  } records;
+
+  LocalHttpServer server;
+  auto httpConfig = HttpConfiguration(server);
+  ProfileExporter exp(&httpConfig, sampleTypes, &records);
+  ASSERT_TRUE(exp.Initialize());
+  ASSERT_TRUE(exp.Add(CreateTestSample()));
+  EXPECT_EQ(exp.ExportFinal(), FinalExportStatus::Delivered);
+  exp.Cleanup();
+
+  EXPECT_TRUE(server.Error().empty()) << server.Error();
+  const auto requests = server.Requests();
+  ASSERT_EQ(requests.size(), 1u);
+  EXPECT_EQ(Tag(requests[0].body, "rum.application_id"), "late-application");
+  EXPECT_EQ(Tag(requests[0].body, "rum.session_id"), "late-session");
+  EXPECT_EQ(Tag(requests[0].body, "rum.view_id"), "late-view");
+}
+
 TEST_F(ProfileExporterExportTests, HttpResponsePolicyAcrossFinalThreadTransition) {
   for (const auto status : {200, 202, 204, 403, 404, 500, 504}) {
     SCOPED_TRACE(status);

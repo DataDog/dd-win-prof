@@ -522,9 +522,10 @@ ProfileExporter::RumExportData ProfileExporter::CollectRumRecords() {
   if (_pRumRecordProvider == nullptr) {
     return rum;
   }
-  rum.applicationId = _pRumRecordProvider->GetApplicationId();
   _pRumRecordProvider->ConsumeViewRecords(_viewRecordsBuffer);
   _pRumRecordProvider->ConsumeSessionRecords(_sessionRecordsBuffer);
+  // A record exists only once the write-once ID is set: read it after draining.
+  rum.applicationId = _pRumRecordProvider->GetApplicationId();
   if (_viewRecordsBuffer.empty() && _sessionRecordsBuffer.empty()) {
     return rum;
   }
