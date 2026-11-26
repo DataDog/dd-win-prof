@@ -37,14 +37,13 @@ This is a Windows native profiler that performs CPU sampling and exports profile
 - The singleton is process-scoped; each start/stop pair creates and destroys a separate profiling session
 - Serializes lifecycle operations and resets process-scoped thread sampling state between sessions
 - UI-hang registration is session-scoped and must be repeated after a restart
-- Manages the overall profiler lifecycle and orchestrates all components
-- Creates and configures:
-  - `ThreadList` for tracking active threads
-  - `StackSamplerLoop` for periodic sampling
-  - `CpuTimeProvider` for CPU time samples collection
-  - `SamplesCollector` for collecting samples from all providers
-  - `ProfileExporter` for exporting profiles
+- Owns the process state: committed configuration, callback registration, `ThreadList`, RUM state, UI probe message ID, and at most one running `ProfilingSession`
 - Handles profiler startup/shutdown sequences
+
+**`ProfilingSession.cpp/.h`** - The components of one run, created by Start and destroyed by Stop
+- Owns the configuration and callback snapshots, the providers, `ProfileExporter`, `SamplesCollector`, `StackSamplerLoop`, and the optional `UiHangDetector`
+- Start creates providers, exporter, collector and sampler, then starts the collector workers and the sampler thread; a failure releases them in reverse order without final export
+- Stop order: UI hang detector, sampler, collector with the final export, exporter, providers
 
 ### Thread Management
 

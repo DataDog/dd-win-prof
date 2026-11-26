@@ -10,6 +10,7 @@ add_executable(Tests
     ProfilerShutdownTests.cpp
     ProfilingDataCallbackTests.cpp
     ProfilingErrorMessageTests.cpp
+    ProfilingSessionTests.cpp
     RumContextTests.cpp
     SamplesCollectorTests.cpp
     StackSamplerLoopTests.cpp
@@ -31,6 +32,7 @@ add_executable(Tests
     ../dd-win-prof/PprofAggregator.cpp
     ../dd-win-prof/Profiler.cpp
     ../dd-win-prof/ProfileExporter.cpp
+    ../dd-win-prof/ProfilingSession.cpp
     ../dd-win-prof/Sample.cpp
     ../dd-win-prof/SamplesCollector.cpp
     ../dd-win-prof/SampleValueTypeProvider.cpp

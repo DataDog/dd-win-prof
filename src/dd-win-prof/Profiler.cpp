@@ -8,18 +8,13 @@
 #include <type_traits>
 
 #include "Log.h"
-#include "SampleValueTypeProvider.h"
-#include "SamplesCollector.h"
 #include "pch.h"
 
 Profiler* Profiler::_this = nullptr;
 std::unique_ptr<Configuration> Profiler::_pConfiguration =
     std::make_unique<Configuration>();
 
-Profiler::Profiler()
-    : _isStarted(false),
-      _pThreadList(std::make_unique<ThreadList>()),
-      _pStackSamplerLoop(nullptr) {
+Profiler::Profiler() : _isStarted(false), _pThreadList(std::make_unique<ThreadList>()) {
   _this = this;
 }
 
@@ -134,96 +129,26 @@ bool Profiler::StartProfiling(bool underLoaderLock) {
 
   Log::Info("Starting profiler...");
 
-  // ThreadInfo objects live for the lifetime of the process. Clear the
-  // previous session's timestamps, hang marker, CPU baseline, and sampler
-  // iterators before creating a new sampling loop.
-  _pThreadList->ResetProfilingState();
-
-  auto valueTypeProvider = SampleValueTypeProvider();
-
-  _pCpuTimeProvider = std::make_unique<CpuTimeProvider>(valueTypeProvider);
-  _pCpuWallTimeProvider = std::make_unique<WallTimeProvider>(valueTypeProvider);
-  _pUiHangProvider = std::make_unique<UiHangProvider>(valueTypeProvider);
-
-  // create the thread responsible for looping through the thread list
-  _pStackSamplerLoop = std::make_unique<StackSamplerLoop>(
-      configuration,
-      _pThreadList.get(),
-      _pCpuTimeProvider.get(),
-      _pCpuWallTimeProvider.get(),
-      this,
-      this
-  );
-
-  // get the values definition from the different providers...
-  auto const& sampleTypeDefinitions = valueTypeProvider.GetValueTypes();
-  Sample::SetValuesCount(sampleTypeDefinitions.size());
-
-  //... and pass them to the exporter
-  _pProfileExporter = std::make_unique<ProfileExporter>(
-      configuration,
-      sampleTypeDefinitions,
-      this,
-      callbackRegistration.callback,
-      callbackRegistration.userData
-  );
-
-  // Initialize the ProfileExporter
-  if (!_pProfileExporter->Initialize()) {
-    RollBackStart(underLoaderLock);
-    return false;
-  }
-
   // a failure to register the hang probe message is not fatal, but it will prevent UI
   // hang detection from working (i.e. MonitorWindowHangs() will fail)
   InitializeWindowHangs();
 
-  // create the samples collector and pass it the exporter
-  _pSamplesCollector =
-      std::make_unique<SamplesCollector>(configuration, _pProfileExporter.get());
-
-  // register the providers to the collector
-  if (configuration->IsCpuProfilingEnabled()) {
-    _pSamplesCollector->Register(_pCpuTimeProvider.get());
-  }
-
-  if (configuration->IsWallTimeProfilingEnabled()) {
-    _pSamplesCollector->Register(_pCpuWallTimeProvider.get());
-  }
-
-  // no configuration needed because enabled only when starting to monitor hang
-  _pSamplesCollector->Register(_pUiHangProvider.get());
-
-  // start processing
-  if (!_pSamplesCollector->Start(underLoaderLock)) {
-    RollBackStart(underLoaderLock);
-    return false;
-  }
-  try {
-    _pStackSamplerLoop->Start();
-  } catch (const std::exception& error) {
-    Log::Error("Failed to start the stack sampler loop: ", error.what());
-    RollBackStart(underLoaderLock);
+  // The candidate stays private until it is fully started: a failed start has already
+  // released everything it created.
+  auto session = std::make_unique<ProfilingSession>(
+      ++_lastSessionId,
+      *configuration,
+      callbackRegistration.callback,
+      callbackRegistration.userData,
+      ProfilingSession::ProcessServices{_pThreadList.get(), this, this, this}
+  );
+  if (!session->Start(underLoaderLock)) {
     return false;
   }
 
+  _pSession = std::move(session);
   _isStarted = true;
   return true;
-}
-
-// Releases what a failed StartProfiling() created, producer first, without exporting.
-// The sampler loop thread never exists here, so resetting the loop does not join it,
-// which would hang under the loader lock.
-void Profiler::RollBackStart(bool underLoaderLock) {
-  _pStackSamplerLoop.reset();
-  if (_pSamplesCollector != nullptr) {
-    _pSamplesCollector->Abort(underLoaderLock);
-    _pSamplesCollector.reset();
-  }
-  _pProfileExporter.reset();
-  _pUiHangProvider.reset();
-  _pCpuWallTimeProvider.reset();
-  _pCpuTimeProvider.reset();
 }
 
 bool Profiler::MonitorWindowHangs(HWND hWnd) {
@@ -245,20 +170,7 @@ bool Profiler::MonitorWindowHangs(HWND hWnd) {
     return false;
   }
 
-  // create the UiHangDetector (hook is thread-specific, so no DLL hMod)
-  if (_pUiHangDetector != nullptr) {
-    Log::Warn("Impossible to monitor more than one window for UI hang detection.");
-    return false;
-  }
-
-  auto pUiHangDetector = std::make_unique<UiHangDetector>(
-      _hangProbeMessageId, _pUiHangProvider.get(), this
-  );
-  bool success = pUiHangDetector->MonitorWindowHangs(hWnd, _pThreadList.get());
-  if (success) {
-    _pUiHangDetector = std::move(pUiHangDetector);
-  }
-  return success;
+  return _pSession->MonitorWindowHangs(hWnd, _hangProbeMessageId);
 }
 
 void Profiler::StopProfiling(bool shutdownOngoing) {
@@ -278,54 +190,8 @@ void Profiler::StopProfiling(bool shutdownOngoing) {
 
   _isStarted = false;
 
-  // Signal SamplesCollector if we're in shutdown mode to stop exports immediately
-  if (shutdownOngoing && _pSamplesCollector != nullptr) {
-    _pSamplesCollector->SignalShutdown();
-  }
-
-  // Stop the UI hang detector first
-  if (_pUiHangDetector != nullptr) {
-    _pUiHangDetector->Stop();
-    _pUiHangDetector.reset();
-  }
-
-  if (_pStackSamplerLoop != nullptr) {
-    _pStackSamplerLoop->Stop();
-    _pStackSamplerLoop.reset();
-  }
-
-  if (_pSamplesCollector != nullptr) {
-    const auto finalStatus = _pSamplesCollector->Stop(shutdownOngoing);
-    if (finalStatus) {
-      switch (*finalStatus) {
-        case FinalExportStatus::Delivered:
-          break;
-        case FinalExportStatus::LocalWriteFailed:
-          Log::Warn(
-              "Final profile delivered, but the debug pprof file could not be written"
-          );
-          break;
-        case FinalExportStatus::NotExported:
-          Log::Info("Final profile not exported: ", ToString(*finalStatus));
-          break;
-        default:
-          Log::Warn("Final profile was not delivered: ", ToString(*finalStatus));
-          break;
-      }
-    }
-    _pSamplesCollector.reset();
-  }
-
-  // Explicitly clean up ProfileExporter with shutdown detection
-  if (_pProfileExporter != nullptr) {
-    // Use the parameter to decide cleanup approach
-    _pProfileExporter->Cleanup(shutdownOngoing);
-    _pProfileExporter.reset();
-  }
-
-  _pUiHangProvider.reset();
-  _pCpuWallTimeProvider.reset();
-  _pCpuTimeProvider.reset();
+  _pSession->Stop(shutdownOngoing);
+  _pSession.reset();
 
   Log::Info("Profiler stopped...");
 }

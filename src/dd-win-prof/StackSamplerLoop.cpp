@@ -82,7 +82,9 @@ void StackSamplerLoop::Stop() {
   std::lock_guard<std::mutex> lifecycleLock(_lifecycleMutex);
 
   _stopRequested.store(true, std::memory_order_release);
-  ::SetEvent(_stopEvent);
+  if (_stopEvent.IsValid()) {
+    ::SetEvent(_stopEvent);
+  }
 
   if (_pLoopThread != nullptr) {
     try {
@@ -131,7 +133,6 @@ void StackSamplerLoop::MainLoopIteration() {
     CpuProfilingIteration();
   }
 
-  // the walltime pass samples its first thread before checking for a stop
   if ((_pWallTimeProvider != nullptr) && !IsStopRequested()) {
     WalltimeProfilingIteration();
   }
@@ -228,6 +229,10 @@ void StackSamplerLoop::WalltimeProfilingIteration() {
   std::shared_ptr<ThreadInfo> pThreadInfo = nullptr;
 
   do {
+    if (IsStopRequested()) {
+      break;
+    }
+
     pThreadInfo = _pThreadList->LoopNext(_iteratorWallTime);
 
     // either the list is empty or iterator is not in the array range
@@ -275,7 +280,7 @@ void StackSamplerLoop::WalltimeProfilingIteration() {
     pThreadInfo.reset();
     i++;
 
-  } while (i < sampledThreadsCount && !IsStopRequested());
+  } while (i < sampledThreadsCount);
 }
 
 void StackSamplerLoop::CollectOneThreadSample(
