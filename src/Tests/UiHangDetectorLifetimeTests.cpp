@@ -24,6 +24,7 @@
 namespace {
 const HWND kWindow = reinterpret_cast<HWND>(static_cast<uintptr_t>(0xC0DE0));
 constexpr UINT kProbeMessage = 0xC0DE;
+constexpr uint64_t kSessionId = 7;
 constexpr DWORD kUiThreadId = 0x4242;
 constexpr DWORD kUnmonitoredThreadId = 0x4343;
 
@@ -95,10 +96,13 @@ enum class Failure {
   Wait,
 };
 
-MSG ProbeMessage() {
+// the detector's latest probe: sequence 0 before the first post
+MSG ProbeMessage(uint64_t sequence = 0) {
   MSG msg{};
   msg.hwnd = kWindow;
   msg.message = kProbeMessage;
+  msg.wParam = static_cast<WPARAM>(kSessionId);
+  msg.lParam = static_cast<LPARAM>(sequence);
   return msg;
 }
 
@@ -481,6 +485,15 @@ class UiHangDetectorLifetimeTests : public ::testing::Test {
       return std::chrono::seconds(1);
     }
 
+    // never called: the clock never advances
+    bool CaptureStack(
+        const std::shared_ptr<ThreadInfo>&, std::vector<uint64_t>&
+    ) override {
+      std::lock_guard<std::mutex> lock(_mutex);
+      _errors.push_back("unexpected stack capture");
+      return false;
+    }
+
    private:
     struct EventState {
       bool isSignaled = false;
@@ -626,9 +639,9 @@ class UiHangDetectorLifetimeTests : public ::testing::Test {
   }
 
   std::unique_ptr<UiHangDetector> MakeDetector() {
-    return std::unique_ptr<UiHangDetector>(
-        new UiHangDetector(kProbeMessage, &_hangProvider, &_rumViewProvider, _runtime)
-    );
+    return std::unique_ptr<UiHangDetector>(new UiHangDetector(
+        kSessionId, kProbeMessage, &_hangProvider, &_rumViewProvider, _runtime
+    ));
   }
 
   static HookView ObserveHook() {
@@ -729,7 +742,7 @@ TEST_F(UiHangDetectorLifetimeTests, UnusedDetectorTouchesNothing) {
 }
 
 TEST_F(UiHangDetectorLifetimeTests, PublicConstructorUsesProductionRuntime) {
-  UiHangDetector detector(kProbeMessage, &_hangProvider, &_rumViewProvider);
+  UiHangDetector detector(kSessionId, kProbeMessage, &_hangProvider, &_rumViewProvider);
   detector.Stop();
 }
 
@@ -1048,7 +1061,7 @@ TEST_F(UiHangDetectorLifetimeTests, WatchdogPostsFirstProbeOnlyOnceInstanceIsSet
   );
 
   // the processed probe reaches the detector, so the next tick probes again
-  _runtime.InvokeHook(ProbeMessage());
+  _runtime.InvokeHook(ProbeMessage(1));
   EXPECT_TRUE(IsProbeObserved(*detector));
   _runtime.RunWatchdogTick();
   EXPECT_EQ(_runtime.Posts().size(), 2u);

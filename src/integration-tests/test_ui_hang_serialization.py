@@ -14,7 +14,8 @@ class UiHangSerializationTests(unittest.TestCase):
         cls.profiles = exported_profiles(
             "UiHangProfileTest.CallbackKeepsWaitAndHangCustomSlotsAcrossTwoFlushes:"
             "UiHangProfileTest.HttpKeepsWaitAndHangCustomSlotsAcrossTwoFlushes:"
-            "UiHangProfileTest.PartialEndpointsAcrossFlushesDoNotInventDurations"
+            "UiHangProfileTest.PartialEndpointsAcrossFlushesDoNotInventDurations:"
+            "UiHangProfileTest.HangActiveAtStopEndsWithProfilerStopReason"
         )
 
     def samples(self, name):
@@ -92,6 +93,7 @@ class UiHangSerializationTests(unittest.TestCase):
                 self.check_sample(
                     *matches[0], [0, 0, 0, 0, duration * cycle], cycle, phase
                 )
+                self.assertNotIn("end_reason", matches[0][1])
 
     def test_callback_values_survive_two_flushes(self):
         self.check_cycles("hang")
@@ -112,3 +114,14 @@ class UiHangSerializationTests(unittest.TestCase):
             self.check_sample(*samples[0], values, 1, phase)
             total += samples[0][0].value[4]
         self.assertEqual(total, 1_442_000_000)
+
+    def test_hang_active_at_stop_ends_with_profiler_stop_reason(self):
+        samples = self.samples("profiler-stop")
+        self.assertEqual(len(samples), 2)
+        by_phase = {labels.get("UIHang"): (sample, labels) for sample, labels in samples}
+        self.assertNotIn("end_reason", by_phase["true"][1])
+        sample, labels = by_phase["false"]
+        self.assertEqual(list(sample.value), [0, 0, 0, 0, 500_000_000])
+        self.assertEqual(labels["end_reason"], "profiler_stop")
+        self.assertEqual(labels["end_timestamp_ns"], 1_700_000_000_600_000_000)
+        self.assertEqual(labels["rum.view_id"], "detected-view")

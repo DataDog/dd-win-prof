@@ -6,6 +6,7 @@ add_executable(Tests
     PprofAggregatorTests.cpp
     ProfileExporterTests.cpp
     UiHangDetectorLifetimeTests.cpp
+    UiHangDetectorSessionTests.cpp
     UiHangProfileTests.cpp
     ProfilerShutdownTests.cpp
     ProfilingDataCallbackTests.cpp

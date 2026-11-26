@@ -12,7 +12,14 @@
 // - None:      ordinary sample, no "UIHang" label is emitted
 // - Detected:  hang start sample, emitted with "UIHang=true"
 // - Recovered: hang end sample, emitted with "UIHang=false"
-enum class UiHangSampleKind : uint8_t { None = 0, Detected = 1, Recovered = 2 };
+// - ProfilerStop: hang still active when profiling stops, emitted with
+//   "UIHang=false" and "end_reason=profiler_stop"
+enum class UiHangSampleKind : uint8_t {
+  None = 0,
+  Detected = 1,
+  Recovered = 2,
+  ProfilerStop = 3
+};
 
 class Sample {
  public:

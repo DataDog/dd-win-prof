@@ -1215,6 +1215,28 @@ bool ProfileExporter::InternSampleLabels(SampleLabels& labels) {
   labels.uiHangTrueLabelId = uiHangTrueLabelResult.ok;
   labels.uiHangFalseLabelId = uiHangFalseLabelResult.ok;
 
+  auto endReasonKeyResult =
+      ddog_prof_Profile_intern_string(profile, to_CharSlice(LABEL_UI_HANG_END_REASON));
+  auto profilerStopValueResult = ddog_prof_Profile_intern_string(
+      profile, to_CharSlice(LABEL_UI_HANG_PROFILER_STOP_VALUE)
+  );
+  if (endReasonKeyResult.tag !=
+          DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID ||
+      profilerStopValueResult.tag !=
+          DDOG_PROF_STRING_ID_RESULT_OK_GENERATIONAL_ID_STRING_ID) {
+    LogOnce(Error, "InternSampleLabels: Failed to intern UI hang end reason");
+    return false;
+  }
+  auto profilerStopLabelResult = ddog_prof_Profile_intern_label_str(
+      profile, endReasonKeyResult.ok, profilerStopValueResult.ok
+  );
+  if (profilerStopLabelResult.tag !=
+      DDOG_PROF_LABEL_ID_RESULT_OK_GENERATIONAL_ID_LABEL_ID) {
+    LogOnce(Error, "InternSampleLabels: Failed to intern UI hang end reason label");
+    return false;
+  }
+  labels.uiHangStopLabelId = profilerStopLabelResult.ok;
+
   return true;
 }
 
@@ -1236,11 +1258,14 @@ ddog_prof_LabelSetId ProfileExporter::CreateLabelSet(
   labelIdArray.push_back(labels.processIdLabelId);
 
   // Add the "UIHang" label for hang start/end samples (nothing for ordinary
-  // samples). Both labels were pre-interned in InternSampleLabels.
+  // samples). These labels were pre-interned in InternSampleLabels.
   if (uiHangKind == UiHangSampleKind::Detected) {
     labelIdArray.push_back(labels.uiHangTrueLabelId);
   } else if (uiHangKind == UiHangSampleKind::Recovered) {
     labelIdArray.push_back(labels.uiHangFalseLabelId);
+  } else if (uiHangKind == UiHangSampleKind::ProfilerStop) {
+    labelIdArray.push_back(labels.uiHangFalseLabelId);
+    labelIdArray.push_back(labels.uiHangStopLabelId);
   }
 
   // Add thread_id label if thread info is available
