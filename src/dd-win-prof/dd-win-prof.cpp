@@ -10,27 +10,32 @@
 #include "pch.h"
 
 namespace {
-void LogLifecycleException(const char* message) noexcept {
+void LogApiException(const char* api, const char* message) noexcept {
   try {
-    Log::Error("Profiler lifecycle operation failed: ", message);
+    Log::Error(api, " failed: ", message);
   } catch (...) {
     // Logging must not let exceptions escape the public API.
   }
 }
 
+// Exception firewall of every C API entry that uses the Profiler: no exception crosses
+// the C ABI, and a missing instance or an exception returns false.
 template <typename Action>
-bool RunLifecycle(Action action) noexcept {
+bool CallProfiler(const char* api, Action action) noexcept {
   try {
     auto profiler = Profiler::GetInstance();
     if (profiler == nullptr) {
-      Log::Error("Profiler instance is unavailable");
+      Log::Warn(
+          "Profiler instance is not created: missing Process Attach event in DllMain."
+      );
       return false;
     }
+    profiler->BeforeApiCall();
     return action(*profiler);
   } catch (const std::exception& error) {
-    LogLifecycleException(error.what());
+    LogApiException(api, error.what());
   } catch (...) {
-    LogLifecycleException("Non-standard exception");
+    LogApiException(api, "non-standard exception");
   }
   return false;
 }
@@ -40,7 +45,7 @@ extern "C" {
 
 DD_WIN_PROF_API bool DD_WIN_PROF_CALL
 SetupProfilingDataCallback(ProfilingDataCallback callback, void* userData) {
-  return RunLifecycle([&](Profiler& profiler) {
+  return CallProfiler("SetupProfilingDataCallback()", [&](Profiler& profiler) {
     return profiler.SetProfilingDataCallback(callback, userData);
   });
 }
@@ -65,84 +70,61 @@ DD_WIN_PROF_API const char* GetProfilingErrorMessage(uint32_t result) noexcept {
 }
 
 DD_WIN_PROF_API bool SetupProfiler(const ProfilerConfig* pSettings) {
-  if (pSettings == nullptr) {
-    Log::Warn("Null profiler configuration structure.");
-    return false;
-  }
+  return CallProfiler("SetupProfiler()", [&](Profiler& profiler) {
+    if (pSettings == nullptr) {
+      Log::Warn("Null profiler configuration structure.");
+      return false;
+    }
 
-  if (pSettings->size != sizeof(ProfilerConfig)) {
-    Log::Warn("Invalid profiler configuration structure.");
-    return false;
-  }
+    if (pSettings->size != sizeof(ProfilerConfig)) {
+      Log::Warn("Invalid profiler configuration structure.");
+      return false;
+    }
 
-  return RunLifecycle([&](Profiler& profiler) { return profiler.Setup(pSettings); });
+    return profiler.Setup(pSettings);
+  });
 }
 
 DD_WIN_PROF_API bool StartProfiler() {
-  auto profiler = Profiler::GetInstance();
-  if (profiler == nullptr) {
-    Log::Warn(
-        "Profiler instance is not created: missing Process Attach event in DllMain."
-    );
-    return false;
-  }
-
-  return profiler->StartProfiling();
+  return CallProfiler("StartProfiler()", [](Profiler& profiler) {
+    return profiler.StartProfiling();
+  });
 }
 
 DD_WIN_PROF_API bool MonitorWindowHangs(HWND hWnd) {
-  auto profiler = Profiler::GetInstance();
-  if (profiler == nullptr) {
-    Log::Warn(
-        "Profiler instance is not created: missing Process Attach event in DllMain."
-    );
-    return false;
-  }
-
-  return profiler->MonitorWindowHangs(hWnd);
+  return CallProfiler("MonitorWindowHangs()", [&](Profiler& profiler) {
+    return profiler.MonitorWindowHangs(hWnd);
+  });
 }
 
 DD_WIN_PROF_API void StopProfiler() {
-  auto profiler = Profiler::GetInstance();
-  if (profiler == nullptr) {
-    Log::Warn(
-        "Profiler instance is not created: missing Process Attach event in DllMain."
-    );
-    return;
-  }
-
-  profiler->StopProfiling();
+  CallProfiler("StopProfiler()", [](Profiler& profiler) {
+    profiler.StopProfiling();
+    return true;
+  });
 }
 
 DD_WIN_PROF_API bool EnterView(const char* viewName) {
-  auto profiler = Profiler::GetInstance();
-  if (profiler == nullptr) {
-    return false;
-  }
-  return profiler->EnterView(viewName);
+  return CallProfiler("EnterView()", [&](Profiler& profiler) {
+    return profiler.EnterView(viewName);
+  });
 }
 
 DD_WIN_PROF_API bool LeaveCurrentView() {
-  auto profiler = Profiler::GetInstance();
-  if (profiler == nullptr) {
-    return false;
-  }
-  return profiler->LeaveCurrentView();
+  return CallProfiler("LeaveCurrentView()", [](Profiler& profiler) {
+    return profiler.LeaveCurrentView();
+  });
 }
 
 DD_WIN_PROF_API bool SetRumSession(const RumSessionContext* pContext) {
-  auto profiler = Profiler::GetInstance();
-  if (profiler == nullptr) {
-    return false;
-  }
-  return profiler->SetRumSession(pContext);
+  return CallProfiler("SetRumSession()", [&](Profiler& profiler) {
+    return profiler.SetRumSession(pContext);
+  });
 }
 
 DD_WIN_PROF_API bool SetRumView(const RumViewValues* pContext) {
-  auto profiler = Profiler::GetInstance();
-  if (profiler == nullptr) {
-    return false;
-  }
-  return profiler->SetRumView(pContext);
+  return CallProfiler("SetRumView()", [&](Profiler& profiler) {
+    return profiler.SetRumView(pContext);
+  });
 }
 }

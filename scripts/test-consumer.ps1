@@ -22,6 +22,9 @@
       - C and C++ consumers can register the SDK callback, copy its borrowed bytes
         during the callback, and retain a profile after stop through both FetchContent
         and installed headers
+      - through the DLL, lifecycle calls made from periodic and final callbacks fail
+        without deadlock or state change, and callback exceptions are contained; each
+        consumer run has a time limit
     The compile steps additionally fail if dd-win-prof exposes implementation headers
     (see consumer/main.cpp) or either published header isn't self-contained.
 
@@ -67,12 +70,21 @@ function Invoke-Soft {
     return ($LASTEXITCODE -eq 0)
 }
 
+# Each consumer run has a time limit, so that a deadlock fails instead of hanging.
 function Invoke-Consumer([string]$Path) {
+    $timeoutSeconds = 60
     $previousAutoStart = $env:DD_PROFILING_AUTO_START
     try {
         $env:DD_PROFILING_AUTO_START = '0'
-        & $Path | Out-Host
-        return ($LASTEXITCODE -eq 0)
+        $process = Start-Process -FilePath $Path -NoNewWindow -PassThru
+        # Reading Handle now keeps ExitCode available after the process exits.
+        $null = $process.Handle
+        if (-not $process.WaitForExit($timeoutSeconds * 1000)) {
+            $process.Kill()
+            Write-Host "$Path did not finish within $timeoutSeconds s" -ForegroundColor Red
+            return $false
+        }
+        return ($process.ExitCode -eq 0)
     } finally {
         $env:DD_PROFILING_AUTO_START = $previousAutoStart
     }

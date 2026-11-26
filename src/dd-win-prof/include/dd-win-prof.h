@@ -66,6 +66,9 @@ typedef struct _ProfilerConfig {
 #ifdef __cplusplus
 extern "C" {
 #endif
+// No function lets an exception escape: an internal error is logged and the function
+// returns false (StopProfiler just returns).
+
 // Start automatic detection of UI hangs for the current profiling session.
 // Returns false unless the profiler is running, or if a window is already monitored.
 DD_WIN_PROF_API bool MonitorWindowHangs(HWND hWnd);
@@ -97,10 +100,12 @@ DD_WIN_PROF_API void StopProfiler();
 // Updates per-sample pprof labels: rum.view_id and trace endpoint (viewName).
 // If a view is already active, it is completed first (record produced).
 // Returns false if no session is active (a view requires an app+session).
+// Safe to call from any thread, including the profiling callback.
 DD_WIN_PROF_API bool EnterView(const char* viewName);
 
 // Leave the current view (signals "between views").
 // Completes the active view record. No-op if no view is active.
+// Safe to call from any thread, including the profiling callback.
 // Returns true if a view was active and is now cleared, false if no view was active.
 DD_WIN_PROF_API bool LeaveCurrentView();
 

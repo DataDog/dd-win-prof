@@ -7,8 +7,11 @@
 // clang-format on
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
+#include <future>
 #include <iostream>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -61,6 +64,114 @@ void DD_WIN_PROF_CALL CaptureProfile(const ProfilingData* data, void* userData) 
     snapshot.bytes.assign(data->pprof_bytes, data->pprof_bytes + data->pprof_size);
   }
   context.results.push_back(std::move(snapshot));
+}
+
+ProfilerConfig MakeConfig(std::int32_t uploadIntervalSeconds) {
+  ProfilerConfig config{};
+  config.size = sizeof(config);
+  config.noEnvVars = true;
+  config.uploadIntervalSeconds = uploadIntervalSeconds;
+  return config;
+}
+
+// Calls every lifecycle and RUM API from one periodic or final callback.
+struct ReentryContext {
+  bool fromPeriodic = false;
+  bool reentered = false;
+  int finalCalls = 0;
+  bool setupRejected = false;
+  bool registrationRejected = false;
+  bool startRejected = false;
+  bool monitorRejected = false;
+  bool rumAllowed = false;
+  std::chrono::steady_clock::duration elapsed{};
+  std::promise<void> done;
+};
+
+void DD_WIN_PROF_CALL ReenterApis(const ProfilingData* data, void* userData) {
+  auto& context = *static_cast<ReentryContext*>(userData);
+  const bool isLast = data->is_last != 0;
+  context.finalCalls += isLast ? 1 : 0;
+  if (isLast == context.fromPeriodic || context.reentered) {
+    return;
+  }
+  context.reentered = true;
+  const auto start = std::chrono::steady_clock::now();
+  const auto config = MakeConfig(1);
+  context.setupRejected = !SetupProfiler(&config);
+  context.registrationRejected = !SetupProfilingDataCallback(nullptr, nullptr);
+  context.startRejected = !StartProfiler();
+  context.monitorRejected = !MonitorWindowHangs(nullptr);
+  StopProfiler();
+  RumSessionContext session{"app-1", "session-1"};
+  context.rumAllowed = SetRumSession(&session) && EnterView("CallbackView") &&
+                       LeaveCurrentView() && SetRumSession(nullptr);
+  context.elapsed = std::chrono::steady_clock::now() - start;
+  context.done.set_value();
+}
+
+const char* Rejected(bool rejected) { return rejected ? "rejected" : "ACCEPTED"; }
+
+// The rejected calls must not change the registration or the run: the run keeps going
+// until the caller stops it, and a new run delivers to the same callback.
+int TestReentryFrom(bool fromPeriodic) {
+  const char* name = fromPeriodic ? "periodic" : "final";
+  ReentryContext context;
+  context.fromPeriodic = fromPeriodic;
+  auto done = context.done.get_future();
+  const auto config = MakeConfig(fromPeriodic ? 1 : 3600);
+  if (!SetupProfilingDataCallback(ReenterApis, &context) || !SetupProfiler(&config) ||
+      !StartProfiler()) {
+    std::cerr << "Failed to start the " << name << " reentry run\n";
+    SetupProfilingDataCallback(nullptr, nullptr);
+    return 1;
+  }
+  bool keptRunning = true;
+  if (fromPeriodic) {
+    if (done.wait_for(std::chrono::seconds(10)) != std::future_status::ready) {
+      std::cerr << "No periodic callback within 10 s\n";
+    }
+    // a start is rejected only while the run is still active
+    keptRunning = !StartProfiler();
+  }
+  StopProfiler();
+  const bool restarted = StartProfiler();
+  StopProfiler();
+  const bool unregistered = SetupProfilingDataCallback(nullptr, nullptr);
+
+  const auto ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(context.elapsed).count();
+  std::cout << name << " callback reentry: setup " << Rejected(context.setupRejected)
+            << ", registration " << Rejected(context.registrationRejected) << ", start "
+            << Rejected(context.startRejected) << ", monitor "
+            << Rejected(context.monitorRejected) << ", stop returned, RUM "
+            << (context.rumAllowed ? "allowed" : "FAILED") << ", " << ms << " ms\n";
+  if (!context.reentered || !context.setupRejected || !context.registrationRejected ||
+      !context.startRejected || !context.monitorRejected || !context.rumAllowed ||
+      !keptRunning || !restarted || !unregistered || context.finalCalls != 2) {
+    std::cerr << "Calls from the " << name << " callback were not rejected cleanly\n";
+    return 1;
+  }
+  return 0;
+}
+
+// Throws a standard exception, then a non-standard one, from each kind of callback.
+struct ThrowingContext {
+  int periodicCalls = 0;
+  int finalCalls = 0;
+  std::promise<void> twoPeriodicCalls;
+};
+
+void DD_WIN_PROF_CALL ThrowFromCallback(const ProfilingData* data, void* userData) {
+  auto& context = *static_cast<ThrowingContext*>(userData);
+  const int call = data->is_last != 0 ? ++context.finalCalls : ++context.periodicCalls;
+  if (data->is_last == 0 && call == 2) {
+    context.twoPeriodicCalls.set_value();
+  }
+  if (call == 1) {
+    throw std::runtime_error("injected callback failure");
+  }
+  throw 42;
 }
 }  // namespace
 
@@ -122,6 +233,40 @@ int TestSdkCallback() {
   }
   if (profile.endUnixTimeMs < profile.startUnixTimeMs) {
     std::cerr << "Final profile ends before it starts\n";
+    return 1;
+  }
+  return 0;
+}
+
+int TestCallbackReentry() {
+  return TestReentryFrom(true) == 0 && TestReentryFrom(false) == 0 ? 0 : 1;
+}
+
+// The DLL contains the exceptions: periodic delivery goes on and stop returns.
+int TestCallbackExceptions() {
+  ThrowingContext context;
+  auto twoPeriodicCalls = context.twoPeriodicCalls.get_future();
+  const auto config = MakeConfig(1);
+  if (!SetupProfilingDataCallback(ThrowFromCallback, &context) ||
+      !SetupProfiler(&config)) {
+    std::cerr << "Failed to set up the throwing callback run\n";
+    SetupProfilingDataCallback(nullptr, nullptr);
+    return 1;
+  }
+  bool started = StartProfiler();
+  const bool periodicContinued =
+      started &&
+      twoPeriodicCalls.wait_for(std::chrono::seconds(10)) == std::future_status::ready;
+  StopProfiler();
+  started = started && StartProfiler();
+  StopProfiler();
+  const bool unregistered = SetupProfilingDataCallback(nullptr, nullptr);
+
+  std::cout << "callback exceptions: " << context.periodicCalls << " periodic and "
+            << context.finalCalls
+            << " final callbacks threw (standard first, then non-standard)\n";
+  if (!started || !periodicContinued || context.finalCalls != 2 || !unregistered) {
+    std::cerr << "Callback exceptions were not contained\n";
     return 1;
   }
   return 0;

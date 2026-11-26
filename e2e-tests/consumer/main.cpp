@@ -13,5 +13,12 @@
 #include "dd-win-prof.h"
 
 int TestSdkCallback();
+int TestCallbackReentry();
+int TestCallbackExceptions();
 
-int main() { return TestSdkCallback(); }
+int main() {
+  return TestSdkCallback() == 0 && TestCallbackReentry() == 0 &&
+                 TestCallbackExceptions() == 0
+             ? 0
+             : 1;
+}

@@ -63,6 +63,13 @@ class Profiler : public IRumViewContextProvider,
   // IViewVitalsAccumulator implementation (lock-free, called from sampler hot path)
   bool AccumulateViewVitals(ViewVitalKind kind, int64_t valueNs) override;
 
+  // Called by every C API entry inside its exception firewall, before the call.
+  void BeforeApiCall() const {
+    if (_beforeApiCall) {
+      _beforeApiCall();
+    }
+  }
+
  public:
   static Configuration* GetConfiguration() { return _pConfiguration.get(); }
 
@@ -79,6 +86,10 @@ class Profiler : public IRumViewContextProvider,
  private:
   friend class ProfilerShutdownTest;
   friend class ProfilingDataCallbackTests;
+  friend class PublicApiExceptionTests;
+
+  // Test seam: lets tests make every C API entry throw.
+  std::function<void()> _beforeApiCall;
 
   // configuration
   inline static constexpr std::chrono::seconds UploadInterval =
@@ -93,7 +104,8 @@ class Profiler : public IRumViewContextProvider,
   // after it: exporters and the sampler read it until they are gone.
   // _rumContextMutex is a leaf lock: while holding it, code touches only the RUM
   // state, never a run-owned object or another lock. Exporters take it through
-  // IRumRecordProvider under the collector's export lock.
+  // IRumRecordProvider under the collector's export lock, never around the profiling
+  // callback, so RUM calls are allowed from the callback.
   mutable std::shared_mutex _rumContextMutex;
   RumViewContext _currentRumView;
 

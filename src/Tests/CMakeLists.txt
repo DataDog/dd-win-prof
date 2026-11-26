@@ -11,6 +11,7 @@ add_executable(Tests
     ProfilingDataCallbackTests.cpp
     ProfilingErrorMessageTests.cpp
     ProfilingSessionTests.cpp
+    PublicApiExceptionTests.cpp
     RumContextTests.cpp
     SamplesCollectorTests.cpp
     StackSamplerLoopTests.cpp

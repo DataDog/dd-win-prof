@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <future>
 #include <latch>
@@ -261,6 +263,29 @@ void DD_WIN_PROF_CALL BlockingFinalCallback(const ProfilingData* data, void* use
   }
 }
 
+// Ends the test process if a call that could deadlock does not return in time, instead
+// of waiting for the test runner timeout.
+class DeadlockWatchdog {
+ public:
+  explicit DeadlockWatchdog(std::chrono::seconds timeout)
+      : _thread([this, timeout] {
+          if (_done.get_future().wait_for(timeout) == std::future_status::timeout) {
+            std::fputs("Deadlock: the test did not finish in time\n", stderr);
+            std::_Exit(3);
+          }
+        }) {}
+  ~DeadlockWatchdog() {
+    _done.set_value();
+    _thread.join();
+  }
+  DeadlockWatchdog(const DeadlockWatchdog&) = delete;
+  DeadlockWatchdog& operator=(const DeadlockWatchdog&) = delete;
+
+ private:
+  std::promise<void> _done;
+  std::thread _thread;
+};
+
 struct ReentrantCallsContext {
   bool insideCallback = false;
   bool otherThreadInsideCallback = true;
@@ -269,6 +294,7 @@ struct ReentrantCallsContext {
   bool startRejected = false;
   bool monitorRejected = false;
   bool stopReturned = false;
+  bool rumCallsSucceeded = false;
   std::promise<void>* periodicDone = nullptr;
 };
 
@@ -287,6 +313,10 @@ void CallLifecycleApis(ReentrantCallsContext& context) {
   context.monitorRejected = !MonitorWindowHangs(nullptr);
   StopProfiler();
   context.stopReturned = true;
+  RumSessionContext session{"app-1", "session-1"};
+  context.rumCallsSucceeded = SetRumSession(&session) && EnterView("CallbackView") &&
+                              LeaveCurrentView() && SetRumView(nullptr) &&
+                              SetRumSession(nullptr);
 }
 
 void ExpectLifecycleCallsRejected(const ReentrantCallsContext& context) {
@@ -297,6 +327,7 @@ void ExpectLifecycleCallsRejected(const ReentrantCallsContext& context) {
   EXPECT_TRUE(context.startRejected);
   EXPECT_TRUE(context.monitorRejected);
   EXPECT_TRUE(context.stopReturned);
+  EXPECT_TRUE(context.rumCallsSucceeded);
 }
 
 void DD_WIN_PROF_CALL
@@ -348,6 +379,7 @@ class ProfilingDataCallbackTests : public ::testing::Test {
     return std::unique_lock<std::mutex>(profiler->_lifecycleMutex);
   }
   void SetStarted(bool started) { profiler->_isStarted = started; }
+  uint64_t LastSessionId() const { return profiler->_lastSessionId; }
 
   std::optional<Configuration> previous;
   std::unique_ptr<Profiler> profiler;
@@ -859,6 +891,7 @@ TEST_F(
 // StopProfiler holds the lifecycle lock on the thread running the final callback: any
 // lifecycle call that took the lock from there would deadlock.
 TEST_F(ProfilingDataCallbackTests, LifecycleCallsFailFromFinalCallback) {
+  DeadlockWatchdog watchdog(std::chrono::seconds(30));
   ReentrantCallsContext context;
   ASSERT_TRUE(SetupProfilingDataCallback(ReentrantFinalCallback, &context));
   ProfilerConfig config{};
@@ -881,6 +914,7 @@ TEST_F(ProfilingDataCallbackTests, LifecycleCallsFailFromFinalCallback) {
 
 // StopProfiler called from a periodic callback would wait for its own exporter thread.
 TEST_F(ProfilingDataCallbackTests, LifecycleCallsFailFromPeriodicCallback) {
+  DeadlockWatchdog watchdog(std::chrono::seconds(30));
   std::promise<void> periodicDone;
   auto done = periodicDone.get_future();
   ReentrantCallsContext context;
@@ -952,6 +986,51 @@ TEST_F(ProfilingDataCallbackTests, OtherThreadsAreRejectedWhileRunningAndWaitFor
   EXPECT_TRUE(registration.get());
   EXPECT_EQ(Profiler::GetConfiguration()->GetVersion(), "replacement-version");
   EXPECT_EQ(profiler->GetProfilingDataCallback(), CountCallback);
+  EXPECT_TRUE(SetupProfilingDataCallback(nullptr, nullptr));
+}
+
+TEST_F(ProfilingDataCallbackTests, ConcurrentStartsAndStopsRunOneSession) {
+  DeadlockWatchdog watchdog(std::chrono::seconds(30));
+  int calls = 0;
+  ASSERT_TRUE(SetupProfilingDataCallback(CountCallback, &calls));
+  ProfilerConfig config{};
+  config.size = sizeof(config);
+  config.noEnvVars = true;
+  config.uploadIntervalSeconds = 3600;
+  ASSERT_TRUE(SetupProfiler(&config));
+  const auto sessionsBefore = LastSessionId();
+
+  constexpr int Threads = 8;
+  std::latch go(1);
+  std::vector<std::future<bool>> starts;
+  for (int i = 0; i < Threads; ++i) {
+    starts.push_back(std::async(std::launch::async, [&] {
+      go.wait();
+      return StartProfiler();
+    }));
+  }
+  go.count_down();
+  int started = 0;
+  for (auto& start : starts) {
+    started += start.get() ? 1 : 0;
+  }
+  EXPECT_EQ(started, 1);
+  EXPECT_EQ(LastSessionId(), sessionsBefore + 1);
+
+  std::latch stopGo(1);
+  std::vector<std::future<void>> stops;
+  for (int i = 0; i < Threads; ++i) {
+    stops.push_back(std::async(std::launch::async, [&] {
+      stopGo.wait();
+      StopProfiler();
+    }));
+  }
+  stopGo.count_down();
+  for (auto& stop : stops) {
+    stop.get();
+  }
+  EXPECT_FALSE(profiler->IsStarted());
+  EXPECT_EQ(calls, 1);
   EXPECT_TRUE(SetupProfilingDataCallback(nullptr, nullptr));
 }
 
